@@ -23,6 +23,7 @@ from app.core.container_hardening import (
     validate_network_mode,
 )
 from app.core.exceptions import (
+    InfrastructureError,
     NotFoundError,
     ServerModeVersioningDisabledError,
     ValidationError,
@@ -397,6 +398,7 @@ class BranchStartResult:
     allow_public_test_join: bool
     memory_max_mb: int
     cpu_cores: int
+    uncommitted_changes_warning: bool = False
 
 
 @dataclass
@@ -565,15 +567,10 @@ class BranchRuntimeService:
                 field="branch_name",
             )
 
-        # Mode guard (best effort).
+        # Mode guard (fail-closed).
         if self.session_factory is not None:
-            try:
-                async with self.session_factory() as _s:
-                    await ensure_versioning_allowed(request.server_id, session=_s)
-            except ServerModeVersioningDisabledError:
-                raise
-            except Exception:
-                pass
+            async with self.session_factory() as _s:
+                await ensure_versioning_allowed(request.server_id, session=_s)
 
         git_branch = self.branch_service.get_branch(
             request.server_id, request.server_root, request.branch_name
@@ -598,17 +595,45 @@ class BranchRuntimeService:
             request.server_id, request.server_root, commit_sha, secrets=secrets
         )
 
-        # validate data template
+        # validate data template (M4)
         template_dir = None
         if request.data_template_id:
+            if self.session_factory is None:
+                raise ValidationError(
+                    "Database session required to resolve data template",
+                    field="data_template_id",
+                )
             async with self.session_factory() as session:
                 row = await session.get(ServerDataTemplateModel, request.data_template_id)
-                if row is None or row.status != "ready":
+                if row is None or row.server_id != request.server_id:
+                    raise NotFoundError(
+                        f"Data template '{request.data_template_id}' not found"
+                    )
+                if row.status != "ready":
                     raise ValidationError("Data template not ready", field="data_template_id")
-                template_dir = row.storage_path
-                marker = Path(template_dir) / ".onx-complete.json"
-                if not marker.is_file():
+                allowed_root = self.layout.data_templates_dir(request.server_id)
+                candidate = Path(row.storage_path)
+                check_not_symlink_or_reparse(candidate)
+                try:
+                    allowed_real = os.path.realpath(allowed_root)
+                    cand_real = os.path.realpath(candidate)
+                    if (
+                        os.path.commonpath([allowed_real, cand_real]) != allowed_real
+                        or cand_real == allowed_real
+                    ):
+                        raise ValidationError(
+                            "Data template storage path outside server template directory",
+                            field="data_template_id",
+                        )
+                except ValueError as exc:
+                    raise ValidationError(
+                        "Data template storage path outside server template directory",
+                        field="data_template_id",
+                    ) from exc
+                marker = candidate / ".onx-complete.json"
+                if not marker.is_file() or marker.is_symlink():
                     raise ValidationError("Data template marker missing", field="data_template_id")
+                template_dir = row.storage_path
 
         # dynamic class c
         dynamic_class_c: set[str] = set()
@@ -662,6 +687,13 @@ class BranchRuntimeService:
             request.server_id, request.branch_name, runtime_id
         )
 
+        try:
+            uncommitted_changes_warning = self.branch_service.has_uncommitted_changes(
+                request.server_id, request.server_root, request.branch_name
+            )
+        except Exception:
+            uncommitted_changes_warning = False
+
         locked = False
         newly_allocated = allocate
         try:
@@ -678,24 +710,32 @@ class BranchRuntimeService:
             with _ephemeral_class_c_overlay(
                 self.layout, request.server_id, runtime_id, self.class_c_service
             ) as overlay_dir:
-                await asyncio.to_thread(
-                    self.clean_export_service.export,
-                    CleanExportRequest(
-                        server_id=request.server_id,
-                        server_root=request.server_root,
-                        commit_sha=commit_sha,
-                        destination=export_root,
-                        lockfile=lockfile,
-                        panel_properties=port_set.to_panel_properties(rcon_password),
-                        jvm_args=request.jvm_args,
-                        secrets=secrets,
-                        data_template_dir=template_dir,
-                        class_c_overlay_dir=overlay_dir,
-                        dynamic_class_c=frozenset(dynamic_class_c),
-                        joinable_test_container=not request.allow_public_test_join,
-                        export_id=runtime_id,
-                    ),
+                export_req = CleanExportRequest(
+                    server_id=request.server_id,
+                    server_root=request.server_root,
+                    commit_sha=commit_sha,
+                    destination=export_root,
+                    lockfile=lockfile,
+                    panel_properties=port_set.to_panel_properties(rcon_password),
+                    jvm_args=request.jvm_args,
+                    secrets=secrets,
+                    data_template_dir=template_dir,
+                    class_c_overlay_dir=overlay_dir,
+                    dynamic_class_c=frozenset(dynamic_class_c),
+                    joinable_test_container=not request.allow_public_test_join,
+                    export_id=runtime_id,
                 )
+                export_task = asyncio.create_task(
+                    asyncio.to_thread(self.clean_export_service.export, export_req)
+                )
+                try:
+                    await asyncio.shield(export_task)
+                except BaseException:
+                    with contextlib.suppress(BaseException):
+                        await export_task
+                    with contextlib.suppress(Exception):
+                        _destroy_export_root(request.server_root, export_root)
+                    raise
 
             image = request.image
             if not image:
@@ -778,8 +818,10 @@ class BranchRuntimeService:
                     if rt is not None:
                         rt.status = "running"
                         rt.container_id = container_id
+                    import sqlalchemy as _sqlalchemy
+
                     br = await session.execute(
-                        __import__("sqlalchemy").select(ServerBranchModel).where(
+                        _sqlalchemy.select(ServerBranchModel).where(
                             ServerBranchModel.server_id == request.server_id,
                             ServerBranchModel.name == request.branch_name,
                         )
@@ -808,6 +850,7 @@ class BranchRuntimeService:
                 allow_public_test_join=request.allow_public_test_join,
                 memory_max_mb=memory_max_mb,
                 cpu_cores=cpu_cores,
+                uncommitted_changes_warning=uncommitted_changes_warning,
             )
         except BaseException:
             # rollback
@@ -833,9 +876,9 @@ class BranchRuntimeService:
                         rt = await session.get(ServerRuntimeModel, runtime_id)
                         if rt is not None:
                             rt.status = "crashed"
-                            rt.stopped_at = __import__("datetime").datetime.now(
-                                __import__("datetime").timezone.utc
-                            )
+                            import datetime as _dt
+
+                            rt.stopped_at = _dt.datetime.now(_dt.UTC)
                         from sqlalchemy import update as _upd
 
                         await session.execute(
@@ -870,12 +913,24 @@ class BranchRuntimeService:
         if os.name != "posix":
             raise ServerModeVersioningDisabledError()
 
-        # load runtime
+        # load runtime (L4)
         runtime = None
-        if runtime_id and self.session_factory is not None:
+        if runtime_id:
+            if self.session_factory is None:
+                raise NotFoundError(
+                    f"Runtime '{runtime_id}' not found for branch '{branch_name}'"
+                )
             async with self.session_factory() as session:
                 runtime = await session.get(ServerRuntimeModel, runtime_id)
-        if runtime is None:
+            if (
+                runtime is None
+                or runtime.server_id != server_id
+                or runtime.branch_name != branch_name
+            ):
+                raise NotFoundError(
+                    f"Runtime '{runtime_id}' not found for branch '{branch_name}'"
+                )
+        else:
             # use repo if available
             repo = getattr(self, "versioning_repo", None)
             if repo is not None:
@@ -958,9 +1013,9 @@ class BranchRuntimeService:
                         rt = await session.get(ServerRuntimeModel, rid)
                         if rt is not None:
                             rt.status = "terminated"
-                            rt.stopped_at = __import__("datetime").datetime.now(
-                                __import__("datetime").timezone.utc
-                            )
+                            import datetime as _dt
+
+                            rt.stopped_at = _dt.datetime.now(_dt.UTC)
                             rt.exit_code = exit_code
                             rt.oom_killed = oom_killed
                         from sqlalchemy import update as _upd
@@ -1007,12 +1062,24 @@ class BranchRuntimeService:
         if not isinstance(name, str) or not name or len(name) > 100:
             raise ValidationError("Invalid template name", field="name")
 
-        # resolve runtime
+        # resolve runtime (L4)
         runtime = None
-        if runtime_id and self.session_factory is not None:
+        if runtime_id:
+            if self.session_factory is None:
+                raise NotFoundError(
+                    f"Runtime '{runtime_id}' not found for branch '{branch_name}'"
+                )
             async with self.session_factory() as session:
                 runtime = await session.get(ServerRuntimeModel, runtime_id)
-        if runtime is None and self.session_factory is not None:
+            if (
+                runtime is None
+                or runtime.server_id != server_id
+                or runtime.branch_name != branch_name
+            ):
+                raise NotFoundError(
+                    f"Runtime '{runtime_id}' not found for branch '{branch_name}'"
+                )
+        elif self.session_factory is not None:
             async with self.session_factory() as session:
                 from sqlalchemy import select as _select
 
@@ -1151,7 +1218,125 @@ class BranchRuntimeService:
         )
 
     async def get_branch_runtime_status(
-        self, server_id: str, branch_name: str
+        self,
+        server_id: str,
+        branch_name: str,
+        *,
+        server_root: str | os.PathLike[str] | None = None,
+    ) -> dict[str, Any]:
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError()
+        runtime = None
+        branch_row = None
+        resolved_root = server_root
+        if self.session_factory is not None:
+            async with self.session_factory() as session:
+                from sqlalchemy import select as _select
+
+                res = await session.execute(
+                    _select(ServerRuntimeModel).where(
+                        ServerRuntimeModel.server_id == server_id,
+                        ServerRuntimeModel.branch_name == branch_name,
+                        ServerRuntimeModel.status.in_(("starting", "running")),
+                    )
+                )
+                runtime = res.scalars().first()
+                res2 = await session.execute(
+                    _select(ServerBranchModel).where(
+                        ServerBranchModel.server_id == server_id,
+                        ServerBranchModel.name == branch_name,
+                    )
+                )
+                branch_row = res2.scalars().first()
+                if resolved_root is None:
+                    from app.modules.server.infrastructure.models import ServerModel
+
+                    srv = await session.get(ServerModel, server_id)
+                    if srv is not None:
+                        resolved_root = getattr(srv, "root_path", None)
+
+        port_set = None
+        if runtime is not None and getattr(runtime, "port_set_json", None):
+            try:
+                port_set = HostPortSet.from_dict(runtime.port_set_json)
+            except Exception:
+                port_set = None
+        if (
+            port_set is None
+            and branch_row is not None
+            and getattr(branch_row, "port_set_json", None)
+        ):
+            try:
+                port_set = HostPortSet.from_dict(branch_row.port_set_json)
+            except Exception:
+                port_set = None
+
+        container_liveness = None
+        if runtime is not None:
+            container_name = build_branch_container_name(server_id, branch_name, runtime.id)
+            try:
+                rc, out = await self.docker_runner(
+                    ["inspect", "-f", "{{.State.Running}}", container_name]
+                )
+                container_liveness = rc == 0 and str(out).strip().lower() == "true"
+            except Exception:
+                container_liveness = None
+
+        worktree_locked = None
+        worktree_lock_reason = None
+        if resolved_root:
+            try:
+                info = self.branch_service.get_branch(server_id, resolved_root, branch_name)
+                if info is not None:
+                    worktree_locked = bool(info.worktree_locked)
+                    worktree_lock_reason = info.worktree_lock_reason
+            except Exception:
+                worktree_locked = None
+                worktree_lock_reason = None
+
+        if runtime is not None:
+            status = getattr(runtime, "status", None)
+        elif branch_row is not None:
+            status = getattr(branch_row, "runtime_status", None)
+        else:
+            status = None
+
+        active_commit_sha = None
+        if runtime is not None:
+            active_commit_sha = getattr(runtime, "commit_id", None)
+        if active_commit_sha is None and branch_row is not None:
+            active_commit_sha = getattr(branch_row, "active_commit_sha", None)
+
+        data_template_id = None
+        if runtime is not None:
+            data_template_id = getattr(runtime, "data_template_id", None)
+        if data_template_id is None and branch_row is not None:
+            data_template_id = getattr(branch_row, "active_data_template_id", None)
+
+        allow_public_test_join = False
+        if runtime is not None:
+            allow_public_test_join = bool(getattr(runtime, "allow_public_test_join", False))
+
+        return {
+            "server_id": server_id,
+            "branch_name": branch_name,
+            "runtime_status": status,
+            "runtime_id": getattr(runtime, "id", None),
+            "active_commit_sha": active_commit_sha,
+            "data_template_id": data_template_id,
+            "allow_public_test_join": allow_public_test_join,
+            "container_liveness": container_liveness,
+            "port_set": port_set.to_dict() if port_set is not None else None,
+            "worktree_locked": worktree_locked,
+            "worktree_lock_reason": worktree_lock_reason,
+        }
+
+    async def get_branch_console_logs(
+        self,
+        server_id: str,
+        branch_name: str,
+        *,
+        tail: int = 200,
     ) -> dict[str, Any]:
         if os.name != "posix":
             raise ServerModeVersioningDisabledError()
@@ -1168,35 +1353,110 @@ class BranchRuntimeService:
                     )
                 )
                 runtime = res.scalars().first()
-        status = getattr(runtime, "status", None)
+        if runtime is None:
+            raise NotFoundError(f"No active runtime for branch '{branch_name}'")
+        container_name = build_branch_container_name(server_id, branch_name, runtime.id)
+        rc, out = await self.docker_runner(
+            ["logs", "--tail", str(tail), container_name]
+        )
+        if rc != 0:
+            raise InfrastructureError(
+                f"Failed to read container logs for branch '{branch_name}'"
+            )
+        return {
+            "server_id": server_id,
+            "branch_name": branch_name,
+            "runtime_id": runtime.id,
+            "container_name": container_name,
+            "lines": out.splitlines() if out else [],
+        }
+
+    async def send_branch_console_command(
+        self,
+        server_id: str,
+        branch_name: str,
+        command: str,
+    ) -> dict[str, Any]:
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError()
+        cmd = str(command or "").strip()
+        if not cmd or any(ch in cmd for ch in ("\r", "\n", "\x00")):
+            raise ValidationError("Invalid console command", field="command")
+        runtime = None
+        if self.session_factory is not None:
+            async with self.session_factory() as session:
+                from sqlalchemy import select as _select
+
+                res = await session.execute(
+                    _select(ServerRuntimeModel).where(
+                        ServerRuntimeModel.server_id == server_id,
+                        ServerRuntimeModel.branch_name == branch_name,
+                        ServerRuntimeModel.status.in_(("starting", "running")),
+                    )
+                )
+                runtime = res.scalars().first()
+        if runtime is None:
+            raise NotFoundError(f"No active runtime for branch '{branch_name}'")
+
         port_set = None
-        if runtime is not None and getattr(runtime, "port_set_json", None):
+        if getattr(runtime, "port_set_json", None):
             try:
                 port_set = HostPortSet.from_dict(runtime.port_set_json)
             except Exception:
                 port_set = None
-        container_liveness = None
-        worktree_locked = None
-        worktree_lock_reason = None
-        if runtime is not None:
-            container_name = build_branch_container_name(server_id, branch_name, runtime.id)
-            try:
-                rc, out = await self.docker_runner(
-                    ["inspect", "-f", "{{.State.Running}}", container_name]
-                )
-                container_liveness = rc == 0 and str(out).strip().lower() == "true"
-            except Exception:
-                container_liveness = None
+        rcon_port = port_set.rcon_port if port_set is not None else None
+        if rcon_port is None:
+            raise ValidationError("RCON port unavailable", field="rcon_port")
+
+        rcon_password = self._resolve_rcon_password(runtime)
+
+        client_factory = self.rcon_client_factory or AsyncRCONClient
+        client = client_factory("127.0.0.1", rcon_port, rcon_password)
+        output = ""
+        try:
+            await client.connect()
+            output = await client.send_command(cmd)
+        except Exception as exc:
+            raise InfrastructureError(
+                "Failed to dispatch RCON command to branch runtime"
+            ) from exc
+        finally:
+            with contextlib.suppress(Exception):
+                await client.close()
         return {
             "server_id": server_id,
             "branch_name": branch_name,
-            "runtime_status": status,
-            "runtime_id": getattr(runtime, "id", None),
-            "container_liveness": container_liveness,
-            "port_set": port_set.to_dict() if port_set is not None else None,
-            "worktree_locked": worktree_locked,
-            "worktree_lock_reason": worktree_lock_reason,
+            "runtime_id": runtime.id,
+            "command": cmd,
+            "output": output,
         }
 
+    def _resolve_rcon_password(self, runtime: Any) -> str:
+        rid = getattr(runtime, "id", None)
+        if rid is not None:
+            creds = self._rcon_credentials.get(rid)
+            if creds is not None:
+                return creds[2]
+        export_path = Path(getattr(runtime, "export_path", None) or "")
+        rcon_password = None
+        props_path = export_path / "server.properties" if export_path else None
+        if props_path is not None and props_path.is_file():
+            try:
+                from app.core.allowlist import open_safe_path_fd
 
-# Worktree state not available without server_root in this signature.
+                fd = open_safe_path_fd(
+                    str(export_path), "server.properties", flags=os.O_RDONLY
+                )
+                try:
+                    data = os.read(fd, 1024 * 1024)
+                finally:
+                    os.close(fd)
+                for line in data.decode("utf-8", errors="replace").splitlines():
+                    if line.strip().startswith("rcon.password="):
+                        rcon_password = line.split("=", 1)[1].strip()
+                        break
+            except Exception:
+                rcon_password = ""
+        if rcon_password is None:
+            rcon_password = ""
+        return rcon_password

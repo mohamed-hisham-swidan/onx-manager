@@ -18,3 +18,4 @@ class ServerActivityLog:
     actor_type: str = "system"  # user, system, api_key
     actor_id: str | None = None
     details: dict[str, Any] = field(default_factory=dict)
+    branch_name: str | None = None

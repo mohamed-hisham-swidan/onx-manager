@@ -24,6 +24,12 @@ class BranchResponse(BaseResponse):
     protection_policy: dict[str, Any] | None = None
     worktree_path: str | None = None
     worktree_locked: bool = False
+    runtime_status: str = "stopped"
+    port_set: dict[str, Any] | None = None
+    active_runtime_id: str | None = None
+    active_commit_sha: str | None = None
+    active_data_template_id: str | None = None
+    worktree_lock_reason: str | None = None
 
 
 class CreateCommitRequest(BaseModel):
@@ -507,3 +513,165 @@ class DeleteSecretResponse(BaseModel):
     server_id: str
     key_name: str
     status: str = "deleted"
+
+
+# --- P4-3 schemas ---
+
+class DataTemplateResponse(BaseResponse):
+    id: str
+    server_id: str
+    name: str
+    description: str = ""
+    source_branch_name: str | None = None
+    source_commit_sha: str | None = None
+    file_count: int = 0
+    total_bytes: int = 0
+    status: str = "ready"
+    operation_id: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class CreateDataTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    source: str = Field(default="live", pattern="^(live|branch)$")
+    branch_name: str | None = Field(default=None, min_length=1, max_length=100)
+    async_mode: bool = Field(default=False)
+
+
+class DeleteDataTemplateResponse(BaseResponse):
+    status: str = "deleted"
+    server_id: str
+    template_id: str
+
+
+class PortSetSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    game_port: int = Field(..., ge=1024, le=65535)
+    rcon_port: int = Field(..., ge=1024, le=65535)
+    query_port: int | None = Field(default=None, ge=1024, le=65535)
+    plugin_ports: dict[str, int] = Field(default_factory=dict)
+    container_game_port: int = Field(default=25565)
+    container_rcon_port: int = Field(default=25575)
+
+
+class AllocatePortSetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_query: bool = False
+    plugin_port_names: list[str] = Field(default_factory=list, max_length=16)
+    check_os_ports: bool = True
+
+
+class BranchPortSetResponse(BaseResponse):
+    server_id: str
+    branch_name: str
+    port_set: PortSetSchema
+
+
+class SetPortSetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    game_port: int = Field(..., ge=1024, le=65535)
+    rcon_port: int = Field(..., ge=1024, le=65535)
+    query_port: int | None = Field(default=None, ge=1024, le=65535)
+    plugin_ports: dict[str, int] = Field(default_factory=dict)
+    check_os_ports: bool = True
+
+
+class BranchRuntimeStatusResponse(BaseResponse):
+    server_id: str
+    branch_name: str
+    runtime_status: str = "stopped"
+    runtime_id: str | None = None
+    active_commit_sha: str | None = None
+    data_template_id: str | None = None
+    allow_public_test_join: bool = False
+    container_liveness: bool | None = None
+    port_set: PortSetSchema | None = None
+    worktree_locked: bool = False
+    worktree_lock_reason: str | None = None
+
+
+class StartBranchRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commit_sha: str | None = Field(default=None, min_length=4, max_length=64)
+    data_template_id: str | None = Field(default=None, min_length=1, max_length=64)
+    allow_public_test_join: bool = False
+    port_set: PortSetSchema | None = None
+    include_query: bool = False
+    plugin_port_names: list[str] = Field(default_factory=list, max_length=16)
+    requested_memory_mb: int | None = Field(default=None, ge=256, le=262144)
+    requested_cpu_cores: int | None = Field(default=None, ge=1, le=256)
+    check_os_ports: bool = True
+
+
+class StartBranchRunResponse(BaseResponse):
+    runtime_id: str
+    server_id: str
+    branch_name: str
+    commit_sha: str
+    container_name: str
+    container_id: str
+    port_set: PortSetSchema
+    data_template_id: str | None = None
+    allow_public_test_join: bool = False
+    uncommitted_changes_warning: bool = False
+    memory_max_mb: int
+    cpu_cores: int
+
+
+class StopBranchRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runtime_id: str | None = Field(default=None, min_length=1, max_length=64)
+    timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    keep_port_assignment: bool = False
+    save_template_name: str | None = Field(default=None, min_length=1, max_length=100)
+    save_template_description: str = Field(default="", max_length=500)
+
+
+class StopBranchRunResponse(BaseResponse):
+    runtime_id: str
+    server_id: str
+    branch_name: str
+    status: str = "stopped"
+    exit_code: int | None = None
+    oom_killed: bool = False
+    saved_template_id: str | None = None
+    saved_template_name: str | None = None
+
+
+class SaveBranchDataTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    runtime_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class BranchConsoleLogsResponse(BaseResponse):
+    server_id: str
+    branch_name: str
+    runtime_id: str
+    container_name: str
+    lines: list[str]
+
+
+class BranchConsoleCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: str = Field(..., min_length=1, max_length=1000)
+
+
+class BranchConsoleCommandResponse(BaseResponse):
+    server_id: str
+    branch_name: str
+    runtime_id: str
+    command: str
+    output: str

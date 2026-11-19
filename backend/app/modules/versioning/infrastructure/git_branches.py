@@ -237,6 +237,29 @@ class GitBranchService:
             )
         return branch
 
+    def has_uncommitted_changes(
+        self,
+        server_id: str,
+        server_root: str | os.PathLike[str],
+        name: str,
+    ) -> bool:
+        _validate_branch_path_name(name)
+        root = validate_server_root(server_root)
+        info = self.get_branch(server_id, root, name)
+        if info is None or info.worktree_path is None:
+            return False
+        runner = self._open_repository(server_id, root)
+        result = runner.run(
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=normal",
+            cwd=info.worktree_path,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        return bool(result.stdout.strip())
+
     def lock_worktree(
         self,
         server_id: str,

@@ -22,6 +22,7 @@ class ActivityRepository(ABC):
         event_type: str | None = None,
         from_date: float | None = None,
         to_date: float | None = None,
+        branch_name: str | None = None,
     ) -> tuple[list[ServerActivityLog], int]:
         """Returns paginated activity logs for a server matching criteria and total count."""
         ...

@@ -30,6 +30,7 @@ async def get_server_activity(
     event_type: str | None = Query(None, description="Optional event type filter"),
     from_date: float | None = Query(None, description="Optional start timestamp filter"),
     to_date: float | None = Query(None, description="Optional end timestamp filter"),
+    branch: str | None = Query(None, description="Optional branch name filter"),
 ) -> ServerActivityLogListResponse:
     res: PaginatedActivityLogs = await query_bus.ask(
         GetServerActivityQuery(
@@ -39,6 +40,7 @@ async def get_server_activity(
             event_type=event_type,
             from_date=from_date,
             to_date=to_date,
+            branch_name=branch,
         )
     )
     items = [
@@ -51,6 +53,7 @@ async def get_server_activity(
             actor_id=item.actor_id,
             summary=item.summary,
             details=item.details,
+            branch_name=item.branch_name,
         )
         for item in res.items
     ]

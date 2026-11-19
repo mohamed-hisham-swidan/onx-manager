@@ -2,23 +2,33 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
+import shutil
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 
-from app.api.deps import get_command_bus, get_query_bus, require_permission
+from app.api.deps import get_command_bus, get_event_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
 from app.api.v1.dependencies.server_mode import require_advanced_mode
 from app.api.v1.schemas.versioning import (
+    AllocatePortSetRequest,
     AutoCommitLiveChangesRequest,
     AutoCommitLiveChangesResponse,
     BotSettingsRequest,
     BotSettingsResponse,
+    BranchConsoleCommandRequest,
+    BranchConsoleCommandResponse,
+    BranchConsoleLogsResponse,
+    BranchPortSetResponse,
     BranchProtectionResponse,
     BranchResponse,
+    BranchRuntimeStatusResponse,
     ClassCSnapshotDeleteResponse,
     ClassCSnapshotResponse,
     ClassCSnapshotRestoreResponse,
@@ -28,8 +38,11 @@ from app.api.v1.schemas.versioning import (
     CreateBranchRequest,
     CreateClassCSnapshotRequest,
     CreateCommitRequest,
+    CreateDataTemplateRequest,
     CreateMaterializationRequest,
     CreateTagRequest,
+    DataTemplateResponse,
+    DeleteDataTemplateResponse,
     DeleteSecretResponse,
     DiffResponse,
     DynamicClassCEntryResponse,
@@ -44,6 +57,7 @@ from app.api.v1.schemas.versioning import (
     MaterializationListItemResponse,
     MaterializationTreeResponse,
     MergeCommitsRequest,
+    PortSetSchema,
     PreflightResponse,
     RefreshJournalSummaryResponse,
     RefreshServerHttpRequest,
@@ -52,12 +66,18 @@ from app.api.v1.schemas.versioning import (
     RollbackRefreshHttpRequest,
     RollbackRefreshResponse,
     RunIsolatedTestRequest,
+    SaveBranchDataTemplateRequest,
     ScanLiveChangesRequest,
     ScanLiveChangesResponse,
     SecretMetadataResponse,
     SetBranchProtectionRequest,
     SetEditModeRequest,
     SetEditModeResponse,
+    SetPortSetRequest,
+    StartBranchRunRequest,
+    StartBranchRunResponse,
+    StopBranchRunRequest,
+    StopBranchRunResponse,
     TagResponse,
     TestDefinitionCreateRequest,
     TestDefinitionResponse,
@@ -67,7 +87,15 @@ from app.api.v1.schemas.versioning import (
     WriteMaterializedFileResponse,
 )
 from app.core.command_bus import CommandBus
-from app.core.exceptions import MaterializationFileTooLargeError
+from app.core.event_bus import EventBus
+from app.core.exceptions import (
+    BranchRuntimeActiveError,
+    ConflictError,
+    InfrastructureError,
+    MaterializationFileTooLargeError,
+    NotFoundError,
+    ValidationError,
+)
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.server.infrastructure.models import ServerModel
@@ -117,6 +145,7 @@ from app.modules.versioning.application.refresh_orchestrator import (
     RollbackRefreshCommand,
 )
 from app.modules.versioning.infrastructure.config_resolver import BotConfigResolver
+from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
 from app.modules.versioning.infrastructure.storage_probe import StorageCapabilityProbe
 
@@ -126,7 +155,345 @@ router = APIRouter(
     dependencies=[Depends(require_advanced_mode)],
 )
 
-__all__ = ["router"]
+__all__ = ["get_branch_runtime_service", "router"]
+
+_branch_runtime_service: Any = None
+_branch_runtime_service_key: tuple[str, int] | None = None
+
+
+def get_branch_runtime_service() -> Any:
+    """Return a process-level :class:`BranchRuntimeService`.
+
+    The service is cached so in-memory RCON credentials survive across HTTP
+    requests.  Tests may override this dependency via
+    ``app.dependency_overrides`` or monkeypatch it directly.
+    """
+
+    global _branch_runtime_service, _branch_runtime_service_key
+
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.branch_runtime_service import (
+        BranchRuntimeService,
+    )
+
+    layout = resolve_host_state_layout()
+    session_factory = database.session_factory
+    key = (str(layout.root), id(session_factory))
+    if _branch_runtime_service is None or _branch_runtime_service_key != key:
+        _branch_runtime_service = BranchRuntimeService(
+            layout,
+            session_factory=session_factory,
+        )
+        _branch_runtime_service_key = key
+    return _branch_runtime_service
+
+
+# --- P4-3 helpers -----------------------------------------------------------
+
+
+def _as_iso(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _data_template_response(row: Any) -> DataTemplateResponse:
+    return DataTemplateResponse(
+        id=row.id,
+        server_id=row.server_id,
+        name=row.name,
+        description=row.description or "",
+        source_branch_name=row.source_branch_name,
+        source_commit_sha=row.source_commit_sha,
+        file_count=row.file_count or 0,
+        total_bytes=row.total_bytes or 0,
+        status=row.status or "ready",
+        operation_id=row.operation_id,
+        created_at=_as_iso(row.created_at),
+        updated_at=_as_iso(row.updated_at),
+    )
+
+
+def _port_set_schema(port_set: Any) -> PortSetSchema:
+    if port_set is None:
+        raise InfrastructureError("Port set unavailable for branch runtime")
+    data = port_set.to_dict() if hasattr(port_set, "to_dict") else dict(port_set)
+    return PortSetSchema(**data)
+
+
+async def _load_server(session: Any, server_id: str) -> ServerModel:
+    server = await session.get(ServerModel, server_id)
+    if server is None:
+        raise NotFoundError(f"Server '{server_id}' not found")
+    return server
+
+
+def _server_container_name(server: ServerModel, server_id: str) -> str:
+    from app.core.identity import IDENTITY
+
+    return str(
+        getattr(server, "external_id", None) or f"{IDENTITY.temp_prefix_new}{server_id}"
+    )
+
+
+def _read_server_properties(server_root: Path) -> dict[str, str]:
+    path = server_root / "server.properties"
+    if not path.is_file() or path.is_symlink():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return {}
+    props: dict[str, str] = {}
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith(("#", "!")) or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        props[key.strip()] = value.strip()
+    return props
+
+
+class _LiveContainerStateAdapter:
+    def __init__(
+        self,
+        docker_runner: Any,
+        container_name: str,
+        fallback_running: bool,
+    ) -> None:
+        self._runner = docker_runner
+        self._container_name = container_name
+        self._fallback_running = fallback_running
+
+    def is_running(self) -> Any:
+        async def _check() -> bool:
+            if self._runner is None:
+                return self._fallback_running
+            try:
+                rc, out = await self._runner(
+                    ["inspect", "-f", "{{.State.Running}}", self._container_name]
+                )
+                if rc == 0 and str(out).strip():
+                    return str(out).strip().lower() == "true"
+            except Exception:
+                pass
+            return self._fallback_running
+
+        return _check()
+
+
+class _LiveRconQuiesceAdapter:
+    def __init__(self, host: str, port: int, password: str, client_factory: Any) -> None:
+        self._host = host
+        self._port = port
+        self._password = password
+        self._factory = client_factory
+
+    async def _client(self) -> Any:
+        factory = self._factory
+        if factory is None:
+            from app.modules.monitoring.infrastructure.rcon_client import AsyncRCONClient
+
+            factory = AsyncRCONClient
+        client = factory(self._host, self._port, self._password)
+        await client.connect()
+        return client
+
+    async def save_off(self) -> Any:
+        client = await self._client()
+        try:
+            return await client.send_command("save-off")
+        finally:
+            await client.close()
+
+    async def save_all_flush(self, timeout: float = 30.0) -> str:  # noqa: ARG002
+        client = await self._client()
+        try:
+            return await client.send_command("save-all flush")
+        finally:
+            await client.close()
+
+    async def save_on(self) -> Any:
+        client = await self._client()
+        try:
+            return await client.send_command("save-on")
+        finally:
+            await client.close()
+
+
+class _LiveSaveOffStore:
+    def __init__(self, session_factory: Any) -> None:
+        self._session_factory = session_factory
+
+    async def set_save_off_active(self, server_id: str, active: bool) -> None:
+        from sqlalchemy import update
+
+        async with self._session_factory() as session:
+            await session.execute(
+                update(ServerModel)
+                .where(ServerModel.id == server_id)
+                .values(rcon_save_off_active=bool(active))
+            )
+            await session.commit()
+
+
+async def _execute_live_data_template_clone(
+    *,
+    server_id: str,
+    server_root: Path,
+    server: ServerModel,
+    template_id: str,
+    name: str,
+    description: str,
+    operation_id: str,
+    runtime_service: Any,
+) -> tuple[str, int, int, str | None]:
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.data_templates import DataTemplateService
+
+    props = _read_server_properties(server_root)
+    rcon_port = int(props.get("rcon.port", "25575") or 25575)
+    rcon_password = props.get("rcon.password", "")
+    container_name = _server_container_name(server, server_id)
+    status_text = str(getattr(server.status, "value", server.status)).upper()
+    fallback_running = status_text in ("RUNNING", "STARTING")
+    state_adapter = _LiveContainerStateAdapter(
+        getattr(runtime_service, "docker_runner", None),
+        container_name,
+        fallback_running,
+    )
+    rcon_adapter = _LiveRconQuiesceAdapter(
+        "127.0.0.1",
+        rcon_port,
+        rcon_password,
+        getattr(runtime_service, "rcon_client_factory", None),
+    )
+    service = DataTemplateService(resolve_host_state_layout())
+    async with database.session_factory() as session:
+        storage_path = await service.clone(
+            server_id,
+            server_root,
+            template_id,
+            source_branch_name=None,
+            rcon=rcon_adapter,
+            container_state=state_adapter,
+            save_off_store=_LiveSaveOffStore(database.session_factory),
+            db_session=session,
+        )
+        row = await session.get(ServerDataTemplateModel, template_id)
+        if row is not None:
+            row.name = name
+            row.description = description
+            row.status = "ready"
+            row.operation_id = operation_id
+            row.storage_path = str(storage_path)
+            row.source_branch_name = None
+            row.updated_at = datetime.now(UTC)
+        await session.commit()
+    file_count = 0
+    total_bytes = 0
+    marker = Path(storage_path) / ".onx-complete.json"
+    if marker.is_file():
+        with contextlib.suppress(Exception):
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            file_count = int(payload.get("file_count") or 0)
+            total_bytes = int(payload.get("total_bytes") or 0)
+    return str(storage_path), file_count, total_bytes, None
+
+
+async def _execute_data_template_clone(
+    *,
+    server_id: str,
+    server: ServerModel,
+    template_id: str,
+    name: str,
+    description: str,
+    source: str,
+    branch_name: str | None,
+    operation_id: str,
+    event_bus: EventBus,
+    runtime_service: Any,
+) -> None:
+    from app.modules.operations.application.services.operation_service import (
+        get_operation_service,
+    )
+    from app.modules.versioning.domain.events import DataTemplateSavedEvent
+
+    op_service = get_operation_service(event_bus)
+    try:
+        await op_service.start_step(operation_id, "CLONE")
+        if source == "branch":
+            if not branch_name:
+                raise ValidationError(
+                    "branch_name is required when source is 'branch'",
+                    field="branch_name",
+                )
+            saved = await runtime_service.save_data_template(
+                server_id,
+                branch_name,
+                name=name,
+                description=description,
+                template_id=template_id,
+            )
+            storage_path = str(saved.storage_path)
+            file_count = int(saved.file_count or 0)
+            total_bytes = int(saved.total_bytes or 0)
+            source_commit_sha = saved.source_commit_sha
+            async with database.session_factory() as session:
+                row = await session.get(ServerDataTemplateModel, template_id)
+                if row is not None:
+                    row.name = name
+                    row.description = description
+                    row.status = "ready"
+                    row.operation_id = operation_id
+                    row.storage_path = storage_path
+                    row.source_branch_name = branch_name
+                    row.source_commit_sha = source_commit_sha
+                    row.updated_at = datetime.now(UTC)
+                await session.commit()
+        else:
+            root = Path(server.root_path)
+            storage_path, file_count, total_bytes, source_commit_sha = (
+                await _execute_live_data_template_clone(
+                    server_id=server_id,
+                    server_root=root,
+                    server=server,
+                    template_id=template_id,
+                    name=name,
+                    description=description,
+                    operation_id=operation_id,
+                    runtime_service=runtime_service,
+                )
+            )
+
+        await op_service.complete_operation(operation_id)
+        await event_bus.publish(
+            DataTemplateSavedEvent(
+                server_id=server_id,
+                branch_name=branch_name,
+                template_id=template_id,
+                template_name=name,
+                commit_sha=source_commit_sha,
+                actor_type="user",
+            )
+        )
+    except BaseException as exc:
+        with contextlib.suppress(Exception):
+            async with database.session_factory() as session:
+                row = await session.get(ServerDataTemplateModel, template_id)
+                if row is not None:
+                    row.status = "failed"
+                    row.updated_at = datetime.now(UTC)
+                await session.commit()
+        with contextlib.suppress(Exception):
+            await op_service.fail_operation(
+                operation_id,
+                getattr(exc, "code", "HOT_CLONE_REFUSED"),
+                str(exc),
+            )
+        raise
 
 
 @router.get("/branches", response_model=list[BranchResponse])
@@ -1540,3 +1907,669 @@ async def delete_secret(
         if not deleted:
             raise HTTPException(status_code=404, detail="Secret not found")  # noqa: B904
         return DeleteSecretResponse(server_id=server_id, key_name=key_name)
+
+
+# --- P4-3 Batch B: data templates, port sets, branch runtime, console ---
+
+
+@router.get("/data-templates", response_model=list[DataTemplateResponse])
+async def list_data_templates(
+    server_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[DataTemplateResponse]:
+    from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
+
+    async with database.session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(ServerDataTemplateModel)
+                    .where(ServerDataTemplateModel.server_id == server_id)
+                    .order_by(ServerDataTemplateModel.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return [_data_template_response(row) for row in rows]
+
+
+@router.post("/data-templates", response_model=DataTemplateResponse, status_code=201)
+async def create_data_template(
+    server_id: str,
+    body: CreateDataTemplateRequest,
+    response: Response,
+    event_bus: Annotated[EventBus, Depends(get_event_bus)],
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> DataTemplateResponse:
+    from app.modules.operations.application.services.operation_service import (
+        get_operation_service,
+    )
+    from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
+
+    if body.source == "branch" and not body.branch_name:
+        raise ValidationError(
+            "branch_name is required when source is 'branch'",
+            field="branch_name",
+        )
+
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        if not server.root_path:
+            raise NotFoundError("Server root path not configured")
+        existing = (
+            (
+                await session.execute(
+                    select(ServerDataTemplateModel).where(
+                        ServerDataTemplateModel.server_id == server_id,
+                        ServerDataTemplateModel.name == body.name,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            raise ConflictError(f"Data template '{body.name}' already exists")
+        from app.core.host_state import resolve_host_state_layout
+
+        layout = resolve_host_state_layout()
+        template_id = uuid.uuid4().hex
+        actor_id = _current_user.get("user_id") or _current_user.get("id")
+        op = await get_operation_service(event_bus).create_operation(
+            type="CREATE_DATA_TEMPLATE",
+            target_type="server",
+            target_id=server_id,
+            actor_id=str(actor_id) if actor_id else None,
+            metadata={
+                "template_id": template_id,
+                "name": body.name,
+                "source": body.source,
+                "branch_name": body.branch_name,
+            },
+            initial_steps=[
+                {
+                    "step_id": "CLONE",
+                    "sequence": 1,
+                    "message_key": "operations.steps.clone",
+                }
+            ],
+        )
+        row = ServerDataTemplateModel(
+            id=template_id,
+            server_id=server_id,
+            name=body.name,
+            description=body.description,
+            source_branch_name=body.branch_name,
+            storage_path=str(layout.data_templates_dir(server_id) / template_id),
+            status="cloning",
+            operation_id=op.id,
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        response_payload = _data_template_response(row)
+
+    if body.async_mode:
+
+        async def _background() -> None:
+            with contextlib.suppress(BaseException):
+                await _execute_data_template_clone(
+                    server_id=server_id,
+                    server=server,
+                    template_id=template_id,
+                    name=body.name,
+                    description=body.description,
+                    source=body.source,
+                    branch_name=body.branch_name,
+                    operation_id=op.id,
+                    event_bus=event_bus,
+                    runtime_service=runtime_service,
+                )
+
+        task = asyncio.create_task(_background())
+        with contextlib.suppress(Exception):
+            get_operation_service(event_bus).executor.register_task(op.id, task)
+        response.status_code = 202
+        return response_payload
+
+    await _execute_data_template_clone(
+        server_id=server_id,
+        server=server,
+        template_id=template_id,
+        name=body.name,
+        description=body.description,
+        source=body.source,
+        branch_name=body.branch_name,
+        operation_id=op.id,
+        event_bus=event_bus,
+        runtime_service=runtime_service,
+    )
+    async with database.session_factory() as session:
+        row = await session.get(ServerDataTemplateModel, template_id)
+        if row is None:
+            raise InfrastructureError("Data template row disappeared during clone")
+        response.status_code = 201
+        return _data_template_response(row)
+
+
+@router.delete("/data-templates/{template_id}", response_model=DeleteDataTemplateResponse)
+async def delete_data_template(
+    server_id: str,
+    template_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> DeleteDataTemplateResponse:
+    from app.core.host_state import check_not_symlink_or_reparse, resolve_host_state_layout
+    from app.modules.versioning.infrastructure.models import (
+        ServerDataTemplateModel,
+        ServerRuntimeModel,
+    )
+
+    layout = resolve_host_state_layout()
+    async with database.session_factory() as session:
+        row = await session.get(ServerDataTemplateModel, template_id)
+        if row is None or row.server_id != server_id:
+            raise NotFoundError(f"Data template '{template_id}' not found")
+        active = (
+            (
+                await session.execute(
+                    select(ServerRuntimeModel).where(
+                        ServerRuntimeModel.server_id == server_id,
+                        ServerRuntimeModel.data_template_id == template_id,
+                        ServerRuntimeModel.status.in_(("starting", "running")),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if active is not None:
+            raise ConflictError("Data template is currently in use by an active runtime")
+
+        candidate = Path(row.storage_path)
+        allowed_root = layout.data_templates_dir(server_id)
+        check_not_symlink_or_reparse(candidate)
+        try:
+            allowed_real = os.path.realpath(allowed_root)
+            candidate_real = os.path.realpath(candidate)
+            if (
+                os.path.commonpath([allowed_real, candidate_real]) != allowed_real
+                or candidate_real == allowed_real
+            ):
+                raise ValidationError(
+                    "Data template storage path outside server template directory",
+                    field="storage_path",
+                )
+        except ValueError as exc:
+            raise ValidationError(
+                "Data template storage path outside server template directory",
+                field="storage_path",
+            ) from exc
+        if candidate.exists():
+            if candidate.is_dir() and not candidate.is_symlink():
+                shutil.rmtree(candidate)
+            else:
+                candidate.unlink(missing_ok=True)
+        await session.delete(row)
+        await session.commit()
+    return DeleteDataTemplateResponse(server_id=server_id, template_id=template_id)
+
+
+async def _resolve_branch_row(
+    session: Any,
+    server_id: str,
+    name: str,
+    *,
+    server_root: str | None,
+) -> Any:
+    from app.modules.versioning.infrastructure.models import ServerBranchModel
+
+    branch_row = (
+        (
+            await session.execute(
+                select(ServerBranchModel).where(
+                    ServerBranchModel.server_id == server_id,
+                    ServerBranchModel.name == name,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if branch_row is not None:
+        return branch_row
+    if not server_root:
+        return None
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.git_branches import GitBranchService
+
+    try:
+        info = GitBranchService(resolve_host_state_layout()).get_branch(
+            server_id, server_root, name
+        )
+    except Exception:
+        info = None
+    if info is None:
+        return None
+    branch_row = ServerBranchModel(
+        id=uuid.uuid4().hex,
+        server_id=server_id,
+        name=name,
+        head_commit_id=getattr(info, "sha", None),
+    )
+    session.add(branch_row)
+    await session.commit()
+    await session.refresh(branch_row)
+    return branch_row
+
+
+async def _assert_branch_not_running(
+    session: Any, server_id: str, name: str, branch_row: Any
+) -> None:
+    from app.modules.versioning.infrastructure.models import ServerRuntimeModel
+
+    if getattr(branch_row, "runtime_status", None) in ("starting", "running"):
+        raise BranchRuntimeActiveError(
+            "Cannot reallocate port set while branch runtime is active"
+        )
+    active = (
+        (
+            await session.execute(
+                select(ServerRuntimeModel).where(
+                    ServerRuntimeModel.server_id == server_id,
+                    ServerRuntimeModel.branch_name == name,
+                    ServerRuntimeModel.status.in_(("starting", "running")),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if active is not None:
+        raise BranchRuntimeActiveError(
+            "Cannot reallocate port set while branch runtime is active"
+        )
+
+
+@router.post(
+    "/branches/{name}/port-set/allocate",
+    response_model=BranchPortSetResponse,
+)
+async def allocate_branch_port_set(
+    server_id: str,
+    name: str,
+    body: AllocatePortSetRequest,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> BranchPortSetResponse:
+    from app.modules.versioning.domain.port_sets import HostPortSet
+    from app.modules.versioning.infrastructure.port_allocator import (
+        allocate_port_set,
+        release_port_set,
+    )
+
+    if name == "main":
+        raise ValidationError(
+            "Cannot assign branch port set to 'main'", field="branch_name"
+        )
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        branch_row = await _resolve_branch_row(
+            session, server_id, name, server_root=server.root_path
+        )
+        if branch_row is None:
+            raise NotFoundError(f"Branch '{name}' not found")
+        await _assert_branch_not_running(session, server_id, name, branch_row)
+
+        previous = getattr(branch_row, "port_set_json", None)
+        port_set = await allocate_port_set(
+            session,
+            include_query=body.include_query,
+            plugin_port_names=tuple(body.plugin_port_names),
+            check_os_ports=body.check_os_ports,
+        )
+        branch_row.port_set_json = port_set.to_dict()
+        await session.commit()
+        if previous:
+            with contextlib.suppress(Exception):
+                release_port_set(HostPortSet.from_dict(previous))
+    return BranchPortSetResponse(
+        server_id=server_id,
+        branch_name=name,
+        port_set=PortSetSchema(**port_set.to_dict()),
+    )
+
+
+@router.put("/branches/{name}/port-set", response_model=BranchPortSetResponse)
+async def set_branch_port_set(
+    server_id: str,
+    name: str,
+    body: SetPortSetRequest,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> BranchPortSetResponse:
+    from app.modules.versioning.domain.port_sets import HostPortSet
+    from app.modules.versioning.infrastructure.port_allocator import (
+        validate_port_set_atomic,
+    )
+
+    if name == "main":
+        raise ValidationError(
+            "Cannot assign branch port set to 'main'", field="branch_name"
+        )
+    candidate = HostPortSet(
+        game_port=body.game_port,
+        rcon_port=body.rcon_port,
+        query_port=body.query_port,
+        plugin_ports=dict(body.plugin_ports),
+    )
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        branch_row = await _resolve_branch_row(
+            session, server_id, name, server_root=server.root_path
+        )
+        if branch_row is None:
+            raise NotFoundError(f"Branch '{name}' not found")
+        await _assert_branch_not_running(session, server_id, name, branch_row)
+        await validate_port_set_atomic(
+            session,
+            candidate,
+            exclude_branch_id=branch_row.id,
+            check_os_ports=body.check_os_ports,
+        )
+        branch_row.port_set_json = candidate.to_dict()
+        await session.commit()
+    return BranchPortSetResponse(
+        server_id=server_id,
+        branch_name=name,
+        port_set=PortSetSchema(**candidate.to_dict()),
+    )
+
+
+@router.get("/branches/{name}/runtime", response_model=BranchRuntimeStatusResponse)
+async def get_branch_runtime(
+    server_id: str,
+    name: str,
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> BranchRuntimeStatusResponse:
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        server_root = server.root_path
+    status = await runtime_service.get_branch_runtime_status(
+        server_id, name, server_root=server_root
+    )
+    port_set = status.get("port_set")
+    return BranchRuntimeStatusResponse(
+        server_id=server_id,
+        branch_name=name,
+        runtime_status=status.get("runtime_status") or "stopped",
+        runtime_id=status.get("runtime_id"),
+        active_commit_sha=status.get("active_commit_sha"),
+        data_template_id=status.get("data_template_id"),
+        allow_public_test_join=bool(status.get("allow_public_test_join", False)),
+        container_liveness=status.get("container_liveness"),
+        port_set=PortSetSchema(**port_set) if port_set else None,
+        worktree_locked=bool(status.get("worktree_locked")),
+        worktree_lock_reason=status.get("worktree_lock_reason"),
+    )
+
+
+@router.post(
+    "/branches/{name}/run",
+    response_model=StartBranchRunResponse,
+    status_code=201,
+)
+async def start_branch_run(
+    server_id: str,
+    name: str,
+    body: StartBranchRunRequest | None,
+    event_bus: Annotated[EventBus, Depends(get_event_bus)],
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> StartBranchRunResponse:
+    from app.modules.versioning.domain.events import BranchRuntimeStartedEvent
+    from app.modules.versioning.domain.port_sets import HostPortSet
+    from app.modules.versioning.infrastructure.branch_runtime_service import (
+        BranchStartRequest,
+    )
+    from app.modules.versioning.infrastructure.models import ServerBranchModel
+
+    req_body = body or StartBranchRunRequest()
+    if name == "main":
+        raise ValidationError(
+            "Branch runtime engine only launches non-main branches",
+            field="branch_name",
+        )
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        if not server.root_path:
+            raise NotFoundError("Server root path not configured")
+        branch_row = (
+            (
+                await session.execute(
+                    select(ServerBranchModel).where(
+                        ServerBranchModel.server_id == server_id,
+                        ServerBranchModel.name == name,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        saved_port_set = getattr(branch_row, "port_set_json", None)
+
+    if req_body.port_set is not None:
+        port_set = HostPortSet.from_dict(req_body.port_set.model_dump())
+    elif saved_port_set:
+        port_set = HostPortSet.from_dict(saved_port_set)
+    else:
+        port_set = None
+
+    request = BranchStartRequest(
+        server_id=server_id,
+        server_root=server.root_path,
+        branch_name=name,
+        server_type=server.server_type,
+        minecraft_version=server.minecraft_version,
+        server_provider=server.provider,
+        server_mode=server.mode,
+        commit_sha=req_body.commit_sha,
+        data_template_id=req_body.data_template_id,
+        allow_public_test_join=req_body.allow_public_test_join,
+        port_set=port_set,
+        include_query=req_body.include_query,
+        plugin_port_names=tuple(req_body.plugin_port_names),
+        requested_memory_mb=req_body.requested_memory_mb or server.memory_max_mb,
+        requested_cpu_cores=req_body.requested_cpu_cores or (server.cpu_cores or None),
+        max_concurrent_branch_runs=server.max_concurrent_branch_runs,
+        jvm_args=server.java_args or "",
+        startup_jar=server.startup_jar or "server.jar",
+        check_os_ports=req_body.check_os_ports,
+    )
+    result = await runtime_service.start_branch_runtime(request)
+    actor_id = _current_user.get("user_id") or _current_user.get("id")
+    await event_bus.publish(
+        BranchRuntimeStartedEvent(
+            server_id=server_id,
+            branch_name=name,
+            runtime_id=result.runtime_id,
+            commit_sha=result.commit_sha,
+            data_template_id=result.data_template_id,
+            allow_public_test_join=result.allow_public_test_join,
+            actor_type="user",
+            actor_id=str(actor_id) if actor_id else None,
+        )
+    )
+    return StartBranchRunResponse(
+        runtime_id=result.runtime_id,
+        server_id=server_id,
+        branch_name=name,
+        commit_sha=result.commit_sha,
+        container_name=result.container_name,
+        container_id=result.container_id,
+        port_set=_port_set_schema(result.port_set),
+        data_template_id=result.data_template_id,
+        allow_public_test_join=result.allow_public_test_join,
+        uncommitted_changes_warning=result.uncommitted_changes_warning,
+        memory_max_mb=result.memory_max_mb,
+        cpu_cores=result.cpu_cores,
+    )
+
+
+@router.post("/branches/{name}/stop", response_model=StopBranchRunResponse)
+async def stop_branch_run(
+    server_id: str,
+    name: str,
+    body: StopBranchRunRequest | None,
+    event_bus: Annotated[EventBus, Depends(get_event_bus)],
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> StopBranchRunResponse:
+    from app.modules.versioning.domain.events import (
+        BranchRuntimeStoppedEvent,
+        DataTemplateSavedEvent,
+    )
+
+    req_body = body or StopBranchRunRequest()
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        if not server.root_path:
+            raise NotFoundError("Server root path not configured")
+    result = await runtime_service.stop_branch_runtime(
+        server_id,
+        server.root_path,
+        name,
+        runtime_id=req_body.runtime_id,
+        timeout_seconds=req_body.timeout_seconds,
+        keep_port_assignment=req_body.keep_port_assignment,
+        save_template_name=req_body.save_template_name,
+        save_template_description=req_body.save_template_description,
+    )
+    actor_id = _current_user.get("user_id") or _current_user.get("id")
+    saved_template_id = getattr(result.saved_template, "template_id", None)
+    await event_bus.publish(
+        BranchRuntimeStoppedEvent(
+            server_id=server_id,
+            branch_name=name,
+            runtime_id=result.runtime_id,
+            exit_code=result.exit_code,
+            oom_killed=result.oom_killed,
+            saved_template_id=saved_template_id,
+            actor_type="user",
+            actor_id=str(actor_id) if actor_id else None,
+        )
+    )
+    if result.saved_template is not None:
+        await event_bus.publish(
+            DataTemplateSavedEvent(
+                server_id=server_id,
+                branch_name=name,
+                template_id=result.saved_template.template_id,
+                template_name=result.saved_template.name,
+                commit_sha=result.saved_template.source_commit_sha,
+                actor_type="user",
+                actor_id=str(actor_id) if actor_id else None,
+            )
+        )
+    return StopBranchRunResponse(
+        runtime_id=result.runtime_id,
+        server_id=server_id,
+        branch_name=name,
+        status="stopped",
+        exit_code=result.exit_code,
+        oom_killed=result.oom_killed,
+        saved_template_id=saved_template_id,
+        saved_template_name=(
+            result.saved_template.name if result.saved_template is not None else None
+        ),
+    )
+
+
+@router.post(
+    "/branches/{name}/save-data-template",
+    response_model=DataTemplateResponse,
+    status_code=201,
+)
+async def save_branch_data_template(
+    server_id: str,
+    name: str,
+    body: SaveBranchDataTemplateRequest,
+    event_bus: Annotated[EventBus, Depends(get_event_bus)],
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> DataTemplateResponse:
+    from app.modules.versioning.domain.events import DataTemplateSavedEvent
+    from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
+
+    async with database.session_factory() as session:
+        existing = (
+            (
+                await session.execute(
+                    select(ServerDataTemplateModel).where(
+                        ServerDataTemplateModel.server_id == server_id,
+                        ServerDataTemplateModel.name == body.name,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            raise ConflictError(f"Data template '{body.name}' already exists")
+
+    saved = await runtime_service.save_data_template(
+        server_id,
+        name,
+        name=body.name,
+        description=body.description,
+        runtime_id=body.runtime_id,
+    )
+    async with database.session_factory() as session:
+        row = await session.get(ServerDataTemplateModel, saved.template_id)
+        if row is None:
+            raise InfrastructureError("Data template row missing after save")
+        payload = _data_template_response(row)
+    actor_id = _current_user.get("user_id") or _current_user.get("id")
+    await event_bus.publish(
+        DataTemplateSavedEvent(
+            server_id=server_id,
+            branch_name=name,
+            template_id=saved.template_id,
+            template_name=saved.name,
+            commit_sha=saved.source_commit_sha,
+            actor_type="user",
+            actor_id=str(actor_id) if actor_id else None,
+        )
+    )
+    return payload
+
+
+@router.get("/branches/{name}/console", response_model=BranchConsoleLogsResponse)
+async def get_branch_console(
+    server_id: str,
+    name: str,
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    tail: int = Query(default=200, ge=1, le=5000),
+) -> BranchConsoleLogsResponse:
+    payload = await runtime_service.get_branch_console_logs(
+        server_id, name, tail=tail
+    )
+    return BranchConsoleLogsResponse(**payload)
+
+
+@router.post(
+    "/branches/{name}/console/command",
+    response_model=BranchConsoleCommandResponse,
+)
+async def send_branch_console_command(
+    server_id: str,
+    name: str,
+    body: BranchConsoleCommandRequest,
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> BranchConsoleCommandResponse:
+    payload = await runtime_service.send_branch_console_command(
+        server_id, name, body.command
+    )
+    return BranchConsoleCommandResponse(**payload)

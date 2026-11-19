@@ -16,6 +16,7 @@ class ServerActivityLogResponse(BaseResponse):
     actor_id: str | None = None
     summary: str
     details: dict[str, Any] = Field(default_factory=dict)
+    branch_name: str | None = None
 
 
 class ServerActivityLogListResponse(BaseResponse):

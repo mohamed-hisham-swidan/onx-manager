@@ -438,6 +438,9 @@ def _register_event_handlers(event_bus: EventBus) -> None:
         "TestRunStartedEvent",
         "TestRunCompletedEvent",
         "CommitPromotedEvent",
+        "BranchRuntimeStartedEvent",
+        "BranchRuntimeStoppedEvent",
+        "DataTemplateSavedEvent",
     ]
     for ev in activity_events:
         event_bus.subscribe(ev, activity_subscriber)

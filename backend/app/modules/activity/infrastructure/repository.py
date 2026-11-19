@@ -53,6 +53,7 @@ class SQLActivityRepository(ActivityRepository):
             actor_id=log.actor_id,
             summary=log.summary,
             details_json=details_str,
+            branch_name=log.branch_name,
         )
         for attempt in range(max_retries):
             try:
@@ -85,6 +86,7 @@ class SQLActivityRepository(ActivityRepository):
         event_type: str | None = None,
         from_date: float | None = None,
         to_date: float | None = None,
+        branch_name: str | None = None,
     ) -> tuple[list[ServerActivityLog], int]:
         filters: list[Any] = [ServerActivityLogModel.server_id == server_id]
         if event_type:
@@ -93,6 +95,8 @@ class SQLActivityRepository(ActivityRepository):
             filters.append(ServerActivityLogModel.timestamp >= from_date)
         if to_date is not None:
             filters.append(ServerActivityLogModel.timestamp <= to_date)
+        if branch_name is not None:
+            filters.append(ServerActivityLogModel.branch_name == branch_name)
 
         async with self._get_session() as s:
             count_stmt = select(func.count()).select_from(ServerActivityLogModel).where(*filters)
@@ -131,4 +135,5 @@ class SQLActivityRepository(ActivityRepository):
             actor_id=model.actor_id,
             summary=model.summary,
             details=model.to_details_dict(),
+            branch_name=model.branch_name,
         )

@@ -31,6 +31,7 @@ class ActivityEventSubscriber(EventHandler):
 
             actor_type = getattr(event, "actor_type", "system")
             actor_id = getattr(event, "actor_id", None)
+            branch_name = getattr(event, "branch_name", None)
 
             details: dict[str, Any] = {}
             if hasattr(event, "model_dump"):
@@ -49,6 +50,7 @@ class ActivityEventSubscriber(EventHandler):
                 actor_type=str(actor_type) if actor_type else "system",
                 actor_id=str(actor_id) if actor_id else None,
                 details=details,
+                branch_name=str(branch_name) if branch_name else None,
             )
             await self._repository.save(log_entry)
         except Exception as e:
@@ -153,7 +155,15 @@ class ActivityEventSubscriber(EventHandler):
         if event_name == "CommitPromotedEvent":
             cid = getattr(event, "commit_id", "")[:8]
             return f"Test commit {cid} promoted to production", "versioning.promoted"
-
+        if event_name == "BranchRuntimeStartedEvent":
+            bname = getattr(event, "branch_name", "branch")
+            return f"Branch '{bname}' runtime started", "versioning.branch_started"
+        if event_name == "BranchRuntimeStoppedEvent":
+            bname = getattr(event, "branch_name", "branch")
+            return f"Branch '{bname}' runtime stopped", "versioning.branch_stopped"
+        if event_name == "DataTemplateSavedEvent":
+            tname = getattr(event, "template_name", "template")
+            return f"Data template '{tname}' saved", "versioning.data_template_saved"
         # Generic fallback for any other server-scoped event
         snake_name = "".join(
             ["_" + c.lower() if c.isupper() else c for c in event_name]

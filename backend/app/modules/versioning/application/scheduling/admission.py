@@ -752,9 +752,23 @@ class RuntimeAdmissionScheduler:
                                 check_os_ports=check_os_ports,
                             )
                         else:
+                            branch_tbl_ports = ServerBranchModel.__table__
+                            own_branch = (
+                                await p_session.execute(
+                                    branch_tbl_ports.select()
+                                    .where(
+                                        branch_tbl_ports.c.server_id == server_id,
+                                        branch_tbl_ports.c.name == branch_name,
+                                    )
+                                    .limit(1)
+                                )
+                            ).mappings().first()
                             await validate_port_set_atomic(
                                 p_session,
                                 port_set,
+                                exclude_branch_id=(
+                                    own_branch["id"] if own_branch is not None else None
+                                ),
                                 exclude_runtime_id=runtime_id,
                                 check_os_ports=check_os_ports,
                             )

@@ -62,6 +62,38 @@ class TestRunFailedEvent(DomainEvent):
     blamed_mod: str | None = None
 
 
+class BranchRuntimeStartedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    runtime_id: str
+    commit_sha: str
+    data_template_id: str | None = None
+    allow_public_test_join: bool = False
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class BranchRuntimeStoppedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    runtime_id: str
+    exit_code: int | None = None
+    oom_killed: bool = False
+    saved_template_id: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class DataTemplateSavedEvent(DomainEvent):
+    server_id: str
+    template_id: str
+    template_name: str
+    branch_name: str | None = None
+    commit_sha: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
 # DEPRECATED (P3-1): retained for historical event-log deserialization only; never emitted
 class CommitPromotedEvent(DomainEvent):
     server_id: str

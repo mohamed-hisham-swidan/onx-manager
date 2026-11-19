@@ -14,6 +14,7 @@ class GetServerActivityQuery(Query):
     event_type: str | None = None
     from_date: float | None = None
     to_date: float | None = None
+    branch_name: str | None = None
 
 
 @dataclass
@@ -42,6 +43,7 @@ class GetServerActivityHandler(QueryHandler[GetServerActivityQuery]):
             event_type=query.event_type,
             from_date=query.from_date,
             to_date=query.to_date,
+            branch_name=query.branch_name,
         )
         return PaginatedActivityLogs(
             items=items,
