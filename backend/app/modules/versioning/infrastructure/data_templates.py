@@ -120,7 +120,7 @@ def _iter_class_e_files(source_root: Path) -> list[str]:
                 raise SymlinkEscapeError(
                     f"Symlink inside Class-E data template source: {full}"
                 )
-            if not full.is_file(follow_symlinks=False):
+            if not full.is_file():
                 continue
             result.append(relpath)
         for dname in list(dirnames):
