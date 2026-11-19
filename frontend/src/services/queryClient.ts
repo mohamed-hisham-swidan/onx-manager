@@ -76,6 +76,10 @@ export const queryKeys = {
       ["versioning", "branch-console", serverId, branchName] as const,
     branchActivity: (serverId: string, branchName: string) =>
       ["versioning", "branch-activity", serverId, branchName] as const,
+    githubStatus: (serverId: string) =>
+      ["versioning", "github", "status", serverId] as const,
+    githubWebhookDeliveries: (serverId: string, limit = 50) =>
+      ["versioning", "github", "webhook-deliveries", serverId, limit] as const,
   },
   exposure: {
     all: ["exposure"] as const,

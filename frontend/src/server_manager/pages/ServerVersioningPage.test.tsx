@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ServerVersioningPage } from "./ServerVersioningPage";
+import type { GitHubConnectionStatusResponse } from "@/server_manager/types";
 const mockApi = {
   getServerBranches: vi.fn(),
   createServerBranch: vi.fn(),
@@ -41,6 +42,15 @@ const mockApi = {
   stopBranchRun: vi.fn(),
   getBranchConsole: vi.fn(),
   sendBranchConsoleCommand: vi.fn(),
+  getGitHubStatus: vi.fn(),
+  generateGitHubDeployKey: vi.fn(),
+  connectGitHub: vi.fn(),
+  rotateGitHubCredentials: vi.fn(),
+  disconnectGitHub: vi.fn(),
+  fetchGitHubSync: vi.fn(),
+  pushGitHubBranch: vi.fn(),
+  listGitHubWebhookDeliveries: vi.fn(),
+  redeliverGitHubWebhook: vi.fn(),
 };
 
 vi.mock("@/services/api", () => ({
@@ -109,6 +119,51 @@ const mockBotSettings = {
   previous_tree_retention: "until_health_gate",
 };
 
+function buildGitHubStatus(
+  overrides: Partial<GitHubConnectionStatusResponse> = {},
+): GitHubConnectionStatusResponse {
+  return {
+    server_id: "srv-vers-1",
+    connected: true,
+    remote_url: "https://github.com/owner/repo.git",
+    auth_method: "pat",
+    credential_hint: "…abcd",
+    deploy_public_key: null,
+    webhook_enabled: true,
+    webhook_path: "/api/v1/webhooks/github/srv-vers-1",
+    sync_status: "synced",
+    needs_reauth: false,
+    last_error_code: null,
+    last_error_message: null,
+    last_fetch_at: "2026-09-14T10:00:00Z",
+    last_push_at: "2026-09-14T10:05:00Z",
+    remote_default_branch: "main",
+    remote_head_sha: "cccc3333dddd4444",
+    branches: [
+      {
+        branch: "main",
+        status: "synced",
+        local_sha: "aaaa1111bbbb2222",
+        remote_sha: "aaaa1111bbbb2222",
+        ahead_count: 0,
+        behind_count: 0,
+      },
+      {
+        branch: "feat-trial",
+        status: "ahead",
+        local_sha: "eeee5555ffff6666",
+        remote_sha: null,
+        ahead_count: 2,
+        behind_count: 0,
+      },
+    ],
+    created_at: "2026-09-14T09:00:00Z",
+    updated_at: "2026-09-14T10:05:00Z",
+    generated_webhook_secret: null,
+    ...overrides,
+  };
+}
+
 describe("ServerVersioningPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -126,6 +181,19 @@ describe("ServerVersioningPage", () => {
       container_name: "onx-feat-trial",
       lines: ["[INFO] Branch container ready"],
     });
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(
+      buildGitHubStatus({
+        connected: false,
+        remote_url: null,
+        auth_method: null,
+        credential_hint: null,
+        webhook_enabled: false,
+        webhook_path: null,
+        sync_status: "disconnected",
+        branches: [],
+      }),
+    );
+    vi.mocked(mockApi.listGitHubWebhookDeliveries).mockResolvedValue([]);
   });
 
   const renderPage = () =>
@@ -663,5 +731,238 @@ describe("ServerVersioningPage", () => {
     expect(await screen.findByTestId("branch-console-output")).toHaveTextContent(
       "[INFO] Branch container ready",
     );
+  });
+
+  it("renders the disconnected GitHub sync panel and opens the connect modal", async () => {
+    renderPage();
+
+    const panel = await screen.findByTestId("github-sync-panel");
+    expect(within(panel).getByTestId("github-sync-status-badge")).toHaveTextContent(
+      "Not Connected",
+    );
+    fireEvent.click(within(panel).getByRole("button", { name: "Connect GitHub" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Connect GitHub Repository" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders connected GitHub sync state, 1:1 branch indicator, and toolbar pill on branch switch", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+
+    renderPage();
+
+    const panel = await screen.findByTestId("github-sync-panel");
+    expect(within(panel).getByTestId("github-sync-status-badge")).toHaveTextContent(
+      "Synced",
+    );
+    expect(
+      within(panel).getByText("https://github.com/owner/repo.git"),
+    ).toBeInTheDocument();
+
+    const strip = within(panel).getByTestId("github-branch-sync-strip");
+    expect(strip).toHaveTextContent("Selected Branch (1:1 Sync)");
+    expect(strip).toHaveTextContent("main");
+    expect(strip).toHaveTextContent("Local aaaa1111");
+    expect(screen.getByTestId("branch-github-sync-pill")).toHaveTextContent(
+      "GitHub: Synced",
+    );
+
+    await switchToTrialBranch();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("branch-github-sync-pill")).toHaveTextContent(
+        "GitHub: 2 ahead",
+      ),
+    );
+  });
+
+  it("clicking Fetch Now calls fetchGitHubSync and shows success feedback", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+    vi.mocked(mockApi.fetchGitHubSync).mockResolvedValue({
+      server_id: "srv-vers-1",
+      sync_status: "synced",
+      trigger: "manual",
+      main_fast_forwarded: true,
+      previous_main_sha: "aaaa1111bbbb2222",
+      main_sha: "bbbb2222cccc3333",
+      remote_default_branch: "main",
+      remote_head_sha: "bbbb2222cccc3333",
+      branches: [],
+      fetched_at: "2026-09-14T10:10:00Z",
+    });
+
+    renderPage();
+    await screen.findByTestId("github-sync-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Now" }));
+
+    await waitFor(() =>
+      expect(mockApi.fetchGitHubSync).toHaveBeenCalledWith("srv-vers-1"),
+    );
+    expect(
+      await screen.findByText("Fetched from GitHub and fast-forwarded 'main'."),
+    ).toBeInTheDocument();
+  });
+
+  it("clicking Push main calls pushGitHubBranch without a force key", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+    vi.mocked(mockApi.pushGitHubBranch).mockResolvedValue({
+      server_id: "srv-vers-1",
+      branch_name: "main",
+      commit_sha: "abcdef1234567890",
+      remote_url: "https://github.com/owner/repo.git",
+      sync_status: "synced",
+      branches: [],
+      pushed_at: "2026-09-14T10:15:00Z",
+    });
+
+    renderPage();
+    await screen.findByTestId("github-sync-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+
+    await waitFor(() =>
+      expect(mockApi.pushGitHubBranch).toHaveBeenCalledWith("srv-vers-1", {
+        branch_name: "main",
+      }),
+    );
+    expect(mockApi.pushGitHubBranch.mock.calls[0][1]).toEqual({
+      branch_name: "main",
+    });
+    expect(
+      await screen.findByText(
+        "Pushed branch 'main' (abcdef12) to GitHub.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the non-fast-forward main conflict alert with short SHAs", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+    vi.mocked(mockApi.pushGitHubBranch).mockRejectedValue(
+      Object.assign(new Error("Non-fast-forward update rejected"), {
+        code: "GITHUB_NON_FAST_FORWARD_MAIN",
+        status: 409,
+        detail: {
+          local_sha: "aaaa1111bbbb2222",
+          remote_sha: "cccc3333dddd4444",
+        },
+      }),
+    );
+
+    renderPage();
+    await screen.findByTestId("github-sync-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+
+    const alert = await screen.findByTestId("github-nff-conflict-alert");
+    expect(alert).toHaveTextContent("Local: aaaa1111");
+    expect(alert).toHaveTextContent("Remote: cccc3333");
+    expect(alert).toHaveTextContent("Force-push is disabled to protect server history.");
+  });
+
+  it("renders the reauth banner whose CTA opens the rotate credentials modal", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+    vi.mocked(mockApi.pushGitHubBranch).mockRejectedValue(
+      Object.assign(new Error("GitHub authentication failed"), {
+        code: "GITHUB_AUTH_FAILED",
+        status: 409,
+        detail: { needs_reauth: true },
+      }),
+    );
+
+    renderPage();
+    await screen.findByTestId("github-sync-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+
+    const banner = await screen.findByTestId("github-reauth-banner");
+    expect(banner).toHaveTextContent("GitHub authentication failed");
+    fireEvent.click(
+      within(banner).getByRole("button", {
+        name: "Reconnect / Rotate Credentials",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Rotate GitHub Credentials & Webhook",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the plain .jar push rejection alert with forbidden paths", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+    vi.mocked(mockApi.pushGitHubBranch).mockRejectedValue(
+      Object.assign(new Error("Push rejected"), {
+        code: "GITHUB_PUSH_REJECTED",
+        status: 409,
+        detail: {
+          branch: "main",
+          reason: "plain_jar_blob_forbidden",
+          forbidden_paths: ["plugins/Test.jar"],
+        },
+      }),
+    );
+
+    renderPage();
+    await screen.findByTestId("github-sync-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+
+    const alert = await screen.findByTestId("github-push-rejected-alert");
+    expect(alert).toHaveTextContent(
+      "Push rejected: plain .jar binaries cannot be pushed to GitHub.",
+    );
+    expect(alert).toHaveTextContent("plugins/Test.jar");
+  });
+
+  it("opens disconnect and webhook deliveries modals, preserving local history feedback", async () => {
+    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
+    vi.mocked(mockApi.disconnectGitHub).mockResolvedValue({
+      server_id: "srv-vers-1",
+      disconnected: true,
+      remote_url: "https://github.com/owner/repo.git",
+      local_history_preserved: true,
+      purged_deliveries: 0,
+    });
+
+    renderPage();
+    await screen.findByTestId("github-sync-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Webhook Deliveries" }));
+    const deliveriesDialog = await screen.findByRole("dialog", {
+      name: "GitHub Webhook Deliveries",
+    });
+    expect(deliveriesDialog).toBeInTheDocument();
+    fireEvent.click(
+      within(deliveriesDialog).getByRole("button", { name: "Close" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    const disconnectDialog = await screen.findByRole("dialog", {
+      name: "Disconnect GitHub Repository",
+    });
+    expect(
+      within(disconnectDialog).getByText(/Local Git history is preserved/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(disconnectDialog).getByRole("button", {
+        name: "Disconnect GitHub",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockApi.disconnectGitHub).toHaveBeenCalledWith(
+        "srv-vers-1",
+        false,
+      ),
+    );
+    expect(
+      await screen.findByText(
+        "Disconnected from GitHub (local Git history preserved).",
+      ),
+    ).toBeInTheDocument();
   });
 });

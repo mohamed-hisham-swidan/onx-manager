@@ -986,3 +986,157 @@ export interface BranchConsoleCommandResponse {
   command: string;
   output: string;
 }
+
+// P5-3 / P5-4 GitHub Sync types
+
+export type GitHubAuthMethod = "pat" | "ssh_deploy_key";
+
+export type GitHubBranchSyncStatus =
+  | "synced"
+  | "ahead"
+  | "behind"
+  | "diverged"
+  | "local_only"
+  | "remote_only";
+
+export type GitHubSyncStatus =
+  | "disconnected"
+  | "idle"
+  | "synced"
+  | "ahead"
+  | "behind"
+  | "diverged"
+  | "conflict"
+  | "auth_failed"
+  | "error";
+
+export type GitHubWebhookIngestStatus = "queued" | "deduplicated" | "ignored";
+
+export interface GenerateGitHubDeployKeyRequest {
+  comment?: string | null;
+}
+
+export interface GenerateGitHubDeployKeyResponse {
+  server_id: string;
+  public_key_openssh: string;
+  private_key_pem: string;
+  fingerprint_sha256: string;
+}
+
+export interface ConnectGitHubRequest {
+  remote_url: string;
+  auth_method: GitHubAuthMethod;
+  credential_secret: string;
+  deploy_public_key?: string | null;
+  webhook_secret?: string | null;
+  enable_webhook: boolean;
+}
+
+export interface RotateGitHubCredentialsRequest {
+  credential_secret?: string | null;
+  auth_method?: GitHubAuthMethod | null;
+  deploy_public_key?: string | null;
+  webhook_secret?: string | null;
+  enable_webhook?: boolean | null;
+  regenerate_webhook_secret?: boolean;
+  disable_webhook?: boolean;
+}
+
+/** Push a branch to GitHub. Force-push is deliberately absent and forbidden. */
+export interface PushGitHubBranchRequest {
+  branch_name: string;
+}
+
+export interface GitHubBranchSyncState {
+  branch: string;
+  status: GitHubBranchSyncStatus;
+  local_sha: string | null;
+  remote_sha: string | null;
+  ahead_count: number;
+  behind_count: number;
+}
+
+export interface GitHubConnectionStatusResponse {
+  server_id: string;
+  connected: boolean;
+  remote_url: string | null;
+  auth_method: GitHubAuthMethod | string | null;
+  credential_hint: string | null;
+  deploy_public_key: string | null;
+  webhook_enabled: boolean;
+  webhook_path: string | null;
+  sync_status: GitHubSyncStatus | string;
+  needs_reauth: boolean;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  last_fetch_at: string | null;
+  last_push_at: string | null;
+  remote_default_branch: string | null;
+  remote_head_sha: string | null;
+  branches: GitHubBranchSyncState[];
+  created_at: string | null;
+  updated_at: string | null;
+  generated_webhook_secret: string | null;
+}
+
+export interface GitHubDisconnectResponse {
+  server_id: string;
+  disconnected: boolean;
+  remote_url: string;
+  local_history_preserved: boolean;
+  purged_deliveries: number;
+}
+
+export interface GitHubSyncResponse {
+  server_id: string;
+  sync_status: GitHubSyncStatus | string;
+  trigger: string;
+  main_fast_forwarded: boolean;
+  previous_main_sha: string | null;
+  main_sha: string | null;
+  remote_default_branch: string | null;
+  remote_head_sha: string | null;
+  branches: GitHubBranchSyncState[];
+  fetched_at: string;
+}
+
+export interface GitHubPushResponse {
+  server_id: string;
+  branch_name: string;
+  commit_sha: string;
+  remote_url: string;
+  sync_status: GitHubSyncStatus | string;
+  branches: GitHubBranchSyncState[];
+  pushed_at: string;
+}
+
+export interface GitHubWebhookIngestResponse {
+  server_id: string;
+  delivery_id: string;
+  event_type: string;
+  status: GitHubWebhookIngestStatus;
+  deduplicated: boolean;
+  redelivered: boolean;
+  redelivery_count: number;
+  operation_id: string | null;
+  received_at: string | null;
+}
+
+/** Secret-free delivery ledger row (deliberately omits raw_payload). */
+export interface GitHubWebhookDeliveryResponse {
+  id: string;
+  server_id: string;
+  delivery_id: string;
+  event_type: string;
+  ref: string | null;
+  before_sha: string | null;
+  after_sha: string | null;
+  payload_sha256: string;
+  signature_valid: boolean;
+  status: string;
+  operation_id: string | null;
+  error_message: string | null;
+  redelivery_count: number;
+  received_at: string;
+  processed_at: string | null;
+}

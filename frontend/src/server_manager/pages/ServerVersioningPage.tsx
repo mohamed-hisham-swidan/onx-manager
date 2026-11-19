@@ -13,6 +13,16 @@ import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
 import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
 import { StorageHealthBanner } from "@/server_manager/components/versioning/StorageHealthBanner";
 import { BranchToolbar } from "@/server_manager/components/versioning/BranchToolbar";
+import {
+  GitHubSyncPanel,
+  type GitHubSyncAlertState,
+} from "@/server_manager/components/versioning/GitHubSyncPanel";
+import {
+  ConnectGitHubModal,
+  DisconnectGitHubModal,
+  GitHubWebhookDeliveriesModal,
+  RotateGitHubCredentialsModal,
+} from "@/server_manager/components/versioning/GitHubModals";
 import { BranchRunPanel } from "@/server_manager/components/versioning/BranchRunPanel";
 import {
   BranchConsoleActivityModal,
@@ -37,6 +47,7 @@ import type {
   ClassCSnapshot,
   DataTemplate,
   DynamicClassCEntry,
+  GitHubConnectionStatusResponse,
   PortSet,
   PreflightStatus,
   RefreshStateResponse,
@@ -47,6 +58,66 @@ import type {
   ServerTag,
   ServerTestRun,
 } from "@/server_manager/types";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function classifyGitHubSyncError(
+  err: unknown,
+  fallback: string,
+): GitHubSyncAlertState {
+  const rec = isPlainObject(err) ? err : null;
+  const detail = isPlainObject(rec?.detail) ? rec.detail : null;
+  const code =
+    typeof rec?.code === "string"
+      ? rec.code
+      : typeof detail?.code === "string"
+        ? detail.code
+        : null;
+  const detailMessage =
+    detail && typeof detail.message === "string" ? detail.message : null;
+  const message =
+    err instanceof Error && err.message
+      ? err.message
+      : detailMessage ?? fallback;
+
+  if (code === "GITHUB_AUTH_FAILED" || detail?.needs_reauth === true) {
+    return {
+      kind: "auth_failed",
+      code,
+      message,
+    };
+  }
+  if (code === "GITHUB_NON_FAST_FORWARD_MAIN") {
+    return {
+      kind: "non_fast_forward_main",
+      code,
+      message,
+      localSha: typeof detail?.local_sha === "string" ? detail.local_sha : null,
+      remoteSha:
+        typeof detail?.remote_sha === "string" ? detail.remote_sha : null,
+    };
+  }
+  if (code === "GITHUB_PUSH_REJECTED") {
+    const forbiddenPaths = Array.isArray(detail?.forbidden_paths)
+      ? detail.forbidden_paths.filter((p): p is string => typeof p === "string")
+      : [];
+    return {
+      kind: "push_rejected",
+      code,
+      message,
+      branch: typeof detail?.branch === "string" ? detail.branch : null,
+      reason: typeof detail?.reason === "string" ? detail.reason : null,
+      forbiddenPaths,
+    };
+  }
+  return {
+    kind: "generic",
+    code,
+    message,
+  };
+}
 
 export function ServerVersioningPage() {
   const api = useMemo(() => createAuthenticatedApi(), []);
@@ -106,6 +177,16 @@ export function ServerVersioningPage() {
   const [dataTemplatesModalMode, setDataTemplatesModalMode] = useState<"closed" | "list" | "save-branch">("closed");
   const [branchConsoleModalTab, setBranchConsoleModalTab] = useState<null | "console" | "activity">(null);
 
+  // P5 GitHub sync state & modals
+  const [githubStatus, setGithubStatus] = useState<GitHubConnectionStatusResponse | null>(null);
+  const [isGitHubFetching, setIsGitHubFetching] = useState(false);
+  const [isGitHubPushing, setIsGitHubPushing] = useState(false);
+  const [githubSyncAlert, setGithubSyncAlert] = useState<GitHubSyncAlertState | null>(null);
+  const [isConnectGitHubOpen, setIsConnectGitHubOpen] = useState(false);
+  const [isRotateGitHubOpen, setIsRotateGitHubOpen] = useState(false);
+  const [isDisconnectGitHubOpen, setIsDisconnectGitHubOpen] = useState(false);
+  const [isWebhookDeliveriesOpen, setIsWebhookDeliveriesOpen] = useState(false);
+
   const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
   const [viewLogTestRun, setViewLogTestRun] = useState<ServerTestRun | null>(null);
 
@@ -145,6 +226,10 @@ export function ServerVersioningPage() {
     branchRuntimeStatus === "running" || branchRuntimeStatus === "starting";
   const effectivePortSet =
     branchRuntime?.port_set ?? currentBranchObj?.port_set ?? null;
+  const selectedBranchGitHubSync = useMemo(() => {
+    if (!githubStatus?.connected) return null;
+    return githubStatus.branches.find((b) => b.branch === selectedBranch) ?? null;
+  }, [githubStatus, selectedBranch]);
 
   useEffect(() => {
     if (!serverId) return;
@@ -152,7 +237,7 @@ export function ServerVersioningPage() {
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData, templatesData, runtimeData] =
+        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData, templatesData, runtimeData, githubStatusData] =
           await Promise.all([
             api.getServerBranches(serverId),
             api.getServerCommits(serverId, undefined, undefined, selectedBranch),
@@ -170,6 +255,7 @@ export function ServerVersioningPage() {
             selectedBranch && selectedBranch !== "main"
               ? (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ?? Promise.resolve(null))
               : Promise.resolve(null),
+            api.getGitHubStatus?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
           ]);
 
         if (!isMounted) return;
@@ -185,6 +271,7 @@ export function ServerVersioningPage() {
         setSecrets(Array.isArray(secretsData) ? secretsData : []);
         setDataTemplates(Array.isArray(templatesData) ? templatesData : []);
         setBranchRuntime(runtimeData ?? null);
+        setGithubStatus(githubStatusData ?? null);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
@@ -347,6 +434,64 @@ export function ServerVersioningPage() {
       }).catch(() => {
         refresh();
       });
+    }
+  };
+
+  const handleGitHubFetch = async () => {
+    if (!serverId || !api.fetchGitHubSync) return;
+    setIsGitHubFetching(true);
+    setGithubSyncAlert(null);
+    try {
+      const res = await api.fetchGitHubSync(serverId);
+      setActionSuccess(
+        res.main_fast_forwarded
+          ? "Fetched from GitHub and fast-forwarded 'main'."
+          : "Fetched from GitHub.",
+      );
+      refresh();
+    } catch (err: unknown) {
+      const classified = classifyGitHubSyncError(
+        err,
+        "Failed to fetch from GitHub.",
+      );
+      setGithubSyncAlert(classified);
+      if (
+        classified.kind === "auth_failed" ||
+        classified.kind === "non_fast_forward_main"
+      ) {
+        refresh();
+      }
+    } finally {
+      setIsGitHubFetching(false);
+    }
+  };
+
+  const handleGitHubPush = async () => {
+    if (!serverId || !selectedBranch || !api.pushGitHubBranch) return;
+    setIsGitHubPushing(true);
+    setGithubSyncAlert(null);
+    try {
+      const res = await api.pushGitHubBranch(serverId, {
+        branch_name: selectedBranch,
+      });
+      setActionSuccess(
+        `Pushed branch '${res.branch_name}' (${res.commit_sha.slice(0, 8)}) to GitHub.`,
+      );
+      refresh();
+    } catch (err: unknown) {
+      const classified = classifyGitHubSyncError(
+        err,
+        `Failed to push branch '${selectedBranch}' to GitHub.`,
+      );
+      setGithubSyncAlert(classified);
+      if (
+        classified.kind === "auth_failed" ||
+        classified.kind === "non_fast_forward_main"
+      ) {
+        refresh();
+      }
+    } finally {
+      setIsGitHubPushing(false);
     }
   };
 
@@ -656,6 +801,23 @@ export function ServerVersioningPage() {
         onManageBranches={() => setIsManageBranchesOpen(true)}
         onExploreWorktree={() => setIsMaterializationOpen(true)}
         onMergeBranch={() => setIsMergeBranchOpen(true)}
+        githubBranchSync={selectedBranchGitHubSync}
+      />
+
+      {/* P5 GitHub Sync Panel */}
+      <GitHubSyncPanel
+        status={githubStatus}
+        selectedBranch={selectedBranch}
+        isFetching={isGitHubFetching}
+        isPushing={isGitHubPushing}
+        syncAlert={githubSyncAlert}
+        onDismissSyncAlert={() => setGithubSyncAlert(null)}
+        onFetchNow={handleGitHubFetch}
+        onPushBranch={handleGitHubPush}
+        onOpenConnectModal={() => setIsConnectGitHubOpen(true)}
+        onOpenRotateModal={() => setIsRotateGitHubOpen(true)}
+        onOpenDisconnectModal={() => setIsDisconnectGitHubOpen(true)}
+        onOpenDeliveriesModal={() => setIsWebhookDeliveriesOpen(true)}
       />
 
       {/* P4 Branch Runtime Panel (non-main branches only) */}
@@ -956,6 +1118,71 @@ export function ServerVersioningPage() {
           isRuntimeActive={isBranchRuntimeActive}
           initialTab={branchConsoleModalTab ?? "console"}
           onClose={() => setBranchConsoleModalTab(null)}
+        />
+      )}
+
+      {/* P5 GitHub Sync Modals */}
+      {serverId && (
+        <ConnectGitHubModal
+          isOpen={isConnectGitHubOpen}
+          serverId={serverId}
+          onConnected={(st) => {
+            setGithubStatus(st);
+            setGithubSyncAlert(null);
+            setActionSuccess("Connected to GitHub repository.");
+            refresh();
+          }}
+          onClose={() => setIsConnectGitHubOpen(false)}
+        />
+      )}
+
+      {serverId && (
+        <RotateGitHubCredentialsModal
+          isOpen={isRotateGitHubOpen}
+          serverId={serverId}
+          currentStatus={githubStatus}
+          onRotated={(st) => {
+            setGithubStatus(st);
+            setGithubSyncAlert(null);
+            setActionSuccess("GitHub credentials updated.");
+            refresh();
+          }}
+          onClose={() => setIsRotateGitHubOpen(false)}
+        />
+      )}
+
+      {serverId && (
+        <DisconnectGitHubModal
+          isOpen={isDisconnectGitHubOpen}
+          serverId={serverId}
+          remoteUrl={githubStatus?.remote_url ?? null}
+          onDisconnected={(res) => {
+            setGithubStatus(null);
+            setGithubSyncAlert(null);
+            setActionSuccess(
+              res.purged_deliveries > 0
+                ? `Disconnected from GitHub (local Git history preserved; purged ${res.purged_deliveries} deliveries).`
+                : "Disconnected from GitHub (local Git history preserved).",
+            );
+            refresh();
+          }}
+          onClose={() => setIsDisconnectGitHubOpen(false)}
+        />
+      )}
+
+      {serverId && (
+        <GitHubWebhookDeliveriesModal
+          isOpen={isWebhookDeliveriesOpen}
+          serverId={serverId}
+          webhookEnabled={Boolean(githubStatus?.webhook_enabled)}
+          webhookPath={githubStatus?.webhook_path ?? null}
+          onRedelivered={(res) => {
+            setActionSuccess(
+              `Webhook delivery '${res.delivery_id}' queued for redelivery.`,
+            );
+            refresh();
+          }}
+          onClose={() => setIsWebhookDeliveriesOpen(false)}
         />
       )}
     </div>

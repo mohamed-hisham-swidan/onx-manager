@@ -657,4 +657,142 @@ describe("createApiClient", () => {
     expect(url).toContain("branch=feat-trial");
   });
 
+  // P5-3 / P5-4 GitHub Sync
+  it("getGitHubStatus sends GET to the encoded server github path", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "srv/1", connected: false }));
+    await api.getGitHubStatus("srv/1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/srv%2F1/versioning/github",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("generateGitHubDeployKey sends an optional trimmed comment and omits a blank one", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ public_key_openssh: "ssh-ed25519 AAAA" }));
+    await api.generateGitHubDeployKey("s1", { comment: "  onx-key  " });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/deploy-key/generate",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ comment: "onx-key" }),
+      }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ public_key_openssh: "ssh-ed25519 BBBB" }));
+    await api.generateGitHubDeployKey("s1", { comment: "   " });
+    const init = vi.mocked(fetch).mock.calls[1][1] as RequestInit | undefined;
+    expect(init?.body).toBeUndefined();
+  });
+
+  it("connectGitHub sends a clean payload and omits blank optional secrets", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", connected: true }));
+    await api.connectGitHub("s1", {
+      remote_url: "https://github.com/owner/repo.git",
+      auth_method: "pat",
+      credential_secret: "ghp_token",
+      enable_webhook: false,
+      deploy_public_key: "",
+      webhook_secret: "",
+    });
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit | undefined;
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/connect",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({
+      remote_url: "https://github.com/owner/repo.git",
+      auth_method: "pat",
+      credential_secret: "ghp_token",
+      enable_webhook: false,
+    });
+  });
+
+  it("rotateGitHubCredentials sends only populated rotation fields", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", connected: true }));
+    await api.rotateGitHubCredentials("s1", {
+      credential_secret: "new-token",
+      auth_method: "pat",
+      regenerate_webhook_secret: true,
+      disable_webhook: false,
+      enable_webhook: null,
+      webhook_secret: "",
+      deploy_public_key: "",
+    });
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit | undefined;
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/credentials/rotate",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({
+      credential_secret: "new-token",
+      auth_method: "pat",
+      regenerate_webhook_secret: true,
+    });
+  });
+
+  it("disconnectGitHub sends purge_deliveries=false by default and true when requested", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", disconnected: true }));
+    await api.disconnectGitHub("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github?purge_deliveries=false",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", disconnected: true }));
+    await api.disconnectGitHub("s1", true);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github?purge_deliveries=true",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("fetchGitHubSync sends POST with no body", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", sync_status: "synced" }));
+    await api.fetchGitHubSync("s1");
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit | undefined;
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/fetch",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(init?.body).toBeUndefined();
+  });
+
+  it("pushGitHubBranch sends strictly branch_name and never force", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch_name: "feat/ui" }));
+    const forgedBody = { branch_name: "feat/ui", force: true } as { branch_name: string };
+    await api.pushGitHubBranch("s1", forgedBody);
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit | undefined;
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/push",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({ branch_name: "feat/ui" });
+    expect(String(init?.body)).not.toContain("force");
+  });
+
+  it("listGitHubWebhookDeliveries sends GET with limit=50 by default and custom limits", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([]));
+    await api.listGitHubWebhookDeliveries("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/webhooks/deliveries?limit=50",
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([]));
+    await api.listGitHubWebhookDeliveries("s1", 10);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/webhooks/deliveries?limit=10",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("redeliverGitHubWebhook URL-encodes the delivery id and sends POST", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", delivery_id: "del/123+abc" }));
+    await api.redeliverGitHubWebhook("s1", "del/123+abc");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/github/webhooks/deliveries/del%2F123%2Babc/redeliver",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
 });

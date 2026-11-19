@@ -87,15 +87,26 @@ import type {
   CreateMaterializationRequest,
   CreateTagRequest,
   CreateTestDefinitionRequest,
+  ConnectGitHubRequest,
   DiffResponse,
   EvidenceBundle,
+  GenerateGitHubDeployKeyRequest,
+  GenerateGitHubDeployKeyResponse,
   GetActivityParams,
+  GitHubConnectionStatusResponse,
+  GitHubDisconnectResponse,
+  GitHubPushResponse,
+  GitHubSyncResponse,
+  GitHubWebhookDeliveryResponse,
+  GitHubWebhookIngestResponse,
   ImportReviewActionResponse,
   MaterializationCreateResponse,
   MaterializationFileResponse,
   MaterializationListItemResponse,
   MaterializationTreeResponse,
   PreflightStatus,
+  PushGitHubBranchRequest,
+  RotateGitHubCredentialsRequest,
   RunIsolatedTestRequest,
   SaveBranchDataTemplateRequest,
   ScanLiveChangesResponse,
@@ -609,6 +620,96 @@ export function createApiClient(
       request<BranchConsoleCommandResponse>(
         `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/console/command`,
         { method: "POST", body },
+      ),
+
+    // P5-3 / P5-4 GitHub Sync
+    getGitHubStatus: (serverId: string) =>
+      request<GitHubConnectionStatusResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github`,
+      ),
+    generateGitHubDeployKey: (
+      serverId: string,
+      body?: GenerateGitHubDeployKeyRequest,
+    ) => {
+      const payload: GenerateGitHubDeployKeyRequest = {};
+      if (body?.comment && body.comment.trim()) {
+        payload.comment = body.comment.trim();
+      }
+      return request<GenerateGitHubDeployKeyResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/deploy-key/generate`,
+        {
+          method: "POST",
+          ...(Object.keys(payload).length > 0 ? { body: payload } : {}),
+        },
+      );
+    },
+    connectGitHub: (serverId: string, body: ConnectGitHubRequest) => {
+      const payload: ConnectGitHubRequest = {
+        remote_url: body.remote_url,
+        auth_method: body.auth_method,
+        credential_secret: body.credential_secret,
+        enable_webhook: body.enable_webhook,
+        ...(body.deploy_public_key ? { deploy_public_key: body.deploy_public_key } : {}),
+        ...(body.webhook_secret ? { webhook_secret: body.webhook_secret } : {}),
+      };
+      return request<GitHubConnectionStatusResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/connect`,
+        { method: "POST", body: payload },
+      );
+    },
+    rotateGitHubCredentials: (
+      serverId: string,
+      body: RotateGitHubCredentialsRequest,
+    ) => {
+      const payload: RotateGitHubCredentialsRequest = {
+        ...(body.credential_secret ? { credential_secret: body.credential_secret } : {}),
+        ...(body.auth_method ? { auth_method: body.auth_method } : {}),
+        ...(body.deploy_public_key ? { deploy_public_key: body.deploy_public_key } : {}),
+        ...(body.webhook_secret ? { webhook_secret: body.webhook_secret } : {}),
+        ...(body.enable_webhook !== undefined && body.enable_webhook !== null
+          ? { enable_webhook: body.enable_webhook }
+          : {}),
+        ...(body.regenerate_webhook_secret ? { regenerate_webhook_secret: true } : {}),
+        ...(body.disable_webhook ? { disable_webhook: true } : {}),
+      };
+      return request<GitHubConnectionStatusResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/credentials/rotate`,
+        { method: "POST", body: payload },
+      );
+    },
+    disconnectGitHub: (serverId: string, purgeDeliveries: boolean = false) =>
+      request<GitHubDisconnectResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github`,
+        {
+          method: "DELETE",
+          params: { purge_deliveries: String(purgeDeliveries) },
+        },
+      ),
+    fetchGitHubSync: (serverId: string) =>
+      request<GitHubSyncResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/fetch`,
+        { method: "POST" },
+      ),
+    pushGitHubBranch: (serverId: string, body: PushGitHubBranchRequest) =>
+      request<GitHubPushResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/push`,
+        {
+          method: "POST",
+          // Explicitly omit `force` and any extraneous keys (backend enforces extra="forbid").
+          body: { branch_name: body.branch_name },
+        },
+      ),
+    listGitHubWebhookDeliveries: (serverId: string, limit: number = 50) =>
+      request<GitHubWebhookDeliveryResponse[]>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/webhooks/deliveries`,
+        {
+          params: { limit: String(limit) },
+        },
+      ),
+    redeliverGitHubWebhook: (serverId: string, deliveryId: string) =>
+      request<GitHubWebhookIngestResponse>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github/webhooks/deliveries/${encodeURIComponent(deliveryId)}/redeliver`,
+        { method: "POST" },
       ),
 
     // Branch Protection (Stage G)

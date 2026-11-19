@@ -1,5 +1,8 @@
 import { Icon } from "@/components/ui/Icon";
-import type { ServerBranch } from "@/server_manager/types";
+import type {
+  GitHubBranchSyncState,
+  ServerBranch,
+} from "@/server_manager/types";
 
 interface BranchToolbarProps {
   branches: ServerBranch[];
@@ -12,6 +15,33 @@ interface BranchToolbarProps {
   onManageBranches: () => void;
   onExploreWorktree: () => void;
   onMergeBranch?: () => void;
+  githubBranchSync?: GitHubBranchSyncState | null;
+}
+
+function githubSyncPillClasses(status: GitHubBranchSyncState["status"]): string {
+  if (status === "synced") {
+    return "border-status-success-border bg-status-success-bg text-status-success";
+  }
+  if (status === "ahead") {
+    return "border-status-info-border bg-status-info-bg text-status-info";
+  }
+  if (status === "behind" || status === "remote_only") {
+    return "border-status-warning-border bg-status-warning-bg text-status-warning";
+  }
+  if (status === "diverged") {
+    return "border-status-danger-border bg-status-danger-bg text-status-danger";
+  }
+  return "border-border-default bg-surface-elevated text-text-muted";
+}
+
+function githubSyncPillLabel(sync: GitHubBranchSyncState): string {
+  if (sync.status === "synced") return "GitHub: Synced";
+  if (sync.status === "ahead") return `GitHub: ${sync.ahead_count} ahead`;
+  if (sync.status === "behind") return `GitHub: ${sync.behind_count} behind`;
+  if (sync.status === "diverged") return "GitHub: Diverged";
+  if (sync.status === "local_only") return "GitHub: Local only";
+  if (sync.status === "remote_only") return "GitHub: Remote only";
+  return "GitHub: Unknown";
 }
 
 export function BranchToolbar({
@@ -25,6 +55,7 @@ export function BranchToolbar({
   onManageBranches,
   onExploreWorktree,
   onMergeBranch,
+  githubBranchSync,
 }: BranchToolbarProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-card p-3 rounded-xl border border-border-default">
@@ -88,6 +119,17 @@ export function BranchToolbar({
           >
             <Icon name="lock" size={11} />
             Locked
+          </span>
+        )}
+
+        {githubBranchSync && (
+          <span
+            data-testid="branch-github-sync-pill"
+            title={`GitHub sync for '${githubBranchSync.branch}'`}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${githubSyncPillClasses(githubBranchSync.status)}`}
+          >
+            <Icon name="version-branch" size={11} />
+            {githubSyncPillLabel(githubBranchSync)}
           </span>
         )}
 
