@@ -69,6 +69,13 @@ export const queryKeys = {
     classCSnapshots: (serverId: string) => ["versioning", "class-c", "snapshots", serverId] as const,
     dynamicClassC: (serverId: string) => ["versioning", "class-c", "dynamic", serverId] as const,
     secrets: (serverId: string) => ["versioning", "secrets", serverId] as const,
+    dataTemplates: (serverId: string) => ["versioning", "data-templates", serverId] as const,
+    branchRuntime: (serverId: string, branchName: string) =>
+      ["versioning", "branch-runtime", serverId, branchName] as const,
+    branchConsole: (serverId: string, branchName: string) =>
+      ["versioning", "branch-console", serverId, branchName] as const,
+    branchActivity: (serverId: string, branchName: string) =>
+      ["versioning", "branch-activity", serverId, branchName] as const,
   },
   exposure: {
     all: ["exposure"] as const,

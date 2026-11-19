@@ -58,6 +58,39 @@ export function BranchToolbar({
           </span>
         )}
 
+        {(currentBranchObj?.runtime_status === "running" ||
+          currentBranchObj?.runtime_status === "starting") && (
+          <span
+            data-testid="branch-runtime-badge"
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+              currentBranchObj.runtime_status === "running"
+                ? "bg-status-success-bg text-status-success border-status-success-border"
+                : "bg-status-warning-bg text-status-warning border-status-warning-border"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                currentBranchObj.runtime_status === "running"
+                  ? "bg-status-success"
+                  : "bg-status-warning animate-pulse"
+              }`}
+              aria-hidden="true"
+            />
+            Runtime: {currentBranchObj.runtime_status}
+          </span>
+        )}
+
+        {currentBranchObj?.worktree_locked && (
+          <span
+            data-testid="branch-lock-badge"
+            title={currentBranchObj.worktree_lock_reason ?? "Worktree locked by active runtime"}
+            className="inline-flex items-center gap-1 rounded-full border border-border-default bg-surface-elevated px-2 py-0.5 text-[11px] font-semibold text-text-secondary"
+          >
+            <Icon name="lock" size={11} />
+            Locked
+          </span>
+        )}
+
         <button
           type="button"
           onClick={onNewBranch}

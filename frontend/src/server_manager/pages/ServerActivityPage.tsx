@@ -3,7 +3,11 @@ import { useParams } from "react-router-dom";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
 import { HashBadge } from "@/components/ui/HashBadge";
-import type { ServerActivityLog } from "@/server_manager/types";
+import type {
+  GetActivityParams,
+  ServerActivityLog,
+  ServerBranch,
+} from "@/server_manager/types";
 
 function getCategoryBadge(eventType: string): { label: string; color: string; icon: IconName } {
   if (eventType.startsWith("server.crashed")) {
@@ -82,6 +86,8 @@ export function ServerActivityPage() {
   const limit = 25;
   const [offset, setOffset] = useState<number>(0);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [branches, setBranches] = useState<ServerBranch[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
 
@@ -98,15 +104,42 @@ export function ServerActivityPage() {
     if (!serverId) return;
     let isCancelled = false;
 
+    const loadBranches = async () => {
+      try {
+        const branchData =
+          await (api.getServerBranches?.(serverId)?.catch(() => []) ?? Promise.resolve([]));
+        if (!isCancelled) {
+          setBranches(Array.isArray(branchData) ? branchData : []);
+        }
+      } catch {
+        // Branch filters are optional; activity logs remain usable without them.
+        if (!isCancelled) setBranches([]);
+      }
+    };
+
+    void loadBranches();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [serverId, api]);
+
+  useEffect(() => {
+    if (!serverId) return;
+    let isCancelled = false;
+
     const fetchLogs = async () => {
       try {
         setError(null);
-        const params: Record<string, string | number> = {
+        const params: GetActivityParams = {
           limit,
           offset,
         };
         if (categoryFilter !== "all") {
           params.event_type = categoryFilter;
+        }
+        if (branchFilter !== "all") {
+          params.branch = branchFilter;
         }
 
         const data = await api.getServerActivity(serverId, params);
@@ -130,7 +163,7 @@ export function ServerActivityPage() {
     return () => {
       isCancelled = true;
     };
-  }, [serverId, limit, offset, categoryFilter, api, refreshKey]);
+  }, [serverId, limit, offset, categoryFilter, branchFilter, api, refreshKey]);
 
   const toggleExpand = (logId: string) => {
     setExpandedLogIds((prev) => {
@@ -222,6 +255,29 @@ export function ServerActivityPage() {
             })}
           </div>
 
+          {/* Branch filter */}
+          {branches.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Icon name="version-branch" size={13} className="text-text-muted" />
+              <select
+                aria-label="Filter by branch"
+                value={branchFilter}
+                onChange={(e) => {
+                  setBranchFilter(e.target.value);
+                  setOffset(0);
+                }}
+                className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-primary"
+              >
+                <option value="all">All Branches</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.name}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Search box */}
           <div className="relative min-w-[240px]">
             <Icon
@@ -288,7 +344,7 @@ export function ServerActivityPage() {
             No activity logs found
           </h3>
           <p className="text-sm text-text-muted max-w-sm mx-auto mt-1">
-            {searchQuery || categoryFilter !== "all"
+            {searchQuery || categoryFilter !== "all" || branchFilter !== "all"
               ? "No events match the current filter criteria. Try selecting 'All Events' or clearing the search box."
               : "Events will appear here as configuration changes, server starts/stops, or version snapshots occur."}
           </p>
@@ -331,6 +387,14 @@ export function ServerActivityPage() {
                         <Icon name={log.actor_type === "user" ? "users" : "settings"} size={11} />
                         {log.actor_type === "user" ? log.actor_id || "User" : "System"}
                       </span>
+
+                      {/* Branch badge */}
+                      {log.branch_name && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-status-warning-bg text-status-warning border border-status-warning-border">
+                          <Icon name="version-branch" size={11} />
+                          {log.branch_name}
+                        </span>
+                      )}
 
                       {/* Relative time */}
                       <span

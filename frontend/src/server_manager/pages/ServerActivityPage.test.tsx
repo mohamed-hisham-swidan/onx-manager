@@ -5,6 +5,7 @@ import { ServerActivityPage } from "./ServerActivityPage";
 
 const mockApi = {
   getServerActivity: vi.fn(),
+  getServerBranches: vi.fn(),
 };
 
 vi.mock("@/services/api", () => ({
@@ -48,6 +49,7 @@ const mockLogs = [
 describe("ServerActivityPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApi.getServerBranches.mockResolvedValue([]);
     mockApi.getServerActivity.mockResolvedValue({
       items: mockLogs,
       total: 3,
@@ -154,6 +156,60 @@ describe("ServerActivityPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Network connection lost")).toBeInTheDocument();
       expect(screen.getByText("Retry")).toBeInTheDocument();
+    });
+  });
+
+  it("renders a branch badge on activity items that include branch_name", async () => {
+    mockApi.getServerActivity.mockResolvedValue({
+      items: [
+        {
+          ...mockLogs[0],
+          id: "act-branch-1",
+          branch_name: "feat-trial",
+          summary: "Branch run started",
+        },
+      ],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Branch run started")).toBeInTheDocument();
+    expect(screen.getByText("feat-trial")).toBeInTheDocument();
+  });
+
+  it("forwards the selected branch filter to getServerActivity", async () => {
+    mockApi.getServerBranches.mockResolvedValue([
+      {
+        id: "b-main",
+        server_id: "srv-act-1",
+        name: "main",
+        head_commit_id: "c1",
+        created_at: "2026-09-14T10:00:00Z",
+      },
+      {
+        id: "b-trial",
+        server_id: "srv-act-1",
+        name: "feat-trial",
+        head_commit_id: "c2",
+        created_at: "2026-09-14T11:00:00Z",
+      },
+    ]);
+
+    renderPage();
+
+    const branchSelect = await screen.findByLabelText("Filter by branch");
+    expect(screen.getByText("Server started successfully")).toBeInTheDocument();
+
+    fireEvent.change(branchSelect, { target: { value: "feat-trial" } });
+
+    await waitFor(() => {
+      expect(mockApi.getServerActivity).toHaveBeenCalledWith(
+        "srv-act-1",
+        expect.objectContaining({ branch: "feat-trial" }),
+      );
     });
   });
 });

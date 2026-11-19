@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ServerVersioningPage } from "./ServerVersioningPage";
@@ -30,6 +30,17 @@ const mockApi = {
   listSecrets: vi.fn().mockResolvedValue([{ server_id: "srv-vers-1", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", kek_version: 1, created_at: "2024", updated_at: "2024" }]),
   mergeServerCommits: vi.fn().mockResolvedValue({ commit_id: "m1", server_id: "srv-vers-1", branch_name: "main", parent_commit_ids: [], warnings: ["lossy"] }),
   extractSecret: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", branch: "dev", path: "config.yml", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", replaced_occurrences: 1, remaining_findings: [] }),
+  listDataTemplates: vi.fn(),
+  createDataTemplate: vi.fn(),
+  deleteDataTemplate: vi.fn(),
+  saveBranchDataTemplate: vi.fn(),
+  allocateBranchPortSet: vi.fn(),
+  setBranchPortSet: vi.fn(),
+  getBranchRuntime: vi.fn(),
+  startBranchRun: vi.fn(),
+  stopBranchRun: vi.fn(),
+  getBranchConsole: vi.fn(),
+  sendBranchConsoleCommand: vi.fn(),
 };
 
 vi.mock("@/services/api", () => ({
@@ -106,6 +117,15 @@ describe("ServerVersioningPage", () => {
     vi.mocked(mockApi.getBotSettings).mockResolvedValue(mockBotSettings);
     vi.mocked(mockApi.getPreflightStatus).mockResolvedValue(mockPreflight);
     vi.mocked(mockApi.getServerTestRuns).mockResolvedValue([]);
+    vi.mocked(mockApi.listDataTemplates).mockResolvedValue([]);
+    vi.mocked(mockApi.getBranchRuntime).mockResolvedValue(null);
+    vi.mocked(mockApi.getBranchConsole).mockResolvedValue({
+      server_id: "srv-vers-1",
+      branch_name: "feat-trial",
+      runtime_id: "rt-1",
+      container_name: "onx-feat-trial",
+      lines: ["[INFO] Branch container ready"],
+    });
   });
 
   const renderPage = () =>
@@ -490,5 +510,158 @@ describe("ServerVersioningPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Launch Isolated Bot Test" })).toBeInTheDocument();
     });
+  });
+
+  const switchToTrialBranch = async () => {
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue("main"), { target: { value: "feat-trial" } });
+    return screen.findByTestId("branch-run-panel");
+  };
+
+  it("hides the Branch Run Panel on main and shows it after switching to feat-trial", async () => {
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    expect(screen.queryByTestId("branch-run-panel")).not.toBeInTheDocument();
+
+    const panel = await switchToTrialBranch();
+
+    expect(panel).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Branch Run" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Branch Console" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Branch Activity" })).toBeInTheDocument();
+  });
+
+  it("shows the Spec K uncommitted changes warning after starting a branch run and refreshes runtime", async () => {
+    mockApi.startBranchRun.mockResolvedValue({
+      runtime_id: "rt-1",
+      server_id: "srv-vers-1",
+      branch_name: "feat-trial",
+      commit_sha: "deadbeef12345678",
+      container_name: "onx-feat-trial",
+      container_id: "c-1",
+      port_set: { game_port: 25610, rcon_port: 25611 },
+      data_template_id: null,
+      allow_public_test_join: false,
+      uncommitted_changes_warning: true,
+      memory_max_mb: 2048,
+      cpu_cores: 2,
+    });
+
+    renderPage();
+    await switchToTrialBranch();
+    const callsBeforeStart = mockApi.getBranchRuntime.mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Start Branch Run" }));
+    const dialog = await screen.findByRole("dialog", { name: "Start Branch Run" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start Branch Run" }));
+
+    await waitFor(() => {
+      expect(mockApi.startBranchRun).toHaveBeenCalledWith(
+        "srv-vers-1",
+        "feat-trial",
+        expect.objectContaining({ allow_public_test_join: false }),
+      );
+    });
+
+    const warning = await screen.findByTestId("uncommitted-changes-warning");
+    expect(warning).toHaveTextContent("Uncommitted changes in worktree were not included");
+    expect(warning).toHaveTextContent("deadbeef");
+    await waitFor(() => {
+      expect(mockApi.getBranchRuntime.mock.calls.length).toBeGreaterThan(callsBeforeStart);
+    });
+  });
+
+  it("renders running status, pinned commit, worktree lock, and copyable port set", async () => {
+    mockApi.getBranchRuntime.mockResolvedValue({
+      server_id: "srv-vers-1",
+      branch_name: "feat-trial",
+      runtime_status: "running",
+      runtime_id: "rt-1",
+      active_commit_sha: "abcdef1234567890",
+      data_template_id: null,
+      allow_public_test_join: false,
+      container_liveness: true,
+      port_set: {
+        game_port: 25610,
+        rcon_port: 25611,
+        query_port: 25612,
+        plugin_ports: { dynmap: 25613 },
+      },
+      worktree_locked: true,
+      worktree_lock_reason: "Active branch runtime",
+    });
+
+    renderPage();
+    await switchToTrialBranch();
+
+    expect(await screen.findByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("Commit abcdef12")).toBeInTheDocument();
+    expect(screen.getByTestId("worktree-lock-badge")).toBeInTheDocument();
+    expect(screen.getByText("Game: 25610")).toBeInTheDocument();
+    expect(screen.getByText("RCON: 25611")).toBeInTheDocument();
+    expect(screen.getByText("Query: 25612")).toBeInTheDocument();
+    expect(screen.getByText("dynmap: 25613")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy join port" })).toBeInTheDocument();
+  });
+
+  it("opens the Data Templates modal from the P4 toolbar and lists templates", async () => {
+    vi.mocked(mockApi.listDataTemplates).mockResolvedValue([
+      {
+        id: "tpl-1",
+        server_id: "srv-vers-1",
+        name: "seed-1",
+        description: "Known good world",
+        source_branch_name: null,
+        source_commit_sha: null,
+        file_count: 12,
+        total_bytes: 1024,
+        status: "ready",
+        operation_id: null,
+        created_at: "2026-09-14T10:00:00Z",
+        updated_at: "2026-09-14T10:00:00Z",
+      },
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Data Templates" }));
+
+    expect(await screen.findByRole("dialog", { name: "Data Templates" })).toBeInTheDocument();
+    expect(await screen.findByText("seed-1")).toBeInTheDocument();
+    expect(screen.getByText("12 files")).toBeInTheDocument();
+  });
+
+  it("opens the Branch Console & Activity modal scoped to feat-trial", async () => {
+    mockApi.getBranchRuntime.mockResolvedValue({
+      server_id: "srv-vers-1",
+      branch_name: "feat-trial",
+      runtime_status: "running",
+      runtime_id: "rt-1",
+      active_commit_sha: "abcdef1234567890",
+      data_template_id: null,
+      allow_public_test_join: false,
+      container_liveness: true,
+      port_set: null,
+      worktree_locked: false,
+      worktree_lock_reason: null,
+    });
+
+    renderPage();
+    await switchToTrialBranch();
+    await screen.findByText("Running");
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch Console" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Branch Console & Activity" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockApi.getBranchConsole).toHaveBeenCalledWith("srv-vers-1", "feat-trial", 200);
+    });
+    expect(await screen.findByTestId("branch-console-output")).toHaveTextContent(
+      "[INFO] Branch container ready",
+    );
   });
 });

@@ -13,6 +13,14 @@ import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
 import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
 import { StorageHealthBanner } from "@/server_manager/components/versioning/StorageHealthBanner";
 import { BranchToolbar } from "@/server_manager/components/versioning/BranchToolbar";
+import { BranchRunPanel } from "@/server_manager/components/versioning/BranchRunPanel";
+import {
+  BranchConsoleActivityModal,
+  BranchPortSetModal,
+  DataTemplatesModal,
+  StartBranchRunModal,
+  StopBranchRunModal,
+} from "@/server_manager/components/versioning/BranchRunModals";
 import { CommitTimeline } from "@/server_manager/components/versioning/CommitTimeline";
 import { TestRunList } from "@/server_manager/components/versioning/TestRunList";
 import {
@@ -25,12 +33,19 @@ import {
   ClassCVaultModal,
 } from "@/server_manager/components/versioning/VersioningModals";
 import type {
+  BranchRuntimeStatus,
+  ClassCSnapshot,
+  DataTemplate,
+  DynamicClassCEntry,
+  PortSet,
+  PreflightStatus,
+  RefreshStateResponse,
+  ScanLiveChangesResponse,
+  SecretMetadata,
   ServerBranch,
   ServerCommit,
-  ServerTestRun,
-  PreflightStatus,
   ServerTag,
-  ScanLiveChangesResponse,
+  ServerTestRun,
 } from "@/server_manager/types";
 
 export function ServerVersioningPage() {
@@ -73,13 +88,23 @@ export function ServerVersioningPage() {
   const [settingsPlacement, setSettingsPlacement] = useState("sidecar");
   const [settingsRetention, setSettingsRetention] = useState("until_health_gate");
 
-  const [refreshState, setRefreshState] = useState<any>(null);
-  const [, setClassCSnapshots] = useState<any[]>([]);
-  const [, setDynamicClassC] = useState<any[]>([]);
-  const [, setSecrets] = useState<any[]>([]);
+  const [refreshState, setRefreshState] = useState<RefreshStateResponse | null>(null);
+  const [, setClassCSnapshots] = useState<ClassCSnapshot[]>([]);
+  const [, setDynamicClassC] = useState<DynamicClassCEntry[]>([]);
+  const [, setSecrets] = useState<SecretMetadata[]>([]);
 
   const [isMergeBranchOpen, setIsMergeBranchOpen] = useState(false);
   const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
+
+  // P4 branch runs, port sets & data templates state
+  const [dataTemplates, setDataTemplates] = useState<DataTemplate[]>([]);
+  const [branchRuntime, setBranchRuntime] = useState<BranchRuntimeStatus | null>(null);
+  const [uncommittedWarning, setUncommittedWarning] = useState<{ commitSha: string } | null>(null);
+  const [isStartBranchRunOpen, setIsStartBranchRunOpen] = useState(false);
+  const [isStopBranchRunOpen, setIsStopBranchRunOpen] = useState(false);
+  const [isPortSetModalOpen, setIsPortSetModalOpen] = useState(false);
+  const [dataTemplatesModalMode, setDataTemplatesModalMode] = useState<"closed" | "list" | "save-branch">("closed");
+  const [branchConsoleModalTab, setBranchConsoleModalTab] = useState<null | "console" | "activity">(null);
 
   const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
   const [viewLogTestRun, setViewLogTestRun] = useState<ServerTestRun | null>(null);
@@ -114,13 +139,20 @@ export function ServerVersioningPage() {
     currentBranchObj?.protection_policy?.allow_force_bypass
   );
 
+  const branchRuntimeStatus =
+    branchRuntime?.runtime_status ?? currentBranchObj?.runtime_status ?? "stopped";
+  const isBranchRuntimeActive =
+    branchRuntimeStatus === "running" || branchRuntimeStatus === "starting";
+  const effectivePortSet =
+    branchRuntime?.port_set ?? currentBranchObj?.port_set ?? null;
+
   useEffect(() => {
     if (!serverId) return;
     let isMounted = true;
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData] =
+        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData, templatesData, runtimeData] =
           await Promise.all([
             api.getServerBranches(serverId),
             api.getServerCommits(serverId, undefined, undefined, selectedBranch),
@@ -134,6 +166,10 @@ export function ServerVersioningPage() {
             api.listClassCSnapshots?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.listDynamicClassC?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.listSecrets?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
+            api.listDataTemplates?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
+            selectedBranch && selectedBranch !== "main"
+              ? (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ?? Promise.resolve(null))
+              : Promise.resolve(null),
           ]);
 
         if (!isMounted) return;
@@ -147,6 +183,8 @@ export function ServerVersioningPage() {
         setClassCSnapshots(Array.isArray(snapshotsData) ? snapshotsData : []);
         setDynamicClassC(Array.isArray(dynamicData) ? dynamicData : []);
         setSecrets(Array.isArray(secretsData) ? secretsData : []);
+        setDataTemplates(Array.isArray(templatesData) ? templatesData : []);
+        setBranchRuntime(runtimeData ?? null);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
@@ -198,6 +236,32 @@ export function ServerVersioningPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [hasActiveRuns, serverId, api]);
+
+  // Poll branch runtime every 5s only while the selected branch is starting/running.
+  useEffect(() => {
+    if (!serverId || selectedBranch === "main") return;
+    const runtimeStatus = branchRuntime?.runtime_status;
+    if (runtimeStatus !== "running" && runtimeStatus !== "starting") return;
+    let isMounted = true;
+
+    const interval = setInterval(async () => {
+      try {
+        const runtime =
+          (await (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ??
+            Promise.resolve(null)));
+        if (isMounted && runtime) {
+          setBranchRuntime(runtime);
+        }
+      } catch {
+        // Silent catch on background polling error
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [serverId, selectedBranch, branchRuntime?.runtime_status, api]);
 
   const handleCreateBranch = async () => {
     if (!serverId || !newBranchName.trim()) return;
@@ -424,6 +488,15 @@ export function ServerVersioningPage() {
           <Icon name="lock" size={13} />
           <span>Class-C & Secret Vault</span>
         </button>
+        <button
+          type="button"
+          aria-label="Data Templates"
+          onClick={() => setDataTemplatesModalMode("list")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+        >
+          <Icon name="database" size={13} />
+          <span>Data Templates</span>
+        </button>
       </div>
 
       {/* Interactive 3-Step Visual Workflow Guide Banner */}
@@ -568,7 +641,11 @@ export function ServerVersioningPage() {
       <BranchToolbar
         branches={branches}
         selectedBranch={selectedBranch}
-        onSelectBranch={setSelectedBranch}
+        onSelectBranch={(branch) => {
+          setSelectedBranch(branch);
+          setUncommittedWarning(null);
+          setBranchRuntime(null);
+        }}
         currentBranchObj={currentBranchObj}
         filteredCommitsCount={filteredCommits.length}
         onNewBranch={() => setIsNewBranchOpen(true)}
@@ -580,6 +657,23 @@ export function ServerVersioningPage() {
         onExploreWorktree={() => setIsMaterializationOpen(true)}
         onMergeBranch={() => setIsMergeBranchOpen(true)}
       />
+
+      {/* P4 Branch Runtime Panel (non-main branches only) */}
+      {selectedBranch !== "main" && (
+        <BranchRunPanel
+          branchName={selectedBranch}
+          runtime={branchRuntime}
+          branchObj={currentBranchObj}
+          dataTemplates={dataTemplates}
+          uncommittedWarning={uncommittedWarning}
+          onDismissUncommittedWarning={() => setUncommittedWarning(null)}
+          onOpenStartModal={() => setIsStartBranchRunOpen(true)}
+          onOpenStopModal={() => setIsStopBranchRunOpen(true)}
+          onOpenPortSetModal={() => setIsPortSetModalOpen(true)}
+          onOpenConsoleActivityModal={(initialTab) => setBranchConsoleModalTab(initialTab)}
+          onOpenSaveTemplateModal={() => setDataTemplatesModalMode("save-branch")}
+        />
+      )}
 
       {/* 12-Column Split Workspace (Commit Graph + Isolated Bot Testing) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
@@ -787,6 +881,81 @@ export function ServerVersioningPage() {
           serverId={serverId!}
           fromCommitId={diffParams.from}
           toCommitId={diffParams.to}
+        />
+      )}
+
+      {/* P4 Start Branch Run Modal */}
+      {serverId && (
+        <StartBranchRunModal
+          isOpen={isStartBranchRunOpen}
+          serverId={serverId}
+          branchName={selectedBranch}
+          dataTemplates={dataTemplates}
+          portSet={effectivePortSet}
+          onStarted={(result) => {
+            if (result.uncommitted_changes_warning) {
+              setUncommittedWarning({ commitSha: result.commit_sha });
+            }
+            setActionSuccess(`Branch run started for '${result.branch_name}'.`);
+            refresh();
+          }}
+          onClose={() => setIsStartBranchRunOpen(false)}
+        />
+      )}
+
+      {/* P4 Stop Branch Run Modal */}
+      {serverId && (
+        <StopBranchRunModal
+          isOpen={isStopBranchRunOpen}
+          serverId={serverId}
+          branchName={selectedBranch}
+          runtimeId={branchRuntime?.runtime_id ?? currentBranchObj?.active_runtime_id ?? null}
+          onStopped={(result) => {
+            setActionSuccess(`Branch run stopped for '${result.branch_name}'.`);
+            refresh();
+          }}
+          onClose={() => setIsStopBranchRunOpen(false)}
+        />
+      )}
+
+      {/* P4 Branch Port Set Modal */}
+      {serverId && (
+        <BranchPortSetModal
+          isOpen={isPortSetModalOpen}
+          serverId={serverId}
+          branchName={selectedBranch}
+          portSet={effectivePortSet}
+          onUpdated={(_portSet: PortSet) => {
+            setActionSuccess("Branch port set updated.");
+            refresh();
+          }}
+          onClose={() => setIsPortSetModalOpen(false)}
+        />
+      )}
+
+      {/* P4 Data Templates Modal */}
+      {serverId && (
+        <DataTemplatesModal
+          isOpen={dataTemplatesModalMode !== "closed"}
+          serverId={serverId}
+          branches={branches}
+          selectedBranch={selectedBranch}
+          initialMode={dataTemplatesModalMode === "save-branch" ? "save-branch" : "list"}
+          activeRuntimeId={branchRuntime?.runtime_id ?? null}
+          onClose={() => setDataTemplatesModalMode("closed")}
+          onTemplatesChanged={() => refresh()}
+        />
+      )}
+
+      {/* P4 Branch Console & Activity Modal */}
+      {serverId && (
+        <BranchConsoleActivityModal
+          isOpen={branchConsoleModalTab !== null}
+          serverId={serverId}
+          branchName={selectedBranch}
+          isRuntimeActive={isBranchRuntimeActive}
+          initialTab={branchConsoleModalTab ?? "console"}
+          onClose={() => setBranchConsoleModalTab(null)}
         />
       )}
     </div>

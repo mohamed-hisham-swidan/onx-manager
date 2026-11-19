@@ -49,12 +49,21 @@ import type {
 import { useAuthStore } from "@/stores/authStore";
 import type {
   ActivityLogListResponse,
+  AllocatePortSetRequest,
   AutoCommitLiveChangesRequest,
   AutoCommitLiveChangesResponse,
   BotSettings,
   BotSettingsRequest,
+  BranchConsoleCommandRequest,
+  BranchConsoleCommandResponse,
+  BranchConsoleLogsResponse,
+  BranchPortSetResponse,
   BranchProtectionResponse,
+  BranchRuntimeStatus,
   ClassCSnapshot,
+  CreateDataTemplateRequest,
+  DataTemplate,
+  DeleteDataTemplateResponse,
   ConfirmUpgradeRequest,
   DynamicClassCEntry,
   ExtractSecretRequest,
@@ -88,6 +97,7 @@ import type {
   MaterializationTreeResponse,
   PreflightStatus,
   RunIsolatedTestRequest,
+  SaveBranchDataTemplateRequest,
   ScanLiveChangesResponse,
   ScanResult,
   ServerBranch,
@@ -101,7 +111,12 @@ import type {
   ServerUpdateRequest,
   SetBranchProtectionRequest,
   SetEditModeResponse,
+  SetPortSetRequest,
   SoftwareInfo,
+  StartBranchRunRequest,
+  StartBranchRunResponse,
+  StopBranchRunRequest,
+  StopBranchRunResponse,
   TestDefinition,
 } from "@/server_manager/types";
 import type {
@@ -402,6 +417,7 @@ export function createApiClient(
           event_type: params?.event_type,
           from_date: params?.from_date?.toString(),
           to_date: params?.to_date?.toString(),
+          branch: params?.branch,
         },
       }),
 
@@ -516,6 +532,83 @@ export function createApiClient(
       request<{ server_id: string; key_name: string; status: string }>(
         `/api/v1/servers/${serverId}/versioning/secrets/${encodeURIComponent(keyName)}`,
         { method: "DELETE" },
+      ),
+
+    // P4-3 / P4-4 Branch Runs, Port Sets & Data Templates
+    listDataTemplates: (serverId: string) =>
+      request<DataTemplate[]>(`/api/v1/servers/${serverId}/versioning/data-templates`),
+    createDataTemplate: (serverId: string, body: CreateDataTemplateRequest) =>
+      request<DataTemplate>(`/api/v1/servers/${serverId}/versioning/data-templates`, {
+        method: "POST",
+        body,
+      }),
+    deleteDataTemplate: (serverId: string, templateId: string) =>
+      request<DeleteDataTemplateResponse>(
+        `/api/v1/servers/${serverId}/versioning/data-templates/${encodeURIComponent(templateId)}`,
+        { method: "DELETE" },
+      ),
+    allocateBranchPortSet: (
+      serverId: string,
+      branchName: string,
+      body?: AllocatePortSetRequest,
+    ) =>
+      request<BranchPortSetResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/port-set/allocate`,
+        { method: "POST", body: body ?? {} },
+      ),
+    setBranchPortSet: (
+      serverId: string,
+      branchName: string,
+      body: SetPortSetRequest,
+    ) =>
+      request<BranchPortSetResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/port-set`,
+        { method: "PUT", body },
+      ),
+    getBranchRuntime: (serverId: string, branchName: string) =>
+      request<BranchRuntimeStatus>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/runtime`,
+      ),
+    startBranchRun: (
+      serverId: string,
+      branchName: string,
+      body?: StartBranchRunRequest,
+    ) =>
+      request<StartBranchRunResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/run`,
+        { method: "POST", body: body ?? {} },
+      ),
+    stopBranchRun: (
+      serverId: string,
+      branchName: string,
+      body?: StopBranchRunRequest,
+    ) =>
+      request<StopBranchRunResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/stop`,
+        { method: "POST", body: body ?? {} },
+      ),
+    saveBranchDataTemplate: (
+      serverId: string,
+      branchName: string,
+      body: SaveBranchDataTemplateRequest,
+    ) =>
+      request<DataTemplate>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/save-data-template`,
+        { method: "POST", body },
+      ),
+    getBranchConsole: (serverId: string, branchName: string, tail?: number) =>
+      request<BranchConsoleLogsResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/console`,
+        { params: { tail: tail?.toString() } },
+      ),
+    sendBranchConsoleCommand: (
+      serverId: string,
+      branchName: string,
+      body: BranchConsoleCommandRequest,
+    ) =>
+      request<BranchConsoleCommandResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/console/command`,
+        { method: "POST", body },
       ),
 
     // Branch Protection (Stage G)

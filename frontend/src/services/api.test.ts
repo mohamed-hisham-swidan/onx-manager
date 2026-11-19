@@ -462,7 +462,7 @@ describe("createApiClient", () => {
       "http://localhost:8000/api/v1/servers/s1/versioning/commits/merge",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ target_branch_name: "main", source_branch_name: "feat", message: "merge" }) }),
     );
-    expect((res as any).commit_id).toBe("m1");
+    expect(res.commit_id).toBe("m1");
   });
 
   it("getRefreshState sends GET to /versioning/refresh", async () => {
@@ -472,7 +472,7 @@ describe("createApiClient", () => {
       "http://localhost:8000/api/v1/servers/s1/versioning/refresh",
       expect.objectContaining({ method: "GET" }),
     );
-    expect((res as any).server_id).toBe("s1");
+    expect(res.server_id).toBe("s1");
   });
 
   it("refreshServer sends POST to /versioning/refresh", async () => {
@@ -519,7 +519,7 @@ describe("createApiClient", () => {
       "http://localhost:8000/api/v1/servers/s1/versioning/secrets/extract",
       expect.objectContaining({ method: "POST" }),
     );
-    expect((res as any).placeholder).toBe("${ONX_SECRET_DB_PASSWORD}");
+    expect(res.placeholder).toBe("${ONX_SECRET_DB_PASSWORD}");
   });
 
   it("listLiveStateFiles sends GET to /files/live-state", async () => {
@@ -529,7 +529,7 @@ describe("createApiClient", () => {
       "http://localhost:8000/api/v1/servers/s1/files/live-state?path=%2F",
       expect.objectContaining({ method: "GET" }),
     );
-    expect((res as any).items).toHaveLength(1);
+    expect(res.items).toHaveLength(1);
   });
 
   it("writeLiveStateFileContent sends PUT to /files/live-state/content", async () => {
@@ -539,6 +539,122 @@ describe("createApiClient", () => {
       "http://localhost:8000/api/v1/servers/s1/files/live-state/content",
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ path: "/whitelist.json", content: "{}", reload_command: "whitelist reload" }) }),
     );
+  });
+
+  // P4-3 / P4-4 Branch Runs, Port Sets & Data Templates
+  it("listDataTemplates sends GET to /versioning/data-templates", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([{ id: "tpl-1", name: "seed-1" }]));
+    const result = await api.listDataTemplates("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/data-templates",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result).toHaveLength(1);
+  });
+
+  it("createDataTemplate sends POST with the template body", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ id: "tpl-1", name: "seed-1", status: "ready" }));
+    const body = { name: "seed-1", source: "live" as const, async_mode: false };
+    await api.createDataTemplate("s1", body);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/data-templates",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+  });
+
+  it("deleteDataTemplate sends DELETE to the encoded template path", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ status: "deleted", server_id: "s1", template_id: "tpl-1" }));
+    await api.deleteDataTemplate("s1", "tpl-1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/data-templates/tpl-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("allocateBranchPortSet encodes the branch name and sends include_query", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch_name: "feat/ui", port_set: { game_port: 25610, rcon_port: 25611 } }));
+    await api.allocateBranchPortSet("s1", "feat/ui", { include_query: true });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/port-set/allocate",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ include_query: true }) }),
+    );
+  });
+
+  it("setBranchPortSet sends PUT without forbidden container port fields", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch_name: "feat/ui", port_set: { game_port: 25610, rcon_port: 25611 } }));
+    const body = { game_port: 25610, rcon_port: 25611 };
+    await api.setBranchPortSet("s1", "feat/ui", body);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/port-set",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify(body) }),
+    );
+  });
+
+  it("getBranchRuntime sends GET to the encoded branch runtime path", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch_name: "feat/ui", runtime_status: "stopped" }));
+    await api.getBranchRuntime("s1", "feat/ui");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/runtime",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("startBranchRun sends POST to the encoded branch run path", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ runtime_id: "rt-1", branch_name: "feat/ui" }));
+    const body = { data_template_id: "tpl-1", allow_public_test_join: false };
+    await api.startBranchRun("s1", "feat/ui", body);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/run",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+  });
+
+  it("stopBranchRun sends POST to the encoded branch stop path", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ runtime_id: "rt-1", branch_name: "feat/ui", status: "stopped" }));
+    const body = { keep_port_assignment: true, save_template_name: "after-test" };
+    await api.stopBranchRun("s1", "feat/ui", body);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/stop",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+  });
+
+  it("saveBranchDataTemplate sends POST to the encoded save-data-template path", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ id: "tpl-2", name: "snap-1" }));
+    const body = { name: "snap-1" };
+    await api.saveBranchDataTemplate("s1", "feat/ui", body);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/save-data-template",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+  });
+
+  it("getBranchConsole sends GET with tail query param and encoded branch", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch_name: "feat/ui", runtime_id: "rt-1", container_name: "c1", lines: [] }));
+    await api.getBranchConsole("s1", "feat/ui", 100);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/console?tail=100",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("sendBranchConsoleCommand sends POST with the command body", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch_name: "feat/ui", runtime_id: "rt-1", command: "list", output: "players" }));
+    const body = { command: "list" };
+    await api.sendBranchConsoleCommand("s1", "feat/ui", body);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/feat%2Fui/console/command",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+  });
+
+  it("getServerActivity forwards the branch query param", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ items: [], total: 0, limit: 25, offset: 0 }));
+    await api.getServerActivity("s1", { limit: 25, branch: "feat-trial" });
+    const url = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(url).toContain("/api/v1/servers/s1/activity");
+    expect(url).toContain("limit=25");
+    expect(url).toContain("branch=feat-trial");
   });
 
 });

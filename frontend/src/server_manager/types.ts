@@ -337,6 +337,12 @@ export interface ServerBranch {
   protection_policy?: BranchProtectionPolicy | null;
   worktree_path?: string | null;
   worktree_locked?: boolean;
+  worktree_lock_reason?: string | null;
+  runtime_status?: string;
+  port_set?: PortSet | null;
+  active_runtime_id?: string | null;
+  active_commit_sha?: string | null;
+  active_data_template_id?: string | null;
 }
 
 export interface CreateBranchRequest {
@@ -656,6 +662,7 @@ export interface ServerActivityLog {
   actor_id: string | null;
   summary: string;
   details: Record<string, unknown>;
+  branch_name?: string | null;
 }
 
 export interface ActivityLogListResponse {
@@ -671,6 +678,7 @@ export interface GetActivityParams {
   event_type?: string;
   from_date?: number;
   to_date?: number;
+  branch?: string;
 }
 // P3-4 / P3-5 types
 
@@ -828,4 +836,153 @@ export interface LiveStateWriteResponse {
   rcon_flushed: boolean;
   rcon_reloaded: boolean;
   reload_command: string | null;
+}
+
+// P4-3 / P4-4 Branch Runs, Port Sets & Data Templates types
+
+export type DataTemplateStatus = "cloning" | "ready" | "failed";
+export type DataTemplateSource = "live" | "branch";
+
+export interface DataTemplate {
+  id: string;
+  server_id: string;
+  name: string;
+  description: string;
+  source_branch_name: string | null;
+  source_commit_sha: string | null;
+  file_count: number;
+  total_bytes: number;
+  status: DataTemplateStatus | string;
+  operation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDataTemplateRequest {
+  name: string;
+  description?: string;
+  source?: DataTemplateSource;
+  branch_name?: string | null;
+  async_mode?: boolean;
+}
+
+export interface DeleteDataTemplateResponse {
+  status: string;
+  server_id: string;
+  template_id: string;
+}
+
+export interface PortSet {
+  game_port: number;
+  rcon_port: number;
+  query_port?: number | null;
+  plugin_ports?: Record<string, number>;
+  container_game_port?: number;
+  container_rcon_port?: number;
+}
+
+export interface AllocatePortSetRequest {
+  include_query?: boolean;
+  plugin_port_names?: string[];
+  check_os_ports?: boolean;
+}
+
+export interface SetPortSetRequest {
+  game_port: number;
+  rcon_port: number;
+  query_port?: number | null;
+  plugin_ports?: Record<string, number>;
+  check_os_ports?: boolean;
+}
+
+export interface BranchPortSetResponse {
+  server_id: string;
+  branch_name: string;
+  port_set: PortSet;
+}
+
+export interface BranchRuntimeStatus {
+  server_id: string;
+  branch_name: string;
+  runtime_status: string;
+  runtime_id: string | null;
+  active_commit_sha: string | null;
+  data_template_id: string | null;
+  allow_public_test_join: boolean;
+  container_liveness: boolean | null;
+  port_set: PortSet | null;
+  worktree_locked: boolean;
+  worktree_lock_reason: string | null;
+}
+
+export interface StartBranchRunRequest {
+  commit_sha?: string | null;
+  data_template_id?: string | null;
+  allow_public_test_join?: boolean;
+  port_set?: PortSet | null;
+  include_query?: boolean;
+  plugin_port_names?: string[];
+  requested_memory_mb?: number | null;
+  requested_cpu_cores?: number | null;
+  check_os_ports?: boolean;
+}
+
+export interface StartBranchRunResponse {
+  runtime_id: string;
+  server_id: string;
+  branch_name: string;
+  commit_sha: string;
+  container_name: string;
+  container_id: string;
+  port_set: PortSet;
+  data_template_id: string | null;
+  allow_public_test_join: boolean;
+  uncommitted_changes_warning: boolean;
+  memory_max_mb: number;
+  cpu_cores: number;
+}
+
+export interface StopBranchRunRequest {
+  runtime_id?: string | null;
+  timeout_seconds?: number;
+  keep_port_assignment?: boolean;
+  save_template_name?: string | null;
+  save_template_description?: string;
+}
+
+export interface StopBranchRunResponse {
+  runtime_id: string;
+  server_id: string;
+  branch_name: string;
+  status: string;
+  exit_code: number | null;
+  oom_killed: boolean;
+  saved_template_id: string | null;
+  saved_template_name: string | null;
+}
+
+export interface SaveBranchDataTemplateRequest {
+  name: string;
+  description?: string;
+  runtime_id?: string | null;
+}
+
+export interface BranchConsoleLogsResponse {
+  server_id: string;
+  branch_name: string;
+  runtime_id: string;
+  container_name: string;
+  lines: string[];
+}
+
+export interface BranchConsoleCommandRequest {
+  command: string;
+}
+
+export interface BranchConsoleCommandResponse {
+  server_id: string;
+  branch_name: string;
+  runtime_id: string;
+  command: string;
+  output: string;
 }
