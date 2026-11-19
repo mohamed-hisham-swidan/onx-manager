@@ -380,3 +380,91 @@ class ServerDataTemplateModel(Base):
         UniqueConstraint("server_id", "name", name="uq_server_data_template_name"),
         Index("ix_server_data_templates_server_id", "server_id"),
     )
+
+
+class ServerGitHubConnectionModel(Base):
+    """Per-server GitHub remote connection with encrypted credentials (P5)."""
+
+    __tablename__ = "server_github_connections"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    remote_url = Column(String(512), nullable=False)
+    auth_method = Column(String(32), nullable=False)
+    wrapped_credential_dek = Column(LargeBinary, nullable=False)
+    kek_version = Column(Integer, nullable=False, server_default=text("1"))
+    credential_nonce = Column(LargeBinary(12), nullable=False)
+    credential_ciphertext = Column(LargeBinary, nullable=False)
+    credential_hint = Column(String(64), nullable=True)
+    deploy_public_key = Column(Text, nullable=True)
+    wrapped_webhook_dek = Column(LargeBinary, nullable=True)
+    webhook_kek_version = Column(Integer, nullable=True)
+    webhook_nonce = Column(LargeBinary(12), nullable=True)
+    webhook_ciphertext = Column(LargeBinary, nullable=True)
+    webhook_enabled = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    sync_status = Column(
+        String(32), nullable=False, default="idle", server_default="idle"
+    )
+    last_error_code = Column(String(64), nullable=True)
+    last_error_message = Column(String(512), nullable=True)
+    last_fetch_at = Column(DateTime(timezone=True), nullable=True)
+    last_push_at = Column(DateTime(timezone=True), nullable=True)
+    remote_default_branch = Column(String(64), nullable=True)
+    remote_head_sha = Column(String(64), nullable=True)
+    branch_sync_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "server_id", name="uq_server_github_connections_server_id"
+        ),
+        Index("ix_server_github_connections_server_id", "server_id"),
+    )
+
+
+class GitHubWebhookDeliveryModel(Base):
+    """Durable ledger of received GitHub webhook deliveries (P5)."""
+
+    __tablename__ = "github_webhook_deliveries"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    delivery_id = Column(String(128), nullable=False)
+    event_type = Column(String(64), nullable=False)
+    ref = Column(String(256), nullable=True)
+    before_sha = Column(String(64), nullable=True)
+    after_sha = Column(String(64), nullable=True)
+    payload_sha256 = Column(String(64), nullable=False)
+    raw_payload = Column(Text, nullable=False)
+    signature_valid = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    status = Column(
+        String(32), nullable=False, default="received", server_default="received"
+    )
+    operation_id = Column(String(36), nullable=True)
+    error_message = Column(String(512), nullable=True)
+    redelivery_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    received_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "server_id",
+            "delivery_id",
+            name="uq_github_webhook_deliveries_server_delivery",
+        ),
+        Index("ix_github_webhook_deliveries_server_id", "server_id"),
+        Index(
+            "ix_github_webhook_deliveries_server_received",
+            "server_id",
+            "received_at",
+        ),
+    )

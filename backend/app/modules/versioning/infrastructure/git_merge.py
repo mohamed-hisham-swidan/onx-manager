@@ -22,6 +22,7 @@ from app.modules.versioning.infrastructure.git_branches import GitBranchService
 from app.modules.versioning.infrastructure.git_repository import (
     MAX_GIT_TRACKED_FILE_BYTES,
     PANEL_GITATTRIBUTES_CONTENT,
+    scrub_gitattributes,
 )
 from app.modules.versioning.infrastructure.git_runner import GitRunner
 from app.modules.versioning.infrastructure.git_save_commit import (
@@ -312,7 +313,9 @@ class GitMergeService:
         for relpath in sorted(all_paths):
             validate_canonical_relpath(relpath)
             if relpath == ".gitattributes":
-                merged_blobs[relpath] = PANEL_GITATTRIBUTES_CONTENT
+                merged_blobs[relpath] = scrub_gitattributes(
+                    PANEL_GITATTRIBUTES_CONTENT
+                )
                 continue
             cls = classify(relpath, dynamic_class_c=frozenset(dynamic_class_c))
             if cls in ("C", "E", "QUARANTINE", "REJECT-PATH"):

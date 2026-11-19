@@ -51,6 +51,7 @@ from app.modules.versioning.infrastructure.git_repository import (
     PANEL_GITATTRIBUTES_CONTENT,
     _normalize_server_properties,
     _normalize_text,
+    scrub_gitattributes,
     validate_server_root,
 )
 from app.modules.versioning.infrastructure.secret_scanner import assert_no_secrets
@@ -455,6 +456,19 @@ class GitSaveCommitService:
                     details={"path": relpath[:128], "reason": str(exc)[:128]},
                 ) from exc
 
+            # OD-v8.4-7: the panel owns the only committed ``.gitattributes``.
+            # A server-tree file may never inject driver/transform directives.
+            if relpath.rsplit("/", 1)[-1] == GITATTRIBUTES_RELPATH:
+                if relpath != GITATTRIBUTES_RELPATH:
+                    if not entry.deleted:
+                        _unlink_worktree_file(worktree, relpath)
+                    if relpath in tracked_paths:
+                        removed_tracked.append(relpath)
+                    warnings.append(
+                        f"Removed server-tree .gitattributes '{relpath}'"
+                    )
+                continue
+
             classification = classify_path(relpath)
             target = worktree.joinpath(*relpath.split("/"))
 
@@ -545,7 +559,7 @@ class GitSaveCommitService:
         _write_worktree_file(
             worktree,
             GITATTRIBUTES_RELPATH,
-            PANEL_GITATTRIBUTES_CONTENT,
+            scrub_gitattributes(PANEL_GITATTRIBUTES_CONTENT),
         )
 
         staged_paths = sorted(

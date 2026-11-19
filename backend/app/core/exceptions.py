@@ -1166,3 +1166,160 @@ class MergeConflictError(ConflictError):
             http_status=409,
             details=self.details,
         )
+
+
+# --- P5 GitHub sync exceptions ---
+
+
+class NonFastForwardMainError(ConflictError):
+    """Raised when a GitHub sync would rewrite ``main`` non-fast-forward."""
+
+    code = "GITHUB_NON_FAST_FORWARD_MAIN"
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        local_sha: str = "",
+        remote_sha: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = {"branch": "main", **(details or {})}
+        if local_sha:
+            merged["local_sha"] = str(local_sha)[:64]
+        if remote_sha:
+            merged["remote_sha"] = str(remote_sha)[:64]
+        MCSError.__init__(
+            self,
+            message
+            or (
+                "Remote 'main' cannot be fast-forwarded cleanly; force-push "
+                "and non-fast-forward updates to main are rejected"
+            ),
+            code="GITHUB_NON_FAST_FORWARD_MAIN",
+            http_status=409,
+            details=merged,
+        )
+        self.local_sha = local_sha
+        self.remote_sha = remote_sha
+
+
+class GitHubNotConnectedError(ConflictError):
+    """Raised when a server has no configured GitHub repository connection."""
+
+    code = "GITHUB_NOT_CONNECTED"
+    http_status = 409
+
+    def __init__(
+        self,
+        server_id: str = "",
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = dict(details or {})
+        if server_id:
+            merged["server_id"] = str(server_id)[:64]
+            default_message = (
+                f"Server '{server_id}' is not connected to a GitHub repository"
+            )
+        else:
+            default_message = "Server is not connected to a GitHub repository"
+        MCSError.__init__(
+            self,
+            message or default_message,
+            code="GITHUB_NOT_CONNECTED",
+            http_status=409,
+            details=merged,
+        )
+        self.server_id = server_id
+
+
+class GitHubAuthFailedError(ConflictError):
+    """Raised when GitHub rejects the stored credential.
+
+    Deliberately HTTP 409 (not 401): the frontend treats HTTP 401 on
+    authenticated API endpoints as an expired panel JWT and would log the
+    operator out instead of prompting for a GitHub re-connect.
+    """
+
+    code = "GITHUB_AUTH_FAILED"
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        needs_reauth: bool = True,
+        auth_method: str = "",
+        reason: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = {
+            **(details or {}),
+            "needs_reauth": bool(needs_reauth),
+        }
+        if auth_method:
+            merged["auth_method"] = str(auth_method)[:32]
+        if reason:
+            merged["reason"] = str(reason)[:256]
+        MCSError.__init__(
+            self,
+            message
+            or "GitHub authentication failed; reconnect or rotate your GitHub credential",
+            code="GITHUB_AUTH_FAILED",
+            http_status=409,
+            details=merged,
+        )
+        self.needs_reauth = bool(needs_reauth)
+
+
+class WebhookSignatureError(AuthenticationError):
+    """Raised when an inbound GitHub webhook signature is invalid or missing."""
+
+    code = "GITHUB_WEBHOOK_SIGNATURE_INVALID"
+    http_status = 401
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        MCSError.__init__(
+            self,
+            message or "Invalid or missing GitHub webhook signature",
+            code="GITHUB_WEBHOOK_SIGNATURE_INVALID",
+            http_status=401,
+            details=dict(details or {}),
+        )
+
+
+class GitHubPushRejectedError(ConflictError):
+    """Raised when GitHub rejects a branch push."""
+
+    code = "GITHUB_PUSH_REJECTED"
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        branch: str = "",
+        reason: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = dict(details or {})
+        if branch:
+            merged["branch"] = str(branch)[:128]
+        if reason:
+            merged["reason"] = str(reason)[:256]
+        MCSError.__init__(
+            self,
+            message or "GitHub push was rejected",
+            code="GITHUB_PUSH_REJECTED",
+            http_status=409,
+            details=merged,
+        )
+        self.branch = branch

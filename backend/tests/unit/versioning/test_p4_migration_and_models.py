@@ -87,7 +87,7 @@ def test_p4_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
     script = ScriptDirectory.from_config(cfg)
     assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD]
     assert script.get_revision(P4_REVISION).down_revision == PRIOR_HEAD
-    assert RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD == P4_REVISION
+    assert RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
 
     assert "server_data_templates" in _tables(db_url)
 
