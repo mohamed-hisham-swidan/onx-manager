@@ -815,7 +815,7 @@ async def test_domain_events_instantiate_and_publish(harness: _Harness) -> None:
         GitHubWebhookReceivedEvent(
             server_id=ADVANCED_SERVER,
             delivery_id="delivery-1",
-            event_type="push",
+            webhook_event="push",
         ),
     ]
     for event in events:
@@ -824,10 +824,9 @@ async def test_domain_events_instantiate_and_publish(harness: _Harness) -> None:
     published = [event for event in harness.recorder.events if event in events]
     assert published == events
     for event in events:
+        assert event.event_type == type(event).__name__
         if isinstance(event, GitHubWebhookReceivedEvent):
-            assert event.event_type == "push"
-        else:
-            assert event.event_type == type(event).__name__
+            assert event.webhook_event == "push"
         rendered = repr(event.model_dump())
         assert PAT not in rendered
         assert WEBHOOK_SECRET not in rendered

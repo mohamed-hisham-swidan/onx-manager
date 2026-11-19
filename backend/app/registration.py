@@ -441,9 +441,20 @@ def _register_event_handlers(event_bus: EventBus) -> None:
         "BranchRuntimeStartedEvent",
         "BranchRuntimeStoppedEvent",
         "DataTemplateSavedEvent",
+        "GitHubConnectedEvent",
+        "GitHubDisconnectedEvent",
+        "GitHubCredentialsRotatedEvent",
+        "GitHubSyncedEvent",
+        "GitHubPushedEvent",
+        "GitHubWebhookReceivedEvent",
     ]
     for ev in activity_events:
         event_bus.subscribe(ev, activity_subscriber)
+    # GitHubWebhookReceivedEvent carries the GitHub event name in its
+    # ``event_type`` field, so the bus dispatches it under the raw event names
+    # instead of the class name. Subscribe the activity log to those names too.
+    for github_event_type in ("push", "create", "delete", "ping"):
+        event_bus.subscribe(github_event_type, activity_subscriber)
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:

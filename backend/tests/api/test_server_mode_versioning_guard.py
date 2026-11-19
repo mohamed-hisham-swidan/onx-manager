@@ -90,6 +90,24 @@ ROUTES: list[tuple[str, str, dict | None]] = [
     ("POST", "/branches/feat/save-data-template", {"name": "tmpl-1"}),
     ("GET", "/branches/feat/console", None),
     ("POST", "/branches/feat/console/command", {"command": "list"}),
+    # P5-3 routes
+    ("GET", "/github", None),
+    ("POST", "/github/deploy-key/generate", {}),
+    (
+        "POST",
+        "/github/connect",
+        {
+            "remote_url": "https://github.com/octo/repo.git",
+            "auth_method": "pat",
+            "credential_secret": "ghp_dummy_token_1234",
+        },
+    ),
+    ("POST", "/github/credentials/rotate", {"enable_webhook": False}),
+    ("DELETE", "/github", None),
+    ("POST", "/github/fetch", {}),
+    ("POST", "/github/push", {"branch_name": "main"}),
+    ("GET", "/github/webhooks/deliveries", None),
+    ("POST", "/github/webhooks/deliveries/del-1/redeliver", {}),
 ]
 
 LIVE_STATE_ROUTES: list[tuple[str, str, dict | None]] = [
@@ -222,6 +240,24 @@ async def test_advanced_server_is_not_blocked(method: str, path: str, body: dict
         ("POST", "/branches/feat/save-data-template", {"name": "tmpl-1"}),
         ("GET", "/branches/feat/console", None),
         ("POST", "/branches/feat/console/command", {"command": "list"}),
+        # P5-3 routes
+        ("GET", "/github", None),
+        ("POST", "/github/deploy-key/generate", {}),
+        (
+            "POST",
+            "/github/connect",
+            {
+                "remote_url": "https://github.com/octo/repo.git",
+                "auth_method": "pat",
+                "credential_secret": "ghp_dummy_token_1234",
+            },
+        ),
+        ("POST", "/github/credentials/rotate", {"enable_webhook": False}),
+        ("DELETE", "/github", None),
+        ("POST", "/github/fetch", {}),
+        ("POST", "/github/push", {"branch_name": "main"}),
+        ("GET", "/github/webhooks/deliveries", None),
+        ("POST", "/github/webhooks/deliveries/del-1/redeliver", {}),
     ],
     ids=[
         "GET branches",
@@ -238,6 +274,15 @@ async def test_advanced_server_is_not_blocked(method: str, path: str, body: dict
         "POST save-data-template",
         "GET branch console",
         "POST branch console command",
+        "GET github",
+        "POST github deploy-key",
+        "POST github connect",
+        "POST github rotate",
+        "DELETE github",
+        "POST github fetch",
+        "POST github push",
+        "GET github deliveries",
+        "POST github redeliver",
     ],
 )
 async def test_advanced_server_is_blocked_with_409_on_non_posix(
@@ -263,3 +308,69 @@ async def test_missing_server_keeps_404_on_non_posix(
 
     assert status == 404
     assert payload.get("code") == "NOT_FOUND"
+
+
+async def _post_public_webhook(
+    server_id: str,
+    *,
+    body: dict,
+    signature: str | None = None,
+) -> tuple[int, dict]:
+    transport = ASGITransport(app=app)
+    headers = {"X-GitHub-Delivery": "guard-delivery", "X-GitHub-Event": "push"}
+    if signature is not None:
+        headers["X-Hub-Signature-256"] = signature
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            f"/api/v1/webhooks/github/{server_id}", json=body, headers=headers
+        )
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    return response.status_code, payload
+
+
+@pytest.mark.asyncio
+async def test_public_github_webhook_rejects_unauthenticated_and_simple_mode_with_401(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ONX_HOST_STATE_DIR", str(tmp_path / "host-state"))
+    monkeypatch.setenv("ONX_SERVERS_DATA_DIR", str(tmp_path / "servers"))
+    monkeypatch.setenv("ONX_MASTER_KEK", "22" * 32)
+    await _seed_server()
+
+    forged = "sha256=" + "0" * 64
+    for signature in (None, forged):
+        status, payload = await _post_public_webhook(
+            SERVER_ID,
+            body={"ref": "refs/heads/main", "before": "a" * 40, "after": "b" * 40},
+            signature=signature,
+        )
+        assert status == 401
+        assert payload.get("code") == "GITHUB_WEBHOOK_SIGNATURE_INVALID"
+
+    status, payload = await _post_public_webhook(
+        "missing-srv-id",
+        body={"ref": "refs/heads/main"},
+        signature=forged,
+    )
+    assert status == 401
+    assert payload.get("code") == "GITHUB_WEBHOOK_SIGNATURE_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_public_github_webhook_rejects_non_post_without_bearer(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ONX_HOST_STATE_DIR", str(tmp_path / "host-state"))
+    monkeypatch.setenv("ONX_SERVERS_DATA_DIR", str(tmp_path / "servers"))
+    monkeypatch.setenv("ONX_MASTER_KEK", "22" * 32)
+    await _seed_server()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/api/v1/webhooks/github/{SERVER_ID}")
+
+    assert response.status_code == 401
+    assert response.json().get("error_code") == "AUTHENTICATION_ERROR"

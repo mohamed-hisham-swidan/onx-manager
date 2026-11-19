@@ -2217,7 +2217,7 @@ class GitHubSyncService:
                 GitHubWebhookReceivedEvent(
                     server_id=segment,
                     delivery_id=delivery_value,
-                    event_type=event_value,
+                    webhook_event=event_value,
                     ref=ref,
                     deduplicated=True,
                     operation_id=operation_id,
@@ -2241,7 +2241,7 @@ class GitHubSyncService:
             GitHubWebhookReceivedEvent(
                 server_id=segment,
                 delivery_id=delivery_value,
-                event_type=event_value,
+                webhook_event=event_value,
                 ref=ref,
                 operation_id=operation_id,
             )
@@ -2325,7 +2325,7 @@ class GitHubSyncService:
             GitHubWebhookReceivedEvent(
                 server_id=segment,
                 delivery_id=delivery_value,
-                event_type=event_value,
+                webhook_event=event_value,
                 ref=ref,
                 redelivered=True,
                 operation_id=operation_id,

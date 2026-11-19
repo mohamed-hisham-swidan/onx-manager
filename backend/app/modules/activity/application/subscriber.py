@@ -164,6 +164,78 @@ class ActivityEventSubscriber(EventHandler):
         if event_name == "DataTemplateSavedEvent":
             tname = getattr(event, "template_name", "template")
             return f"Data template '{tname}' saved", "versioning.data_template_saved"
+        if event_name == "GitHubConnectedEvent":
+            remote_url = getattr(event, "remote_url", "")
+            auth_method = getattr(event, "auth_method", "")
+            return (
+                f"Connected GitHub repository {remote_url} ({auth_method})",
+                "versioning.github_connected",
+            )
+        if event_name == "GitHubDisconnectedEvent":
+            remote_url = getattr(event, "remote_url", "")
+            preserved = getattr(event, "local_history_preserved", True)
+            suffix = " (local history preserved)" if preserved else ""
+            return (
+                f"Disconnected GitHub repository {remote_url}{suffix}",
+                "versioning.github_disconnected",
+            )
+        if event_name == "GitHubCredentialsRotatedEvent":
+            auth_method = getattr(event, "auth_method", "")
+            credential_rotated = getattr(event, "credential_rotated", False)
+            webhook_secret_rotated = getattr(event, "webhook_secret_rotated", False)
+            webhook_enabled = getattr(event, "webhook_enabled", False)
+            if credential_rotated and webhook_secret_rotated:
+                summary = f"Rotated GitHub {auth_method} credential and webhook secret"
+            elif credential_rotated:
+                summary = f"Rotated GitHub {auth_method} credential"
+            elif webhook_secret_rotated:
+                summary = "Rotated GitHub webhook secret"
+            else:
+                state = "enabled" if webhook_enabled else "disabled"
+                summary = f"Updated GitHub webhook configuration ({state})"
+            return summary, "versioning.github_credentials_rotated"
+        if event_name == "GitHubSyncedEvent":
+            sync_status = getattr(event, "sync_status", "")
+            trigger = getattr(event, "trigger", "manual")
+            main_fast_forwarded = getattr(event, "main_fast_forwarded", False)
+            if sync_status == "conflict":
+                if getattr(event, "branch_name", None) is None:
+                    event.branch_name = "main"
+                return (
+                    f"GitHub sync conflict on 'main' ({trigger}): "
+                    "non-fast-forward update rejected",
+                    "versioning.github_synced",
+                )
+            if main_fast_forwarded:
+                main_sha = getattr(event, "main_sha", None) or ""
+                return (
+                    f"GitHub sync ({trigger}) fast-forwarded 'main' to {main_sha[:8]}",
+                    "versioning.github_synced",
+                )
+            return (
+                f"GitHub sync ({trigger}) completed with status '{sync_status}'",
+                "versioning.github_synced",
+            )
+        if event_name == "GitHubPushedEvent":
+            branch_name = getattr(event, "branch_name", "")
+            commit_sha = getattr(event, "commit_sha", "") or ""
+            return (
+                f"Pushed branch '{branch_name}' ({commit_sha[:8]}) to GitHub",
+                "versioning.github_pushed",
+            )
+        if event_name == "GitHubWebhookReceivedEvent":
+            gh_event = (
+                getattr(event, "webhook_event", None)
+                or getattr(event, "event_type", "webhook")
+            )
+            did = str(getattr(event, "delivery_id", ""))[:16]
+            if getattr(event, "redelivered", False):
+                summary = f"Redelivered GitHub '{gh_event}' webhook ({did})"
+            elif getattr(event, "deduplicated", False):
+                summary = f"Deduplicated GitHub '{gh_event}' webhook ({did})"
+            else:
+                summary = f"Received GitHub '{gh_event}' webhook ({did})"
+            return summary, "versioning.github_webhook_received"
         # Generic fallback for any other server-scoped event
         snake_name = "".join(
             ["_" + c.lower() if c.isupper() else c for c in event_name]

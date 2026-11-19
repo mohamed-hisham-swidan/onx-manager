@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import shutil
 import uuid
@@ -10,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select
 
 from app.api.deps import get_command_bus, get_event_bus, get_query_bus, require_permission
@@ -35,6 +36,7 @@ from app.api.v1.schemas.versioning import (
     CommitResponse,
     ConfirmUpgradeHttpRequest,
     ConfirmUpgradeResponse,
+    ConnectGitHubRequest,
     CreateBranchRequest,
     CreateClassCSnapshotRequest,
     CreateCommitRequest,
@@ -51,6 +53,15 @@ from app.api.v1.schemas.versioning import (
     EvidenceBundleResponse,
     ExtractSecretHttpRequest,
     ExtractSecretResponse,
+    GenerateGitHubDeployKeyRequest,
+    GenerateGitHubDeployKeyResponse,
+    GitHubBranchSyncStateResponse,
+    GitHubConnectionStatusResponse,
+    GitHubDisconnectResponse,
+    GitHubPushResponse,
+    GitHubSyncResponse,
+    GitHubWebhookDeliveryResponse,
+    GitHubWebhookIngestResponse,
     ImportReviewActionResponse,
     MaterializationCreateResponse,
     MaterializationFileResponse,
@@ -59,12 +70,14 @@ from app.api.v1.schemas.versioning import (
     MergeCommitsRequest,
     PortSetSchema,
     PreflightResponse,
+    PushGitHubBranchRequest,
     RefreshJournalSummaryResponse,
     RefreshServerHttpRequest,
     RefreshServerResponse,
     RefreshStateResponse,
     RollbackRefreshHttpRequest,
     RollbackRefreshResponse,
+    RotateGitHubCredentialsRequest,
     RunIsolatedTestRequest,
     SaveBranchDataTemplateRequest,
     ScanLiveChangesRequest,
@@ -138,6 +151,9 @@ from app.modules.versioning.application import (
     UpdateTestDefinitionCommand,
     WriteMaterializedFileCommand,
 )
+from app.modules.versioning.application.github_sync_service import (
+    MAX_WEBHOOK_PAYLOAD_BYTES,
+)
 from app.modules.versioning.application.refresh_orchestrator import (
     ConfirmUpgradeCommand,
     RefreshServerCommand,
@@ -149,13 +165,28 @@ from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
 from app.modules.versioning.infrastructure.storage_probe import StorageCapabilityProbe
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/v1/servers/{server_id}/versioning",
     tags=["versioning"],
     dependencies=[Depends(require_advanced_mode)],
 )
 
-__all__ = ["get_branch_runtime_service", "router"]
+github_webhook_router = APIRouter(
+    prefix="/api/v1/webhooks/github",
+    tags=["webhooks"],
+)
+
+__all__ = [
+    "create_github_sync_service",
+    "get_branch_runtime_service",
+    "get_github_sync_service",
+    "github_webhook_router",
+    "router",
+]
+
+_WEBHOOK_HARD_READ_LIMIT = MAX_WEBHOOK_PAYLOAD_BYTES + 65536
 
 _branch_runtime_service: Any = None
 _branch_runtime_service_key: tuple[str, int] | None = None
@@ -186,6 +217,195 @@ def get_branch_runtime_service() -> Any:
         )
         _branch_runtime_service_key = key
     return _branch_runtime_service
+
+
+# --- P5-3 GitHub sync DI & helpers ------------------------------------------
+
+
+def create_github_sync_service(
+    event_bus: EventBus,
+    *,
+    git_runner_factory: Any = None,
+    kek: Any = None,
+) -> Any:
+    """Build a GitHubSyncService wired to the shared OperationExecutor.
+
+    The webhook_sync_dispatcher schedules ``run_queued_sync_operation`` via
+    ``asyncio.create_task`` and registers the task on
+    ``op_service.executor.register_task(operation_id, task)`` so:
+      1. Webhook ingestion and redelivery return 202 immediately without
+         blocking on Git network I/O (D-J).
+      2. A strong reference is held until task completion, preventing GC.
+      3. Lifespan shutdown in ``main.py`` cleanly cancels/drains in-flight
+         tasks via ``get_operation_service().executor.shutdown(...)``.
+    """
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.operations.application.services.operation_service import (
+        get_operation_service,
+    )
+    from app.modules.versioning.application.github_sync_service import (
+        GitHubSyncService,
+    )
+
+    layout = resolve_host_state_layout()
+    op_service = get_operation_service(event_bus)
+    service_ref: list[Any] = []
+
+    def _dispatch_webhook_sync(
+        server_id: str, operation_id: str, delivery_id: str
+    ) -> None:
+        svc = service_ref[0]
+
+        async def _run() -> None:
+            try:
+                await svc.run_queued_sync_operation(
+                    server_id,
+                    operation_id,
+                    delivery_id=delivery_id,
+                    trigger="webhook",
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # run_queued_sync_operation already recorded redacted failure
+                # details on both OperationModel and GitHubWebhookDeliveryModel.
+                logger.warning(
+                    "Queued GitHub webhook sync failed: server=%s operation=%s delivery=%s",
+                    server_id,
+                    operation_id,
+                    delivery_id,
+                )
+
+        task = asyncio.create_task(
+            _run(),
+            name=f"github-webhook-sync:{server_id}:{operation_id}",
+        )
+        with contextlib.suppress(Exception):
+            op_service.executor.register_task(operation_id, task)
+
+    service = GitHubSyncService(
+        layout,
+        session_factory=database.session_factory,
+        operation_service=op_service,
+        event_bus=event_bus,
+        git_runner_factory=git_runner_factory,
+        webhook_sync_dispatcher=_dispatch_webhook_sync,
+        kek=kek,
+    )
+    service_ref.append(service)
+    return service
+
+
+def get_github_sync_service(
+    event_bus: Annotated[EventBus, Depends(get_event_bus)],
+) -> Any:
+    """FastAPI dependency returning a configured GitHubSyncService.
+
+    Tests may override this dependency via ``app.dependency_overrides``.
+    """
+    return create_github_sync_service(event_bus)
+
+
+def _actor_id_from_user(current_user: dict[str, Any]) -> str | None:
+    raw = current_user.get("user_id") or current_user.get("sub") or current_user.get("id")
+    return str(raw) if raw else None
+
+
+def _github_branch_states(branches: Any) -> list[GitHubBranchSyncStateResponse]:
+    states: list[GitHubBranchSyncStateResponse] = []
+    for branch in branches or ():
+        if hasattr(branch, "to_dict"):
+            data = branch.to_dict()
+        elif isinstance(branch, dict):
+            data = branch
+        else:
+            data = {
+                "branch": branch.branch,
+                "status": branch.status,
+                "local_sha": branch.local_sha,
+                "remote_sha": branch.remote_sha,
+                "ahead_count": branch.ahead_count,
+                "behind_count": branch.behind_count,
+            }
+        states.append(GitHubBranchSyncStateResponse(**data))
+    return states
+
+
+def _github_status_response(status: Any) -> GitHubConnectionStatusResponse:
+    return GitHubConnectionStatusResponse(
+        server_id=status.server_id,
+        connected=status.connected,
+        remote_url=status.remote_url,
+        auth_method=status.auth_method,
+        credential_hint=status.credential_hint,
+        deploy_public_key=status.deploy_public_key,
+        webhook_enabled=status.webhook_enabled,
+        webhook_path=(
+            f"/api/v1/webhooks/github/{status.server_id}" if status.connected else None
+        ),
+        sync_status=status.sync_status,
+        needs_reauth=status.needs_reauth,
+        last_error_code=status.last_error_code,
+        last_error_message=status.last_error_message,
+        last_fetch_at=status.last_fetch_at,
+        last_push_at=status.last_push_at,
+        remote_default_branch=status.remote_default_branch,
+        remote_head_sha=status.remote_head_sha,
+        branches=_github_branch_states(status.branches),
+        created_at=status.created_at,
+        updated_at=status.updated_at,
+        generated_webhook_secret=status.generated_webhook_secret,
+    )
+
+
+def _github_ingest_response(result: Any) -> GitHubWebhookIngestResponse:
+    return GitHubWebhookIngestResponse(
+        server_id=result.server_id,
+        delivery_id=result.delivery_id,
+        event_type=result.event_type,
+        status=result.status,
+        deduplicated=result.deduplicated,
+        redelivered=result.redelivered,
+        redelivery_count=result.redelivery_count,
+        operation_id=result.operation_id,
+        received_at=result.received_at,
+    )
+
+
+def _github_delivery_response(record: Any) -> GitHubWebhookDeliveryResponse:
+    return GitHubWebhookDeliveryResponse(
+        id=record.id,
+        server_id=record.server_id,
+        delivery_id=record.delivery_id,
+        event_type=record.event_type,
+        ref=record.ref,
+        before_sha=record.before_sha,
+        after_sha=record.after_sha,
+        payload_sha256=record.payload_sha256,
+        signature_valid=record.signature_valid,
+        status=record.status,
+        operation_id=record.operation_id,
+        error_message=record.error_message,
+        redelivery_count=record.redelivery_count,
+        received_at=record.received_at,
+        processed_at=record.processed_at,
+    )
+
+
+async def _read_bounded_webhook_body(request: Request) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > _WEBHOOK_HARD_READ_LIMIT:
+            raise ValidationError(
+                "GitHub webhook payload exceeds the 2 MiB limit",
+                field="raw_body",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 # --- P4-3 helpers -----------------------------------------------------------
@@ -2573,3 +2793,214 @@ async def send_branch_console_command(
         server_id, name, body.command
     )
     return BranchConsoleCommandResponse(**payload)
+
+
+# --- P5-3 GitHub sync authenticated routes -----------------------------------
+
+
+@router.get("/github", response_model=GitHubConnectionStatusResponse)
+async def get_github_connection_status(
+    server_id: str,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> GitHubConnectionStatusResponse:
+    return _github_status_response(await service.get_status(server_id))
+
+
+@router.post(
+    "/github/deploy-key/generate",
+    response_model=GenerateGitHubDeployKeyResponse,
+    status_code=201,
+)
+async def generate_github_deploy_key(
+    server_id: str,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    body: GenerateGitHubDeployKeyRequest | None = None,
+) -> GenerateGitHubDeployKeyResponse:
+    result = await service.generate_deploy_key(
+        server_id, comment=(body.comment if body else None)
+    )
+    return GenerateGitHubDeployKeyResponse(
+        server_id=result.server_id,
+        public_key_openssh=result.public_key_openssh,
+        private_key_pem=result.private_key_pem,
+        fingerprint_sha256=result.fingerprint_sha256,
+    )
+
+
+@router.post(
+    "/github/connect",
+    response_model=GitHubConnectionStatusResponse,
+    status_code=201,
+)
+async def connect_github(
+    server_id: str,
+    body: ConnectGitHubRequest,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> GitHubConnectionStatusResponse:
+    status = await service.connect(
+        server_id,
+        remote_url=body.remote_url,
+        auth_method=body.auth_method,
+        credential_secret=body.credential_secret,
+        deploy_public_key=body.deploy_public_key,
+        webhook_secret=body.webhook_secret,
+        enable_webhook=body.enable_webhook,
+        actor_id=_actor_id_from_user(_current_user),
+    )
+    return _github_status_response(status)
+
+
+@router.post(
+    "/github/credentials/rotate",
+    response_model=GitHubConnectionStatusResponse,
+)
+async def rotate_github_credentials(
+    server_id: str,
+    body: RotateGitHubCredentialsRequest,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> GitHubConnectionStatusResponse:
+    status = await service.rotate_credentials(
+        server_id,
+        credential_secret=body.credential_secret,
+        auth_method=body.auth_method,
+        deploy_public_key=body.deploy_public_key,
+        webhook_secret=body.webhook_secret,
+        enable_webhook=body.enable_webhook,
+        regenerate_webhook_secret=body.regenerate_webhook_secret,
+        disable_webhook=body.disable_webhook,
+        actor_id=_actor_id_from_user(_current_user),
+    )
+    return _github_status_response(status)
+
+
+@router.delete("/github", response_model=GitHubDisconnectResponse)
+async def disconnect_github(
+    server_id: str,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    purge_deliveries: bool = Query(default=False),
+) -> GitHubDisconnectResponse:
+    result = await service.disconnect(
+        server_id,
+        purge_deliveries=purge_deliveries,
+        actor_id=_actor_id_from_user(_current_user),
+    )
+    return GitHubDisconnectResponse(
+        server_id=result.server_id,
+        disconnected=result.disconnected,
+        remote_url=result.remote_url,
+        local_history_preserved=result.local_history_preserved,
+        purged_deliveries=result.purged_deliveries,
+    )
+
+
+@router.post("/github/fetch", response_model=GitHubSyncResponse)
+async def fetch_github_first_sync(
+    server_id: str,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> GitHubSyncResponse:
+    result = await service.fetch_first_sync(
+        server_id,
+        trigger="manual",
+        actor_id=_actor_id_from_user(_current_user),
+    )
+    return GitHubSyncResponse(
+        server_id=result.server_id,
+        sync_status=result.sync_status,
+        trigger=result.trigger,
+        main_fast_forwarded=result.main_fast_forwarded,
+        previous_main_sha=result.previous_main_sha,
+        main_sha=result.main_sha,
+        remote_default_branch=result.remote_default_branch,
+        remote_head_sha=result.remote_head_sha,
+        branches=_github_branch_states(result.branches),
+        fetched_at=result.fetched_at,
+    )
+
+
+@router.post("/github/push", response_model=GitHubPushResponse)
+async def push_github_branch(
+    server_id: str,
+    body: PushGitHubBranchRequest,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> GitHubPushResponse:
+    result = await service.push_branch(
+        server_id,
+        body.branch_name,
+        force=False,
+        actor_id=_actor_id_from_user(_current_user),
+    )
+    return GitHubPushResponse(
+        server_id=result.server_id,
+        branch_name=result.branch_name,
+        commit_sha=result.commit_sha,
+        remote_url=result.remote_url,
+        sync_status=result.sync_status,
+        branches=_github_branch_states(result.branches),
+        pushed_at=result.pushed_at,
+    )
+
+
+@router.get(
+    "/github/webhooks/deliveries",
+    response_model=list[GitHubWebhookDeliveryResponse],
+)
+async def list_github_webhook_deliveries(
+    server_id: str,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[GitHubWebhookDeliveryResponse]:
+    records = await service.list_deliveries(server_id, limit=limit)
+    return [_github_delivery_response(record) for record in records]
+
+
+@router.post(
+    "/github/webhooks/deliveries/{delivery_id}/redeliver",
+    response_model=GitHubWebhookIngestResponse,
+    status_code=202,
+)
+async def redeliver_github_webhook(
+    server_id: str,
+    delivery_id: str,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> GitHubWebhookIngestResponse:
+    result = await service.redeliver_webhook(
+        server_id,
+        delivery_id,
+        actor_id=_actor_id_from_user(_current_user),
+    )
+    return _github_ingest_response(result)
+
+
+# --- P5-3 public GitHub webhook receiver -------------------------------------
+
+
+@github_webhook_router.post(
+    "/{server_id}",
+    response_model=GitHubWebhookIngestResponse,
+    status_code=202,
+)
+async def receive_github_webhook(
+    server_id: str,
+    request: Request,
+    response: Response,
+    service: Annotated[Any, Depends(get_github_sync_service)],
+) -> GitHubWebhookIngestResponse:
+    raw_body = await _read_bounded_webhook_body(request)
+    result = await service.ingest_webhook(
+        server_id,
+        raw_body=raw_body,
+        signature_header=request.headers.get("X-Hub-Signature-256"),
+        delivery_id=request.headers.get("X-GitHub-Delivery"),
+        event_type=request.headers.get("X-GitHub-Event"),
+    )
+    response.status_code = 202 if result.status == "queued" else 200
+    return _github_ingest_response(result)

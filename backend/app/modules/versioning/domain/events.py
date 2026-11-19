@@ -160,7 +160,7 @@ class GitHubPushedEvent(DomainEvent):
 class GitHubWebhookReceivedEvent(DomainEvent):
     server_id: str
     delivery_id: str
-    event_type: str
+    webhook_event: str = ""
     ref: str | None = None
     deduplicated: bool = False
     redelivered: bool = False

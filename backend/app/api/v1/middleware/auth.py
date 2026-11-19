@@ -1,3 +1,5 @@
+import re
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -27,6 +29,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._public_post_only: set[str] = {
             "/api/v1/users",
         }
+        self._public_post_patterns: tuple[re.Pattern[str], ...] = (
+            re.compile(r"\A/api/v1/webhooks/github/[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z"),
+        )
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if request.method == "OPTIONS":
@@ -40,6 +45,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if any(path.startswith(prefix) for prefix in self._public_prefixes):
             return await call_next(request)
         if request.method == "POST" and path in self._public_post_only:
+            return await call_next(request)
+        if request.method == "POST" and any(
+            pattern.fullmatch(path) for pattern in self._public_post_patterns
+        ):
+            ct = request.headers.get("content-type", "")
+            if ct and "application/json" not in ct.lower():
+                return JSONResponse(
+                    status_code=415,
+                    content={
+                        "error": "Content-Type must be application/json",
+                        "error_code": "VALIDATION_ERROR",
+                    },
+                )
             return await call_next(request)
 
         if request.method in ("POST", "PUT", "PATCH") and path not in self._public_routes:

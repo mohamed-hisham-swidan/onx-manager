@@ -511,6 +511,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router)
     app.include_router(software.router)
     app.include_router(versioning.router)
+    app.include_router(versioning.github_webhook_router)
     app.include_router(activity.router)
     app.include_router(operations.router)
     app.include_router(ws_router)

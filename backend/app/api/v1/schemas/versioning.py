@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -675,3 +675,186 @@ class BranchConsoleCommandResponse(BaseResponse):
     runtime_id: str
     command: str
     output: str
+
+
+# --- P5-3 GitHub sync schemas ---
+
+
+class GenerateGitHubDeployKeyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ConnectGitHubRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remote_url: str = Field(..., min_length=1, max_length=512)
+    auth_method: Literal["pat", "ssh_deploy_key"]
+    credential_secret: str = Field(..., min_length=1, max_length=16384)
+    deploy_public_key: str | None = Field(default=None, min_length=1, max_length=4096)
+    webhook_secret: str | None = Field(default=None, min_length=16, max_length=512)
+    enable_webhook: bool = False
+
+
+class RotateGitHubCredentialsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    credential_secret: str | None = Field(default=None, min_length=1, max_length=16384)
+    auth_method: Literal["pat", "ssh_deploy_key"] | None = None
+    deploy_public_key: str | None = Field(default=None, min_length=1, max_length=4096)
+    webhook_secret: str | None = Field(default=None, min_length=16, max_length=512)
+    enable_webhook: bool | None = None
+    regenerate_webhook_secret: bool = False
+    disable_webhook: bool = False
+
+    @model_validator(mode="after")
+    def _validate_rotation_action(self) -> RotateGitHubCredentialsRequest:
+        has_action = (
+            self.credential_secret is not None
+            or self.auth_method is not None
+            or self.deploy_public_key is not None
+            or self.webhook_secret is not None
+            or self.enable_webhook is not None
+            or self.regenerate_webhook_secret
+            or self.disable_webhook
+        )
+        if not has_action:
+            raise ValueError(
+                "At least one GitHub credential or webhook rotation action is required"
+            )
+        if self.disable_webhook and (
+            self.webhook_secret is not None
+            or self.regenerate_webhook_secret
+            or self.enable_webhook is True
+        ):
+            raise ValueError(
+                "disable_webhook cannot be combined with enabling or rotating a webhook secret"
+            )
+        return self
+
+
+class PushGitHubBranchRequest(BaseModel):
+    """Push a branch to GitHub. Force-push is deliberately absent and forbidden."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    branch_name: str = Field(default="main", min_length=1, max_length=128)
+
+
+class GenerateGitHubDeployKeyResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: str
+    public_key_openssh: str
+    private_key_pem: str
+    fingerprint_sha256: str
+
+
+class GitHubBranchSyncStateResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    branch: str
+    status: Literal["synced", "ahead", "behind", "diverged", "local_only", "remote_only"]
+    local_sha: str | None = None
+    remote_sha: str | None = None
+    ahead_count: int = 0
+    behind_count: int = 0
+
+
+class GitHubConnectionStatusResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: str
+    connected: bool
+    remote_url: str | None = None
+    auth_method: str | None = None
+    credential_hint: str | None = None
+    deploy_public_key: str | None = None
+    webhook_enabled: bool = False
+    webhook_path: str | None = None
+    sync_status: str = "disconnected"
+    needs_reauth: bool = False
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    last_fetch_at: datetime | None = None
+    last_push_at: datetime | None = None
+    remote_default_branch: str | None = None
+    remote_head_sha: str | None = None
+    branches: list[GitHubBranchSyncStateResponse] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    generated_webhook_secret: str | None = None
+
+
+class GitHubDisconnectResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: str
+    disconnected: bool
+    remote_url: str
+    local_history_preserved: bool = True
+    purged_deliveries: int = 0
+
+
+class GitHubSyncResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: str
+    sync_status: str
+    trigger: str
+    main_fast_forwarded: bool
+    previous_main_sha: str | None = None
+    main_sha: str | None = None
+    remote_default_branch: str | None = None
+    remote_head_sha: str | None = None
+    branches: list[GitHubBranchSyncStateResponse] = Field(default_factory=list)
+    fetched_at: datetime
+
+
+class GitHubPushResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: str
+    branch_name: str
+    commit_sha: str
+    remote_url: str
+    sync_status: str
+    branches: list[GitHubBranchSyncStateResponse] = Field(default_factory=list)
+    pushed_at: datetime
+
+
+class GitHubWebhookIngestResponse(BaseResponse):
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: str
+    delivery_id: str
+    event_type: str
+    status: Literal["queued", "deduplicated", "ignored"]
+    deduplicated: bool = False
+    redelivered: bool = False
+    redelivery_count: int = 0
+    operation_id: str | None = None
+    received_at: datetime | None = None
+
+
+class GitHubWebhookDeliveryResponse(BaseResponse):
+    """Secret-free delivery ledger row (deliberately omits raw_payload)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    server_id: str
+    delivery_id: str
+    event_type: str
+    ref: str | None = None
+    before_sha: str | None = None
+    after_sha: str | None = None
+    payload_sha256: str
+    signature_valid: bool
+    status: str
+    operation_id: str | None = None
+    error_message: str | None = None
+    redelivery_count: int = 0
+    received_at: datetime
+    processed_at: datetime | None = None

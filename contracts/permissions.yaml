@@ -414,6 +414,18 @@ route_permissions:
   "GET /api/v1/servers/{server_id}/versioning/branches/{name}/console": {permission: "server:version:read", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/branches/{name}/console/command": {permission: "server:version:commit", status: enforced}
 
+  # P5-3 new routes
+  "GET /api/v1/servers/{server_id}/versioning/github": {permission: "server:version:read", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/github/deploy-key/generate": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/github/connect": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/github/credentials/rotate": {permission: "server:version:commit", status: enforced}
+  "DELETE /api/v1/servers/{server_id}/versioning/github": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/github/fetch": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/github/push": {permission: "server:version:commit", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/github/webhooks/deliveries": {permission: "server:version:read", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/github/webhooks/deliveries/{delivery_id}/redeliver": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/webhooks/github/{server_id}": {permission: null, status: not-applicable-public, note: "GitHub webhook receiver; AuthMiddleware POST-only regex exempt; verified via X-Hub-Signature-256 HMAC-SHA256 on raw body"}
+
   # ── WebSocket ───────────────────────────────────────────────────────────────
   # Status verified by code trace (2026-08-09). Evidence:
   #   - Handshake token check BEFORE accept: app/websocket/endpoint.py
