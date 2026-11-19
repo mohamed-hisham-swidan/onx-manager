@@ -167,3 +167,112 @@ class GitHubWebhookReceivedEvent(DomainEvent):
     operation_id: str | None = None
     actor_type: str = "webhook"
     actor_id: str | None = None
+
+
+# --- P5.5 Modpack & 1-Click Safe Upgrade events ---
+
+
+class ModpackInstalledEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    source: str
+    project_id: str
+    version_id: str
+    version_label: str
+    mc_version: str
+    loader_id: str
+    loader_version: str
+    file_count: int = 0
+    operation_id: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradePlannedEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    source_mc: str | None = None
+    target_mc: str
+    target_loader_id: str
+    target_loader_version: str
+    status: str
+    blockers_count: int = 0
+    warnings_count: int = 0
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradeManualBlockerResolvedEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    path: str | None = None
+    file_id: int | None = None
+    status: str
+    remaining_blockers: int = 0
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradeBranchPreparedEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    branch_name: str
+    target_mc: str
+    status: str
+    commit_sha: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradeTestStartedEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    branch_name: str
+    runtime_id: str
+    data_template_id: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradeAppliedEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    mode: str
+    target_mc: str
+    target_loader_id: str
+    target_loader_version: str
+    journal_id: str | None = None
+    pre_upgrade_backup_id: str | None = None
+    class_c_snapshot_id: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradeConfirmedEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    target_mc: str
+    journal_id: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class UpgradeRolledBackEvent(DomainEvent):
+    server_id: str
+    upgrade_id: str
+    target_mc: str
+    journal_id: str | None = None
+    reason: str = ""
+    automatic: bool = False
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class ServerP55SettingsUpdatedEvent(DomainEvent):
+    server_id: str
+    health_gate_boot_timeout_seconds: int
+    install_optional_server_files: bool
+    allow_experimental_paper_builds: bool
+    download_host_allowlist: list[str]
+    actor_type: str = "user"
+    actor_id: str | None = None

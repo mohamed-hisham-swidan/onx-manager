@@ -447,6 +447,15 @@ def _register_event_handlers(event_bus: EventBus) -> None:
         "GitHubSyncedEvent",
         "GitHubPushedEvent",
         "GitHubWebhookReceivedEvent",
+        "ModpackInstalledEvent",
+        "UpgradePlannedEvent",
+        "UpgradeManualBlockerResolvedEvent",
+        "UpgradeBranchPreparedEvent",
+        "UpgradeTestStartedEvent",
+        "UpgradeAppliedEvent",
+        "UpgradeConfirmedEvent",
+        "UpgradeRolledBackEvent",
+        "ServerP55SettingsUpdatedEvent",
     ]
     for ev in activity_events:
         event_bus.subscribe(ev, activity_subscriber)

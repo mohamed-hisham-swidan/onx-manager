@@ -236,6 +236,72 @@ class ActivityEventSubscriber(EventHandler):
             else:
                 summary = f"Received GitHub '{gh_event}' webhook ({did})"
             return summary, "versioning.github_webhook_received"
+        if event_name == "ModpackInstalledEvent":
+            source = getattr(event, "source", "")
+            version_label = getattr(event, "version_label", "")
+            loader_id = getattr(event, "loader_id", "")
+            mc_version = getattr(event, "mc_version", "")
+            return (
+                f"Installed {source} modpack '{version_label}' ({loader_id} {mc_version})",
+                "modpack.installed",
+            )
+        if event_name == "UpgradePlannedEvent":
+            target_mc = getattr(event, "target_mc", "")
+            target_loader_id = getattr(event, "target_loader_id", "")
+            target_loader_version = getattr(event, "target_loader_version", "")
+            status = getattr(event, "status", "")
+            return (
+                f"Planned upgrade to Minecraft {target_mc} "
+                f"({target_loader_id} {target_loader_version}) [{status}]",
+                "upgrade.planned",
+            )
+        if event_name == "UpgradeManualBlockerResolvedEvent":
+            upgrade_id = str(getattr(event, "upgrade_id", ""))
+            return (
+                f"Resolved manual download blocker for upgrade {upgrade_id[:8]}",
+                "upgrade.manual_upload_resolved",
+            )
+        if event_name == "UpgradeBranchPreparedEvent":
+            branch_name = getattr(event, "branch_name", "")
+            target_mc = getattr(event, "target_mc", "")
+            status = getattr(event, "status", "")
+            return (
+                f"Prepared upgrade branch '{branch_name}' for Minecraft {target_mc} ({status})",
+                "upgrade.branch_prepared",
+            )
+        if event_name == "UpgradeTestStartedEvent":
+            branch_name = getattr(event, "branch_name", "")
+            return (
+                f"Started isolated upgrade test on branch '{branch_name}'",
+                "upgrade.test_started",
+            )
+        if event_name == "UpgradeAppliedEvent":
+            target_mc = getattr(event, "target_mc", "")
+            target_loader_id = getattr(event, "target_loader_id", "")
+            target_loader_version = getattr(event, "target_loader_version", "")
+            return (
+                f"Applied upgrade to Minecraft {target_mc} "
+                f"({target_loader_id} {target_loader_version}); rollback backup pinned",
+                "upgrade.applied",
+            )
+        if event_name == "UpgradeConfirmedEvent":
+            target_mc = getattr(event, "target_mc", "")
+            return (
+                f"Confirmed upgrade to Minecraft {target_mc} and unpinned rollback artifacts",
+                "upgrade.confirmed",
+            )
+        if event_name == "UpgradeRolledBackEvent":
+            target_mc = getattr(event, "target_mc", "")
+            reason = getattr(event, "reason", "") or "triad restored"
+            return (
+                f"Rolled back upgrade to Minecraft {target_mc}: {reason}",
+                "upgrade.rolled_back",
+            )
+        if event_name == "ServerP55SettingsUpdatedEvent":
+            return (
+                "Updated server modpack & upgrade health-gate settings",
+                "server.p55_settings_updated",
+            )
         # Generic fallback for any other server-scoped event
         snake_name = "".join(
             ["_" + c.lower() if c.isupper() else c for c in event_name]

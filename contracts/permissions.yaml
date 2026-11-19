@@ -426,6 +426,26 @@ route_permissions:
   "POST /api/v1/servers/{server_id}/versioning/github/webhooks/deliveries/{delivery_id}/redeliver": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/webhooks/github/{server_id}": {permission: null, status: not-applicable-public, note: "GitHub webhook receiver; AuthMiddleware POST-only regex exempt; verified via X-Hub-Signature-256 HMAC-SHA256 on raw body"}
 
+  # P5.5-4 new routes
+  "GET /api/v1/settings/integrations/curseforge": {permission: "settings:read", status: enforced}
+  "PUT /api/v1/settings/integrations/curseforge": {permission: "settings:write", status: enforced}
+  "DELETE /api/v1/settings/integrations/curseforge": {permission: "settings:write", status: enforced}
+  "GET /api/v1/lec/entries": {permission: "settings:read", status: enforced}
+  "POST /api/v1/lec/prewarm": {permission: "settings:write", status: enforced}
+  "POST /api/v1/lec/gc": {permission: "settings:write", status: enforced}
+  "GET /api/v1/servers/{server_id}/p55-settings": {permission: "server.{id}.view", status: enforced}
+  "PUT /api/v1/servers/{server_id}/p55-settings": {permission: "server.{id}.settings", status: enforced}
+  "POST /api/v1/servers/{server_id}/modpacks/inspect": {permission: "server.{id}.write", status: enforced}
+  "POST /api/v1/servers/{server_id}/modpacks/install": {permission: "server.{id}.write", status: enforced}
+  "GET /api/v1/servers/{server_id}/upgrades": {permission: "server.{id}.view", status: enforced}
+  "GET /api/v1/servers/{server_id}/upgrades/{upgrade_id}": {permission: "server.{id}.view", status: enforced}
+  "POST /api/v1/servers/{server_id}/upgrades/plan": {permission: "server.{id}.write", status: enforced}
+  "POST /api/v1/servers/{server_id}/upgrades/{upgrade_id}/manual-upload": {permission: "server.{id}.write", status: enforced}
+  "POST /api/v1/servers/{server_id}/upgrades/{upgrade_id}/prepare-test": {permission: "server.{id}.write", status: enforced}
+  "POST /api/v1/servers/{server_id}/upgrades/{upgrade_id}/apply": {permission: "server.{id}.write", status: enforced}
+  "POST /api/v1/servers/{server_id}/upgrades/{upgrade_id}/confirm": {permission: "server.{id}.write", status: enforced}
+  "POST /api/v1/servers/{server_id}/upgrades/{upgrade_id}/rollback": {permission: "server.{id}.write", status: enforced}
+
   # ── WebSocket ───────────────────────────────────────────────────────────────
   # Status verified by code trace (2026-08-09). Evidence:
   #   - Handshake token check BEFORE accept: app/websocket/endpoint.py

@@ -297,6 +297,45 @@ class TestLiveContract:
             assert contract[key]["permission"] == {"plugin:manage"}
 
 
+    def test_committed_contract_contains_p55_4_routes(self, checker) -> None:
+        contract = checker.parse_contract(_CONTRACT)
+        expected = {
+            ("GET", "/api/v1/settings/integrations/curseforge"): {"settings:read"},
+            ("PUT", "/api/v1/settings/integrations/curseforge"): {"settings:write"},
+            ("DELETE", "/api/v1/settings/integrations/curseforge"): {"settings:write"},
+            ("GET", "/api/v1/lec/entries"): {"settings:read"},
+            ("POST", "/api/v1/lec/prewarm"): {"settings:write"},
+            ("POST", "/api/v1/lec/gc"): {"settings:write"},
+            ("GET", "/api/v1/servers/{server_id}/p55-settings"): {"server.{id}.view"},
+            ("PUT", "/api/v1/servers/{server_id}/p55-settings"): {"server.{id}.settings"},
+            ("POST", "/api/v1/servers/{server_id}/modpacks/inspect"): {"server.{id}.write"},
+            ("POST", "/api/v1/servers/{server_id}/modpacks/install"): {"server.{id}.write"},
+            ("GET", "/api/v1/servers/{server_id}/upgrades"): {"server.{id}.view"},
+            ("GET", "/api/v1/servers/{server_id}/upgrades/{upgrade_id}"): {"server.{id}.view"},
+            ("POST", "/api/v1/servers/{server_id}/upgrades/plan"): {"server.{id}.write"},
+            ("POST", "/api/v1/servers/{server_id}/upgrades/{upgrade_id}/manual-upload"): {
+                "server.{id}.write"
+            },
+            ("POST", "/api/v1/servers/{server_id}/upgrades/{upgrade_id}/prepare-test"): {
+                "server.{id}.write"
+            },
+            ("POST", "/api/v1/servers/{server_id}/upgrades/{upgrade_id}/apply"): {
+                "server.{id}.write"
+            },
+            ("POST", "/api/v1/servers/{server_id}/upgrades/{upgrade_id}/confirm"): {
+                "server.{id}.write"
+            },
+            ("POST", "/api/v1/servers/{server_id}/upgrades/{upgrade_id}/rollback"): {
+                "server.{id}.write"
+            },
+        }
+        assert len(expected) == 18
+        for key, perm in expected.items():
+            assert key in contract, f"Missing contract entry {key}"
+            assert contract[key]["status"] == "enforced"
+            assert contract[key]["permission"] == perm
+
+
 # ── main() exit codes ───────────────────────────────────────────────────────
 
 
@@ -356,4 +395,4 @@ class TestMain:
         )
         assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
         assert "PASS" in result.stdout
-        assert "193 live routes vs 193 contract entries" in result.stdout
+        assert "211 live routes vs 211 contract entries" in result.stdout

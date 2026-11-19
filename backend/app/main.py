@@ -24,6 +24,7 @@ from app.api.v1.routers import (
     health,
     invites,
     marketplace,
+    modpacks_upgrades,
     monitoring,
     operations,
     plugins,
@@ -512,6 +513,8 @@ def create_app() -> FastAPI:
     app.include_router(software.router)
     app.include_router(versioning.router)
     app.include_router(versioning.github_webhook_router)
+    app.include_router(modpacks_upgrades.server_p55_router)
+    app.include_router(modpacks_upgrades.lec_router)
     app.include_router(activity.router)
     app.include_router(operations.router)
     app.include_router(ws_router)

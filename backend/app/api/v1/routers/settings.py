@@ -1,9 +1,15 @@
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends
 
 from app.api.deps import require_permission
+from app.api.v1.schemas.modpacks_upgrades import (
+    CurseForgeIntegrationKeySetRequest,
+    CurseForgeIntegrationStatusResponse,
+)
+from app.core.config import AppSettings
+from app.core.persistence.db import database
 from app.core.settings_store import (
     RESTART_REQUIRED_FIELDS,
     get_live_settings,
@@ -12,6 +18,12 @@ from app.core.settings_store import (
     update_settings as update_settings_store,
 )
 from app.core.version import get_app_version
+from app.modules.versioning.infrastructure.panel_secret_store import (
+    CURSEFORGE_API_KEY_NAME,
+    delete_panel_secret,
+    get_panel_secret_status,
+    set_panel_secret,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,3 +102,66 @@ async def update_settings(
             "test_boot_timeout_seconds": live.test_boot_timeout_seconds,
         },
     }
+
+
+@router.get(
+    "/integrations/curseforge",
+    response_model=CurseForgeIntegrationStatusResponse,
+)
+async def get_curseforge_integration_status(
+    _current_user: Annotated[dict, Depends(require_permission("settings:read"))],
+) -> CurseForgeIntegrationStatusResponse:
+    async with database.session_factory() as session:
+        status = await get_panel_secret_status(
+            session,
+            CURSEFORGE_API_KEY_NAME,
+            settings=AppSettings(),
+        )
+    return CurseForgeIntegrationStatusResponse(
+        configured=status.configured,
+        source=status.source,
+        hint=status.hint,
+    )
+
+
+@router.put(
+    "/integrations/curseforge",
+    response_model=CurseForgeIntegrationStatusResponse,
+)
+async def set_curseforge_integration_key(
+    body: CurseForgeIntegrationKeySetRequest,
+    _current_user: Annotated[dict, Depends(require_permission("settings:write"))],
+) -> CurseForgeIntegrationStatusResponse:
+    async with database.session_factory() as session:
+        status = await set_panel_secret(
+            session,
+            CURSEFORGE_API_KEY_NAME,
+            body.api_key,
+            settings=AppSettings(),
+        )
+    return CurseForgeIntegrationStatusResponse(
+        configured=status.configured,
+        source=status.source,
+        hint=status.hint,
+    )
+
+
+@router.delete(
+    "/integrations/curseforge",
+    response_model=CurseForgeIntegrationStatusResponse,
+)
+async def delete_curseforge_integration_key(
+    _current_user: Annotated[dict, Depends(require_permission("settings:write"))],
+) -> CurseForgeIntegrationStatusResponse:
+    async with database.session_factory() as session:
+        await delete_panel_secret(session, CURSEFORGE_API_KEY_NAME)
+        status = await get_panel_secret_status(
+            session,
+            CURSEFORGE_API_KEY_NAME,
+            settings=AppSettings(),
+        )
+    return CurseForgeIntegrationStatusResponse(
+        configured=status.configured,
+        source=status.source,
+        hint=status.hint,
+    )
