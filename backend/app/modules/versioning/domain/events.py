@@ -102,3 +102,68 @@ class CommitPromotedEvent(DomainEvent):
     keep_world_changes: bool = False
     forced: bool = False
     actor_id: str | None = None
+
+
+# --- P5 GitHub sync events (never carry raw secrets or HMAC digests) ---
+
+
+class GitHubConnectedEvent(DomainEvent):
+    server_id: str
+    remote_url: str
+    auth_method: str
+    webhook_enabled: bool = False
+    remote_default_branch: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class GitHubDisconnectedEvent(DomainEvent):
+    server_id: str
+    remote_url: str
+    local_history_preserved: bool = True
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class GitHubCredentialsRotatedEvent(DomainEvent):
+    server_id: str
+    auth_method: str
+    credential_rotated: bool = False
+    webhook_secret_rotated: bool = False
+    webhook_enabled: bool = False
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class GitHubSyncedEvent(DomainEvent):
+    server_id: str
+    sync_status: str
+    trigger: str = "manual"
+    main_fast_forwarded: bool = False
+    previous_main_sha: str | None = None
+    main_sha: str | None = None
+    remote_head_sha: str | None = None
+    branch_name: str | None = None
+    actor_type: str = "system"
+    actor_id: str | None = None
+
+
+class GitHubPushedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    commit_sha: str
+    remote_url: str
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class GitHubWebhookReceivedEvent(DomainEvent):
+    server_id: str
+    delivery_id: str
+    event_type: str
+    ref: str | None = None
+    deduplicated: bool = False
+    redelivered: bool = False
+    operation_id: str | None = None
+    actor_type: str = "webhook"
+    actor_id: str | None = None
