@@ -121,7 +121,7 @@ def test_p51_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
 
     script = ScriptDirectory.from_config(cfg)
     assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD]
-    assert script.get_heads() == ["b1e2100000030"]
+    assert P5_REVISION in {rev.revision for rev in script.walk_revisions()}
     assert script.get_heads() == [RELEASE_MINIMUM_DB_REVISION]
     assert script.get_revision(P5_REVISION).down_revision == PRIOR_HEAD
 

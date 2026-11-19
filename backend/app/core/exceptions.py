@@ -1323,3 +1323,285 @@ class GitHubPushRejectedError(ConflictError):
             details=merged,
         )
         self.branch = branch
+
+
+# --- P5.5 Modpack, LEC & 1-Click Safe Upgrade exceptions ---
+
+
+class UnsupportedForgeVersionError(ValidationError):
+    """Forge is only supported for Minecraft 1.17.1 through 1.20.1."""
+
+    code = "UNSUPPORTED_FORGE_VERSION"
+    http_status = 422
+
+    def __init__(
+        self,
+        minecraft_version: str = "",
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = {
+            "minecraft_version": str(minecraft_version)[:32],
+            "supported_min": "1.17.1",
+            "supported_max": "1.20.1",
+            **(details or {}),
+        }
+        super().__init__(
+            message
+            or (
+                "Forge is only supported for Minecraft 1.17.1 through 1.20.1 "
+                f"(got '{str(minecraft_version)[:32]}')"
+            ),
+            field="minecraft_version",
+            details=merged,
+        )
+        self.code = "UNSUPPORTED_FORGE_VERSION"
+        self.http_status = 422
+        self.details = merged
+
+
+class CurseForgeApiKeyMissingError(ConflictError):
+    """CurseForge requires an operator-configured API key.
+
+    Deliberately HTTP 409 (never 401): the frontend treats HTTP 401 on
+    authenticated panel endpoints as an expired JWT and would log the operator
+    out instead of prompting for the key.
+    """
+
+    code = "CURSEFORGE_API_KEY_MISSING"
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        MCSError.__init__(
+            self,
+            message
+            or (
+                "CurseForge API key is not configured; set curseforge_api_key in "
+                "panel settings or ONX_CURSEFORGE_API_KEY"
+            ),
+            code="CURSEFORGE_API_KEY_MISSING",
+            http_status=409,
+            details=dict(details or {}),
+        )
+
+
+class HostileExecutableError(ValidationError):
+    """An archive member would place an executable outside an allowed jar root."""
+
+    code = "HOSTILE_EXECUTABLE_REJECTED"
+    http_status = 422
+
+    def __init__(
+        self,
+        path: str = "",
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        safe_path = str(path)[:128]
+        merged: dict[str, Any] = {"path": safe_path, **(details or {})}
+        super().__init__(
+            message or f"Hostile executable rejected: '{safe_path}'",
+            field="path",
+            details=merged,
+        )
+        self.code = "HOSTILE_EXECUTABLE_REJECTED"
+        self.http_status = 422
+        self.details = merged
+        self.path = safe_path
+
+
+class UntrustedDownloadHostError(ValidationError):
+    """A download URL host is not on the normative allow-list."""
+
+    code = "UNTRUSTED_DOWNLOAD_HOST"
+    http_status = 422
+
+    def __init__(
+        self,
+        host: str = "",
+        reason: str = "",
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        safe_host = str(host)[:128]
+        safe_reason = str(reason)[:256]
+        merged: dict[str, Any] = {
+            "host": safe_host,
+            "reason": safe_reason,
+            **(details or {}),
+        }
+        super().__init__(
+            message
+            or f"Untrusted download host '{safe_host}'"
+            + (f": {safe_reason}" if safe_reason else ""),
+            field="host",
+            details=merged,
+        )
+        self.code = "UNTRUSTED_DOWNLOAD_HOST"
+        self.http_status = 422
+        self.details = merged
+        self.host = safe_host
+        self.reason = safe_reason
+
+
+class ManualDownloadRequiredError(ConflictError):
+    """A CurseForge file requires an operator drag-and-drop upload."""
+
+    code = "MANUAL_DOWNLOAD_REQUIRED"
+    http_status = 409
+
+    def __init__(
+        self,
+        filename: str = "",
+        webpage_url: str = "",
+        message: str = "",
+        *,
+        expected_size: int | None = None,
+        expected_sha1: str | None = None,
+        expected_sha512: str | None = None,
+        project_id: int | None = None,
+        file_id: int | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        safe_filename = str(filename)[:128]
+        safe_url = str(webpage_url)[:256]
+        merged: dict[str, Any] = {
+            "filename": safe_filename,
+            "webpage_url": safe_url,
+        }
+        if expected_size is not None:
+            merged["expected_size"] = expected_size
+        if expected_sha1 is not None:
+            merged["expected_sha1"] = str(expected_sha1)[:40]
+        if expected_sha512 is not None:
+            merged["expected_sha512"] = str(expected_sha512)[:128]
+        if project_id is not None:
+            merged["project_id"] = project_id
+        if file_id is not None:
+            merged["file_id"] = file_id
+        merged.update(details or {})
+        MCSError.__init__(
+            self,
+            message
+            or (
+                f"Manual download required for '{safe_filename or 'unknown file'}'; "
+                "upload the verified file in the upgrade wizard"
+            ),
+            code="MANUAL_DOWNLOAD_REQUIRED",
+            http_status=409,
+            details=merged,
+        )
+        self.filename = safe_filename
+        self.webpage_url = safe_url
+
+
+class UpgradeBlockerError(ConflictError):
+    """One or more upgrade-matrix blockers prevent the operation."""
+
+    code = "UPGRADE_BLOCKED"
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        blockers: list[dict[str, Any]] | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.blockers = list(blockers or [])
+        merged: dict[str, Any] = {"blockers": self.blockers, **(details or {})}
+        MCSError.__init__(
+            self,
+            message or "Upgrade is blocked by unresolved compatibility issues",
+            code="UPGRADE_BLOCKED",
+            http_status=409,
+            details=merged,
+        )
+
+
+class LecMissingError(ConflictError):
+    """A required Loader Environment Cache entry is not pre-warmed."""
+
+    code = "LEC_MISSING"
+    http_status = 409
+
+    def __init__(
+        self,
+        lec_key: str = "",
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        safe_key = str(lec_key)[:256]
+        merged: dict[str, Any] = {"lec_key": safe_key, **(details or {})}
+        MCSError.__init__(
+            self,
+            message or f"LEC missing: '{safe_key}' is not pre-warmed on this host",
+            code="LEC_MISSING",
+            http_status=409,
+            details=merged,
+        )
+        self.lec_key = safe_key
+
+
+class HealthGateFailedError(MCSError):
+    """The 4-step upgrade Health Gate failed."""
+
+    code = "HEALTH_GATE_FAILED"
+    http_status = 502
+    retryable = False
+
+    def __init__(
+        self,
+        step: str = "",
+        reason: str = "",
+        message: str = "",
+        *,
+        rolled_back: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        safe_step = str(step)[:64]
+        safe_reason = str(reason)[:256]
+        merged: dict[str, Any] = {
+            "step": safe_step,
+            "reason": safe_reason,
+            "rolled_back": bool(rolled_back),
+            **(details or {}),
+        }
+        super().__init__(
+            message or f"Health gate failed at step '{safe_step}': {safe_reason}",
+            code="HEALTH_GATE_FAILED",
+            http_status=502,
+            retryable=False,
+            details=merged,
+        )
+
+
+class ModpackFormatError(ValidationError):
+    """A modpack archive or its index/manifest is structurally invalid."""
+
+    code = "MODPACK_FORMAT_INVALID"
+    http_status = 422
+
+    def __init__(
+        self,
+        message: str = "Invalid modpack archive",
+        *,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Invalid modpack archive",
+            field=field,
+            details=details,
+        )
+        self.code = "MODPACK_FORMAT_INVALID"
+        self.http_status = 422

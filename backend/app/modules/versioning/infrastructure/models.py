@@ -468,3 +468,98 @@ class GitHubWebhookDeliveryModel(Base):
             "received_at",
         ),
     )
+
+
+class ServerUpgradeModel(Base):
+    """Durable 1-Click Safe Upgrade journal row (P5.5)."""
+
+    __tablename__ = "server_upgrades"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    kind = Column(
+        String(32), nullable=False, default="server_upgrade", server_default="server_upgrade"
+    )
+    mode = Column(String(16), nullable=False, default="simple", server_default="simple")
+    status = Column(String(32), nullable=False, default="planned", server_default="planned")
+    source_mc = Column(String(32), nullable=True)
+    target_mc = Column(String(32), nullable=False)
+    source_loader_id = Column(String(32), nullable=True)
+    source_loader_version = Column(String(64), nullable=True)
+    target_loader_id = Column(String(32), nullable=False)
+    target_loader_version = Column(String(64), nullable=False)
+    target_lec_key = Column(String(256), nullable=True)
+    upgrade_branch = Column(String(128), nullable=True)
+    operation_id = Column(String(36), nullable=True)
+    journal_id = Column(String(36), nullable=True)
+    previous_main_sha = Column(String(64), nullable=True)
+    target_main_sha = Column(String(64), nullable=True)
+    pre_upgrade_backup_id = Column(String(36), nullable=True)
+    class_c_snapshot_id = Column(String(36), nullable=True)
+    data_template_id = Column(String(36), nullable=True)
+    plan_json = Column(JSON, nullable=True)
+    matrix_json = Column(JSON, nullable=True)
+    manual_blockers_json = Column(JSON, nullable=True)
+    pinned_until_confirm = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    health_gate_passed = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    error_code = Column(String(64), nullable=True)
+    error_message = Column(String(512), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    rolled_back_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        Index("ix_server_upgrades_server_id", "server_id"),
+        Index("ix_server_upgrades_server_status", "server_id", "status"),
+        Index("ix_server_upgrades_server_created", "server_id", "created_at"),
+    )
+
+
+class LoaderEnvCacheEntryModel(Base):
+    """Host Loader Environment Cache ledger row (P5.5)."""
+
+    __tablename__ = "loader_env_cache_entries"
+
+    lec_key = Column(String(256), primary_key=True)
+    loader_id = Column(String(32), nullable=False)
+    mc_version = Column(String(32), nullable=False)
+    loader_version = Column(String(64), nullable=False)
+    installer_version = Column(String(64), nullable=True)
+    java_major = Column(Integer, nullable=True)
+    status = Column(String(32), nullable=False, default="ready", server_default="ready")
+    size_bytes = Column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    file_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    complete_manifest_sha256 = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    last_used_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        Index("ix_loader_env_cache_entries_loader_mc", "loader_id", "mc_version"),
+        Index("ix_loader_env_cache_entries_last_used", "last_used_at"),
+    )
+
+
+class PanelIntegrationSecretModel(Base):
+    """Encrypted panel-level integration secret (P5.5, e.g. CurseForge key)."""
+
+    __tablename__ = "panel_integration_secrets"
+
+    integration_key = Column(String(64), primary_key=True)
+    encryption_mode = Column(
+        String(32), nullable=False, default="master_kek_v1", server_default="master_kek_v1"
+    )
+    wrapped_dek = Column(LargeBinary, nullable=False)
+    kek_version = Column(Integer, nullable=False, server_default=text("1"))
+    nonce = Column(LargeBinary(12), nullable=False)
+    ciphertext = Column(LargeBinary, nullable=False)
+    key_hint = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)

@@ -42,6 +42,7 @@ class AppSettings(BaseSettings):
     backup_encryption_key_path: str = ""
     master_kek_file: str = ""
     master_kek: str = ""
+    curseforge_api_key: str = Field(default="", repr=False)
     storage_backend: str = "local"
     backup_storage_path: str = "data/backups"
     plugin_providers: str = "modrinth"

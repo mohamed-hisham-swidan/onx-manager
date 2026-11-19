@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
+import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from app.core.exceptions import CorruptedDownloadError, DownloadError, DownloadTimeoutError
+from app.core.exceptions import (
+    CorruptedDownloadError,
+    DownloadError,
+    DownloadTimeoutError,
+    ValidationError,
+)
 from app.core.http_client import get_http_client
+from app.core.version import get_app_version
 from app.modules.plugin.infrastructure.providers.base import (
     PluginCatalogProvider,
     PluginFile,
@@ -24,6 +34,47 @@ MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 
 MODRINTH_TIMEOUT_SECONDS: int = 30
 MODRINTH_MAX_RETRIES: int = 2
+MODRINTH_BATCH_CHUNK_SIZE: int = 200
+MODRINTH_BATCH_MAX_RETRIES: int = 3
+MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS: float = 60.0
+
+_SHA512_RE = re.compile(r"\A[0-9a-f]{128}\Z")
+_SHA1_RE = re.compile(r"\A[0-9a-f]{40}\Z")
+
+
+@dataclass(frozen=True)
+class ModrinthDependency:
+    version_id: str | None
+    project_id: str | None
+    file_name: str | None
+    dependency_type: str
+
+
+@dataclass(frozen=True)
+class ModrinthVersionRecord:
+    version_id: str
+    project_id: str
+    name: str
+    version_number: str
+    version_type: str
+    game_versions: tuple[str, ...]
+    loaders: tuple[str, ...]
+    environment: str | None
+    files: tuple[PluginFile, ...]
+    dependencies: tuple[ModrinthDependency, ...]
+    date_published: str = ""
+
+
+@dataclass(frozen=True)
+class ModrinthProjectMeta:
+    project_id: str
+    slug: str
+    title: str
+    project_type: str
+    client_side: str | None
+    server_side: str | None
+    loaders: tuple[str, ...]
+    game_versions: tuple[str, ...]
 
 _PLUGIN_CATEGORIES = ("bukkit", "paper", "purpur", "spigot", "folia")
 _PLUGIN_FACET = '["project_type:plugin"]'
@@ -328,3 +379,335 @@ class ModrinthProvider(PluginCatalogProvider):
             dependencies=deps,
             date_published=data.get("date_published", ""),
         )
+
+    # ------------------------------------------------------------------
+    # P5.5 hash-only batch identification (additive; no slug guessing)
+    # ------------------------------------------------------------------
+
+    def __init__(self) -> None:
+        self._ratelimit_not_before: float = 0.0
+
+    @staticmethod
+    def _header_value(headers, name: str) -> str | None:
+        try:
+            value = headers.get(name)
+            if value is None:
+                value = headers.get(name.lower())
+        except AttributeError:
+            return None
+        return str(value) if value is not None else None
+
+    @classmethod
+    def _int_header(cls, headers, name: str) -> int | None:
+        value = cls._header_value(headers, name)
+        if value is None:
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _chunks(values: Sequence[str]) -> list[list[str]]:
+        return [
+            list(values[index : index + MODRINTH_BATCH_CHUNK_SIZE])
+            for index in range(0, len(values), MODRINTH_BATCH_CHUNK_SIZE)
+        ]
+
+    @staticmethod
+    def _dedupe(values: Sequence[str]) -> list[str]:
+        return list(dict.fromkeys(values))
+
+    async def _request_json_with_ratelimit(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict | None = None,
+        json_body: dict | None = None,
+        max_retries: int = MODRINTH_BATCH_MAX_RETRIES,
+    ) -> object:
+        """Rate-limit-aware JSON request helper for batch endpoints."""
+        url = f"{MODRINTH_API_BASE}{path}"
+        client = get_http_client()
+        headers = {"User-Agent": f"onx-manager/{get_app_version()}"}
+        attempt = 0
+
+        while True:
+            cooldown = self._ratelimit_not_before - time.monotonic()
+            if cooldown > 0:
+                await asyncio.sleep(cooldown)
+
+            try:
+                async with client.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json_body,
+                    headers=headers,
+                ) as resp:
+                    status = int(resp.status)
+                    remaining = self._int_header(resp.headers, "X-Ratelimit-Remaining")
+                    reset = self._int_header(resp.headers, "X-Ratelimit-Reset")
+
+                    if status == 429:
+                        retry_after = self._int_header(resp.headers, "Retry-After")
+                        if attempt >= max_retries:
+                            raise DownloadError(
+                                url, 429, "Modrinth rate limit exceeded"
+                            )
+                        base_wait = max(float(retry_after or reset or 0), 1.0 * (2**attempt))
+                        await asyncio.sleep(
+                            min(base_wait, MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS)
+                        )
+                        attempt += 1
+                        continue
+
+                    if status in (400, 404):
+                        raise DownloadError(url, status)
+
+                    if status != 200:
+                        if 500 <= status < 600 and attempt < max_retries:
+                            await asyncio.sleep(
+                                min(
+                                    1.0 * (2**attempt),
+                                    MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS,
+                                )
+                            )
+                            attempt += 1
+                            continue
+                        raise DownloadError(url, status)
+
+                    data = await resp.json()
+                    if (
+                        remaining is not None
+                        and remaining <= 0
+                        and reset is not None
+                        and reset > 0
+                    ):
+                        self._ratelimit_not_before = max(
+                            self._ratelimit_not_before,
+                            time.monotonic()
+                            + min(
+                                float(reset),
+                                MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS,
+                            ),
+                        )
+                    return data
+            except TimeoutError as exc:
+                if attempt >= max_retries:
+                    raise DownloadError(
+                        url, 0, "Modrinth request timed out"
+                    ) from exc
+                await asyncio.sleep(
+                    min(1.0 * (2**attempt), MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS)
+                )
+                attempt += 1
+            except DownloadError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - normalized into DownloadError
+                if attempt >= max_retries:
+                    raise DownloadError(url, 0, str(exc)[:200]) from exc
+                await asyncio.sleep(
+                    min(1.0 * (2**attempt), MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS)
+                )
+                attempt += 1
+
+    @staticmethod
+    def _validate_hashes(hashes: Sequence[str], algorithm: str) -> list[str]:
+        if algorithm not in ("sha512", "sha1"):
+            raise ValidationError(
+                "Unsupported Modrinth hash algorithm",
+                field="algorithm",
+                details={"algorithm": str(algorithm)[:16]},
+            )
+        pattern = _SHA512_RE if algorithm == "sha512" else _SHA1_RE
+        cleaned: list[str] = []
+        for value in hashes:
+            if not isinstance(value, str) or not pattern.match(value):
+                raise ValidationError(
+                    "Invalid Modrinth hash",
+                    field="hashes",
+                    details={"algorithm": algorithm},
+                )
+            cleaned.append(value)
+        return list(dict.fromkeys(cleaned))
+
+    def _version_record(self, data: dict) -> ModrinthVersionRecord:
+        parsed = self._parse_version(data)
+        environment = data.get("environment")
+        if not isinstance(environment, str):
+            environment = None
+        dependencies: list[ModrinthDependency] = []
+        for item in data.get("dependencies") or []:
+            if not isinstance(item, dict):
+                continue
+            dependencies.append(
+                ModrinthDependency(
+                    version_id=item.get("version_id"),
+                    project_id=item.get("project_id"),
+                    file_name=item.get("file_name"),
+                    dependency_type=str(item.get("dependency_type") or ""),
+                )
+            )
+        return ModrinthVersionRecord(
+            version_id=str(parsed.version_id),
+            project_id=str(parsed.project_id),
+            name=str(parsed.name),
+            version_number=str(parsed.version_number),
+            version_type=str(data.get("version_type") or ""),
+            game_versions=tuple(parsed.game_versions),
+            loaders=tuple(parsed.loaders),
+            environment=environment,
+            files=tuple(parsed.files),
+            dependencies=tuple(dependencies),
+            date_published=str(parsed.date_published),
+        )
+
+    @staticmethod
+    def _project_meta(data: dict) -> ModrinthProjectMeta:
+        return ModrinthProjectMeta(
+            project_id=str(data.get("id") or ""),
+            slug=str(data.get("slug") or ""),
+            title=str(data.get("title") or ""),
+            project_type=str(data.get("project_type") or ""),
+            client_side=data.get("client_side"),
+            server_side=data.get("server_side"),
+            loaders=tuple(data.get("loaders") or ()),
+            game_versions=tuple(data.get("game_versions") or ()),
+        )
+
+    async def lookup_version_files_by_hashes(
+        self,
+        hashes: Sequence[str],
+        *,
+        algorithm: str = "sha512",
+    ) -> dict[str, ModrinthVersionRecord]:
+        cleaned = self._validate_hashes(hashes, algorithm)
+        result: dict[str, ModrinthVersionRecord] = {}
+        for chunk in self._chunks(cleaned):
+            payload = await self._request_json_with_ratelimit(
+                "POST",
+                "/version_files",
+                json_body={"hashes": chunk, "algorithm": algorithm},
+            )
+            if not isinstance(payload, dict):
+                continue
+            for digest, version_data in payload.items():
+                if (
+                    isinstance(digest, str)
+                    and digest in chunk
+                    and isinstance(version_data, dict)
+                ):
+                    result[digest] = self._version_record(version_data)
+        return result
+
+    async def lookup_version_updates_by_hashes(
+        self,
+        hashes: Sequence[str],
+        *,
+        loaders: Sequence[str],
+        game_versions: Sequence[str],
+        algorithm: str = "sha512",
+        version_types: Sequence[str] = ("release",),
+    ) -> dict[str, ModrinthVersionRecord]:
+        cleaned = self._validate_hashes(hashes, algorithm)
+        result: dict[str, ModrinthVersionRecord] = {}
+        for chunk in self._chunks(cleaned):
+            payload = await self._request_json_with_ratelimit(
+                "POST",
+                "/version_files/update",
+                json_body={
+                    "hashes": chunk,
+                    "algorithm": algorithm,
+                    "loaders": list(loaders),
+                    "game_versions": list(game_versions),
+                    "version_types": list(version_types),
+                },
+            )
+            if not isinstance(payload, dict):
+                continue
+            for digest, version_data in payload.items():
+                if (
+                    isinstance(digest, str)
+                    and digest in chunk
+                    and isinstance(version_data, dict)
+                ):
+                    result[digest] = self._version_record(version_data)
+        return result
+
+    async def get_versions_by_ids(
+        self,
+        version_ids: Sequence[str],
+    ) -> dict[str, ModrinthVersionRecord]:
+        cleaned = list(dict.fromkeys(str(value) for value in version_ids if value))
+        result: dict[str, ModrinthVersionRecord] = {}
+        for chunk in self._chunks(cleaned):
+            payload = await self._request_json_with_ratelimit(
+                "GET",
+                "/versions",
+                params={"ids": json.dumps(chunk)},
+            )
+            if not isinstance(payload, list):
+                continue
+            for item in payload:
+                if isinstance(item, dict):
+                    record = self._version_record(item)
+                    if record.version_id:
+                        result[record.version_id] = record
+        return result
+
+    async def get_projects_by_ids(
+        self,
+        project_ids: Sequence[str],
+    ) -> dict[str, ModrinthProjectMeta]:
+        cleaned = list(dict.fromkeys(str(value) for value in project_ids if value))
+        result: dict[str, ModrinthProjectMeta] = {}
+        for chunk in self._chunks(cleaned):
+            payload = await self._request_json_with_ratelimit(
+                "GET",
+                "/projects",
+                params={"ids": json.dumps(chunk)},
+            )
+            if not isinstance(payload, list):
+                continue
+            for item in payload:
+                if isinstance(item, dict):
+                    meta = self._project_meta(item)
+                    if meta.project_id:
+                        result[meta.project_id] = meta
+        return result
+
+    async def classify_client_only_jars_by_sha512(
+        self,
+        sha512_hashes: Sequence[str],
+    ) -> tuple[
+        set[str],
+        dict[str, ModrinthVersionRecord],
+        dict[str, ModrinthProjectMeta],
+    ]:
+        """Identify client-only jars strictly from Version.environment and /projects."""
+        matched = await self.lookup_version_files_by_hashes(
+            sha512_hashes, algorithm="sha512"
+        )
+        client_only: set[str] = set()
+        project_ids: list[str] = []
+        for digest, record in matched.items():
+            if record.environment == "client_only":
+                client_only.add(digest)
+            elif (
+                record.environment not in ("server_only", "client_and_server")
+                and record.project_id
+            ):
+                project_ids.append(record.project_id)
+
+        matched_projects = (
+            await self.get_projects_by_ids(project_ids) if project_ids else {}
+        )
+        for digest, record in matched.items():
+            if digest in client_only:
+                continue
+            project = matched_projects.get(record.project_id)
+            if project is not None and project.server_side == "unsupported":
+                client_only.add(digest)
+        return client_only, matched, matched_projects

@@ -74,6 +74,16 @@ class ServerModel(Base, TimestampMixin):
     launch_config_json = Column(Text, nullable=True)
     bot_verification_settings = Column(JSON, nullable=True)
     startup_timeout_seconds = Column(Integer, nullable=True)
+    health_gate_boot_timeout_seconds = Column(
+        Integer, nullable=False, default=300, server_default=text("300")
+    )
+    install_optional_server_files = Column(
+        Boolean, nullable=False, default=True, server_default=text("1")
+    )
+    allow_experimental_paper_builds = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    download_host_allowlist_json = Column(JSON, nullable=True)
     missing_since = Column(DateTime, nullable=True)
     owner_id = Column(
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
