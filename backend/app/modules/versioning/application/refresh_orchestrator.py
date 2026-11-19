@@ -43,10 +43,12 @@ from collections.abc import (
     Iterable,
     Iterator,
 )
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
+
+from sqlalchemy import select, update
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.exceptions import (
@@ -65,6 +67,7 @@ from app.modules.versioning.application.repo_lease import (
     RepoLeaseManager,
     RepoLeaseToken,
 )
+from app.modules.versioning.domain.lockfile import LockfileV21
 from app.modules.versioning.infrastructure.class_c_snapshot import (
     ClassCSnapshotResult,
     ClassCSnapshotService,
@@ -74,10 +77,13 @@ from app.modules.versioning.infrastructure.directory_swap import (
     SwapResult,
     swap_directories,
 )
+from app.modules.versioning.infrastructure.models import RefreshJournalModel
 from app.modules.versioning.infrastructure.refresh_journal import (
     TERMINAL_PHASES,
     RefreshJournalRecord,
     RefreshJournalRepository,
+    _record_from_values,
+    _values_from_model,
 )
 
 DEFAULT_SPACE_HEADROOM = 1.10
@@ -1528,6 +1534,24 @@ class TriadRollbackService:
 # ----------------------------------------------------------------------
 
 
+def is_version_bump_refresh(
+    deployed_lockfile: LockfileV21 | None,
+    target_lockfile: LockfileV21 | None,
+) -> bool:
+    """Return True when MC version, loader id, or loader version changes."""
+    if deployed_lockfile is None or target_lockfile is None:
+        return False
+    return (
+        deployed_lockfile.mc,
+        deployed_lockfile.loader.id,
+        deployed_lockfile.loader.version,
+    ) != (
+        target_lockfile.mc,
+        target_lockfile.loader.id,
+        target_lockfile.loader.version,
+    )
+
+
 @dataclass(frozen=True)
 class LiveRefreshRequest:
     """Inputs for one atomic live refresh."""
@@ -1544,6 +1568,15 @@ class LiveRefreshRequest:
     previous_main_sha: str = ""
     target_main_sha: str = ""
     export_id: str = ""
+    deployed_lockfile: LockfileV21 | None = None
+    target_lockfile: LockfileV21 | None = None
+    force_full_upgrade_path: bool = False
+
+    @property
+    def is_full_upgrade(self) -> bool:
+        return self.force_full_upgrade_path or is_version_bump_refresh(
+            self.deployed_lockfile, self.target_lockfile
+        )
 
     def __post_init__(self) -> None:
         validate_server_segment(self.server_id)
@@ -1707,7 +1740,13 @@ class LiveRefreshService:
             )
         return self._stage_export
 
-    def _evaluator(self, runtime: ServerRuntimePort) -> HealthGateEvaluator:
+    def _evaluator(
+        self,
+        runtime: ServerRuntimePort,
+        health_gate: Any | None = None,
+    ) -> Any:
+        if health_gate is not None:
+            return health_gate
         if self._health_gate is not None:
             return self._health_gate
         raw_timeout = getattr(runtime, "startup_timeout_seconds", None)
@@ -1730,13 +1769,29 @@ class LiveRefreshService:
     # Refresh
     # ------------------------------------------------------------------
 
-    async def refresh(self, request: LiveRefreshRequest) -> LiveRefreshResult:
+    async def refresh(
+        self,
+        request: LiveRefreshRequest,
+        *,
+        pre_stage_hook: Callable[
+            [RefreshJournalRecord], Awaitable[str | None] | str | None
+        ]
+        | None = None,
+        health_gate: Any | None = None,
+        stage_export: StageExportPort | None = None,
+    ) -> LiveRefreshResult:
         """Run the seven-step refresh; roll back automatically on failure."""
         _require_posix_live_refresh()
         segment = validate_server_segment(request.server_id)
-        policy, delta = parse_retention_policy(request.retention_policy)
+        effective_retention = (
+            RETENTION_UNTIL_CONFIRM
+            if request.is_full_upgrade
+            else request.retention_policy
+        )
+        policy, delta = parse_retention_policy(effective_retention)
         live = _existing_plain_directory(request.live_dir, "live_dir")
         staging = _absolute_path(request.staging_dir, "staging_dir")
+        active_stage_export = stage_export or self._stage_export
         async with self._lease_context(segment) as lease:
             token = lease.fencing_token
             guard = lease.guard
@@ -1753,9 +1808,13 @@ class LiveRefreshService:
             # M-5: scan the committed tree before _quiesce stops the server.
             # An unresolved ${ONX_SECRET_*} would otherwise fail at STAGING,
             # after downtime has already begun.
-            preflight_secrets = getattr(self._stage_export, "assert_no_unresolved_secrets", None)
-            if callable(preflight_secrets):
-                await asyncio.to_thread(preflight_secrets, segment, live, request.target_main_sha)
+            preflight_secrets = getattr(
+                active_stage_export, "assert_no_unresolved_secrets", None
+            )
+            if callable(preflight_secrets) and request.target_main_sha:
+                await asyncio.to_thread(
+                    preflight_secrets, segment, live, request.target_main_sha
+                )
             await self._orchestrator.prepare_prior_previous_tree(segment, retention_policy=policy)
             journal = await self._quiesce(segment, request, live, staging, policy, token, guard)
             try:
@@ -1769,6 +1828,9 @@ class LiveRefreshService:
                     delta,
                     token,
                     guard,
+                    pre_stage_hook=pre_stage_hook,
+                    health_gate=health_gate,
+                    stage_export_override=stage_export,
                 )
             except BaseException as exc:
                 await self._compensate(journal, token, exc, guard)
@@ -1819,9 +1881,10 @@ class LiveRefreshService:
             DynamicClassCService,
         )
 
+        repo_session_factory = getattr(self._repository, "_session_factory", None)
         dyn_svc = (
-            DynamicClassCService(self._layout, session_factory=self._journal._session_factory)
-            if hasattr(self._journal, "_session_factory")
+            DynamicClassCService(self._layout, session_factory=repo_session_factory)
+            if repo_session_factory is not None
             else DynamicClassCService(self._layout)
         )
         dynamic_paths: set[str] = set()
@@ -1920,6 +1983,43 @@ class LiveRefreshService:
             dyn_svc.close()
         return dynamic_paths
 
+    async def _update_journal_target_main_sha(
+        self,
+        journal: RefreshJournalRecord,
+        *,
+        fencing_token: int,
+        target_main_sha: str,
+    ) -> RefreshJournalRecord:
+        get_factory = getattr(self._repository, "_get_async_factory", None)
+        if callable(get_factory):
+            factory = cast(Callable[[], Any], get_factory)()
+            async with factory() as session:
+                await session.execute(
+                    update(RefreshJournalModel)
+                    .where(
+                        RefreshJournalModel.journal_id == journal.journal_id,
+                        RefreshJournalModel.fencing_token == fencing_token,
+                        RefreshJournalModel.terminal.is_(False),
+                    )
+                    .values(target_main_sha=target_main_sha, updated_at=self._now())
+                    .execution_options(synchronize_session=False)
+                )
+                row = (
+                    await session.execute(
+                        select(RefreshJournalModel).where(
+                            RefreshJournalModel.journal_id == journal.journal_id
+                        )
+                    )
+                ).scalar_one_or_none()
+                await session.commit()
+                if row is not None:
+                    updated = _record_from_values(_values_from_model(row))
+                    write_json = getattr(self._repository, "_write_json", None)
+                    if callable(write_json):
+                        write_json(updated)
+                    return updated
+        return replace(journal, target_main_sha=target_main_sha)
+
     async def _refresh_locked(
         self,
         segment: str,
@@ -1931,9 +2031,16 @@ class LiveRefreshService:
         delta: timedelta | None,
         token: int,
         guard: FencingGuard | None = None,
+        *,
+        pre_stage_hook: Callable[
+            [RefreshJournalRecord], Awaitable[str | None] | str | None
+        ]
+        | None = None,
+        health_gate: Any | None = None,
+        stage_export_override: StageExportPort | None = None,
     ) -> LiveRefreshResult:
         backup = self._require_backup()
-        stage_export = self._require_stage_export()
+        stage_export = stage_export_override or self._require_stage_export()
         runtime = self._require_runtime()
 
         if guard is not None:
@@ -1970,6 +2077,22 @@ class LiveRefreshService:
             class_c_snapshot_id=snapshot.snapshot_id,
         )
 
+        effective_target_main_sha = request.target_main_sha
+        if pre_stage_hook is not None:
+            if guard is not None:
+                await guard.assert_live()
+            hook_result = pre_stage_hook(journal)
+            hook_awaitable = _as_awaitable(hook_result)
+            if hook_awaitable is not None:
+                hook_result = await hook_awaitable
+            if isinstance(hook_result, str) and hook_result:
+                effective_target_main_sha = hook_result
+                journal = await self._update_journal_target_main_sha(
+                    journal,
+                    fencing_token=token,
+                    target_main_sha=effective_target_main_sha,
+                )
+
         journal = await self._transition(
             journal.journal_id, guard=guard, token=token, phase="STAGING"
         )
@@ -1978,7 +2101,7 @@ class LiveRefreshService:
         with staging_enospc_guard(staging, live_dir=live):
             staged = stage_export(
                 staging,
-                request.target_main_sha,
+                effective_target_main_sha,
                 export_id=journal.export_id or request.export_id,
                 fencing_verifier=(guard.check if guard is not None else _noop_fencing_verifier),
             )
@@ -2009,7 +2132,17 @@ class LiveRefreshService:
         journal = await self._transition(
             journal.journal_id, guard=guard, token=token, phase="VERIFYING_HEALTH"
         )
-        health = await self._evaluator(runtime).evaluate()
+        raw_health = await self._evaluator(runtime, health_gate=health_gate).evaluate()
+        if isinstance(raw_health, HealthGateResult):
+            health = raw_health
+        elif hasattr(raw_health, "to_health_gate_result"):
+            health = raw_health.to_health_gate_result()
+        else:
+            health = HealthGateResult(
+                passed=bool(getattr(raw_health, "passed", False)),
+                failed_step=getattr(raw_health, "failed_step", None),
+                reason=getattr(raw_health, "reason", None),
+            )
         if not health.passed:
             rolled = await self._rollback.rollback(
                 segment,

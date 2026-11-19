@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -21,6 +22,12 @@ from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyze
 logger = logging.getLogger(__name__)
 
 DEFAULT_BOOT_MARKERS: tuple[str, ...] = ("Done (",)
+DONE_BOOT_LINE_PATTERN = (
+    r"^.*?\bINFO\b.*?: Done \([0-9.,]+s\)! For help, type [\"']help[\"']"
+)
+DONE_BOOT_LINE_RE: re.Pattern[str] = re.compile(
+    DONE_BOOT_LINE_PATTERN, re.MULTILINE
+)
 
 
 @dataclass(frozen=True)
@@ -34,11 +41,24 @@ class BootSignalResult:
     logs: list[str] = field(default_factory=list)
 
 
+def matches_boot_done_regex(log_content: str | list[str]) -> bool:
+    """Return True if *log_content* matches the cross-loader boot readiness regex."""
+    if isinstance(log_content, list):
+        return any(bool(DONE_BOOT_LINE_RE.search(line)) for line in log_content)
+    return bool(DONE_BOOT_LINE_RE.search(log_content))
+
+
 def check_log_markers(
     log_content: str | list[str],
     markers: tuple[str, ...] = DEFAULT_BOOT_MARKERS,
+    *,
+    use_strict_done_regex: bool = False,
 ) -> bool:
-    """Check whether any of the expected boot completion markers appear in log content."""
+    """Check whether expected boot completion markers appear in log content."""
+    if use_strict_done_regex:
+        return matches_boot_done_regex(log_content)
+    if markers == DEFAULT_BOOT_MARKERS and matches_boot_done_regex(log_content):
+        return True
     if isinstance(log_content, list):
         for line in log_content:
             for marker in markers:
@@ -152,6 +172,9 @@ async def poll_boot_signals(
     on_log: Callable[[str], None] | None = None,
     log_since: datetime | None = None,
     get_logs_since: Callable[[datetime], Awaitable[str | list[str]]] | None = None,
+    *,
+    use_strict_done_regex: bool = False,
+    strict_stdout_only: bool = False,
 ) -> BootSignalResult:
     """Poll for server boot completion using the crash / liveness / marker signal triple.
 
@@ -225,14 +248,17 @@ async def poll_boot_signals(
             )
 
         # 3. Log marker check
-        # First check log_path if present on disk
+        # First check log_path if present on disk (skipped when strict_stdout_only=True).
+        strict_regex = use_strict_done_regex or strict_stdout_only
         marker_found = False
-        if log_path is not None:
+        if not strict_stdout_only and log_path is not None:
             p = Path(log_path)
             if p.exists() and p.is_file() and _mtime_at_or_after(p, log_since):
                 try:
                     content = p.read_text(encoding="utf-8", errors="replace")
-                    if check_log_markers(content, markers):
+                    if check_log_markers(
+                        content, markers, use_strict_done_regex=strict_regex
+                    ):
                         marker_found = True
                 except Exception as read_err:
                     logger.debug("Error reading log file %s: %s", log_path, read_err)
@@ -247,13 +273,18 @@ async def poll_boot_signals(
                     dynamic_logs = await get_logs_since(log_since)
                 except Exception as get_err:
                     logger.debug("Error retrieving since-filtered logs: %s", get_err)
-        elif not marker_found and get_logs is not None:
+        elif not marker_found and not strict_stdout_only and get_logs is not None:
             try:
                 dynamic_logs = await get_logs()
             except Exception as get_err:
                 logger.debug("Error retrieving dynamic logs: %s", get_err)
-        if dynamic_logs is not None and check_log_markers(dynamic_logs, markers):
-            marker_found = True
+        if dynamic_logs is not None:
+            if strict_stdout_only:
+                marker_found = matches_boot_done_regex(dynamic_logs)
+            else:
+                marker_found = check_log_markers(
+                    dynamic_logs, markers, use_strict_done_regex=strict_regex
+                )
 
         if marker_found:
             _log("[BOOT-GATE] Server boot confirmed (expected marker found in logs).")
