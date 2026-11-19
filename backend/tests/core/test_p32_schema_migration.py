@@ -37,9 +37,9 @@ def test_p32_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
     assert result.status == ReconcileStatus.RECONCILED, result.message
     cfg = reconciler.get_alembic_config()
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [P32_REVISION]
+    assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD]
     assert script.get_revision(P32_REVISION).down_revision == PRIOR_HEAD
-    assert RELEASE_MINIMUM_DB_REVISION == P32_REVISION == EXPECTED_ALEMBIC_HEAD
+    assert RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
     assert "server_dynamic_class_c" in _tables(db_url)
 
     # downgrade
