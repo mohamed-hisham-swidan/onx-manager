@@ -114,6 +114,7 @@ build/
 # ──────────────────────────────────────────────
 backend/data/servers/
 backend/data/staging/
+backend/data/host-state/
 
 # ──────────────────────────────────────────────
 # Test / dev server sandbox
