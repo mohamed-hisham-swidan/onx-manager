@@ -4,16 +4,23 @@ import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import AppSettings
+from app.core.exceptions import UnsupportedForgeVersionError
 from app.modules.server.application.services.forge_provisioner import (
     ForgeProvisioner,
     provision_forge_server,
 )
 from app.modules.server.domain.aggregate import Server, ServerStatus
-from app.modules.server.domain.installer import InstallerResult, ProgressLine
+from app.modules.server.domain.installer import (
+    InstallerResult,
+    InstallerRunner,
+    ProgressLine,
+)
 from app.modules.server.domain.runtime_exceptions import (
     InstallerExecutionError,
     InsufficientDiskError,
@@ -51,7 +58,7 @@ def _provisioning_server(server_id: str, root_path: str) -> Server:
     return server
 
 
-def _make_runner(result: InstallerResult) -> object:
+def _make_runner(result: InstallerResult) -> InstallerRunner:
     async def run(
         command: str,
         *,
@@ -65,7 +72,7 @@ def _make_runner(result: InstallerResult) -> object:
         yield result
         return
 
-    return SimpleNamespace(run=run)
+    return cast(InstallerRunner, SimpleNamespace(run=run))
 
 
 def _make_fs() -> MagicMock:
@@ -128,15 +135,16 @@ class TestForgeProvisioner:
 
             assert server.status == ServerStatus.CREATED
             assert server.launch_config is not None
-            expected_cmd = (
-                ("run.bat", "nogui") if sys.platform == "win32" else ("bash", "run.sh", "nogui")
+            assert server.launch_config.startup_command == (
+                "java",
+                "@user_jvm_args.txt",
+                "@libraries/net/minecraftforge/forge/1.20.1-47.4.23/unix_args.txt",
+                "nogui",
             )
-            assert server.launch_config.startup_command == expected_cmd
-            assert fs.delete.call_count == 1
-            assert (
-                Path(fs.delete.call_args[0][0]).as_posix()
-                == "/data/forge-ok/forge-installer.jar"
-            )
+            deleted_names = {Path(c.args[0]).name for c in fs.delete.call_args_list}
+            assert "run.sh" in deleted_names
+            assert "run.bat" in deleted_names
+            assert "forge-installer.jar" in deleted_names
         finally:
             for p in patches:
                 p.stop()
@@ -211,7 +219,7 @@ class TestForgeProvisioner:
                 p.stop()
 
     @pytest.mark.asyncio
-    async def test_run_sh_missing_marks_provisioning_failed(self) -> None:
+    async def test_unix_args_missing_marks_provisioning_failed(self) -> None:
         server = _provisioning_server("forge-norun", "/data/forge-norun")
         fs = _make_fs()
         fs.exists.return_value = False
@@ -223,7 +231,7 @@ class TestForgeProvisioner:
                 runner=_make_runner(InstallerResult(exit_code=0, output="")),
                 fs=fs,
             )
-            with pytest.raises(InstallerExecutionError, match="run.sh"):
+            with pytest.raises(InstallerExecutionError, match="unix_args.txt"):
                 await provisioner.provision("forge-norun", "1.20.1")
 
             assert server.status == ServerStatus.PROVISIONING_FAILED
@@ -232,6 +240,44 @@ class TestForgeProvisioner:
         finally:
             for p in patches:
                 p.stop()
+
+    @pytest.mark.asyncio
+    async def test_allow_legacy_run_sh_rollback_falls_back_to_run_sh(self) -> None:
+        server = _provisioning_server("forge-legacy", "/data/forge-legacy")
+        fs = _make_fs()
+        patches = _patch_common(server)
+        disk_patch = _patch_disk_space(64 * 1024 * 1024 * 1024)
+        patches.append(disk_patch)
+        try:
+            with patch(
+                "app.modules.server.application.services.installer_provisioner.AppSettings",
+                return_value=AppSettings(allow_legacy_run_sh=True),
+            ):
+                provisioner = ForgeProvisioner(
+                    runner=_make_runner(InstallerResult(exit_code=0, output="")),
+                    fs=fs,
+                )
+                await provisioner.provision("forge-legacy", "1.20.1")
+
+            assert server.status == ServerStatus.CREATED
+            assert server.launch_config is not None
+            expected_cmd = (
+                ("run.bat", "nogui") if sys.platform == "win32" else ("bash", "run.sh", "nogui")
+            )
+            assert server.launch_config.startup_command == expected_cmd
+        finally:
+            for p in patches:
+                p.stop()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_mc", ["1.16.5", "1.20.2"])
+    async def test_unsupported_forge_version_rejected(self, bad_mc: str) -> None:
+        provisioner = ForgeProvisioner(
+            runner=_make_runner(InstallerResult(exit_code=0, output="")),
+            fs=_make_fs(),
+        )
+        with pytest.raises(UnsupportedForgeVersionError):
+            await provisioner.provision("forge-bad-ver", bad_mc)
 
     def test_provision_forge_server_spawns_task(self) -> None:
         import asyncio

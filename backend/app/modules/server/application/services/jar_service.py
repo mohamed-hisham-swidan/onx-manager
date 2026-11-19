@@ -8,6 +8,7 @@ import re
 import secrets
 import string
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from app.core.exceptions import (
     CorruptedDownloadError,
     DownloadError,
     DownloadTimeoutError,
+    UnsupportedForgeVersionError,
     VersionNotFoundError,
 )
 from app.modules.server.domain.runtime_exceptions import (
@@ -75,6 +77,12 @@ PAPER_BUILDS_URL = "https://fill.papermc.io/v3/projects/paper/versions/{version}
 
 FABRIC_LOADER_URL = "https://meta.fabricmc.net/v2/versions/loader/{version}"
 
+QUILT_GAME_VERSIONS_URL = "https://meta.quiltmc.org/v3/versions/game"
+QUILT_LOADER_VERSIONS_URL = "https://meta.quiltmc.org/v3/versions/loader/{version}"
+QUILT_SERVER_JSON_URL = (
+    "https://meta.quiltmc.org/v3/versions/loader/{mc_version}/{loader_version}/server/json"
+)
+
 FORGE_MAVEN_METADATA_URL = (
     "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"
 )
@@ -90,7 +98,9 @@ NEOFORGE_FORGE_MAVEN_METADATA_URL = (
 )
 NEOFORGE_FORGE_MAVEN_BASE_URL = "https://maven.neoforged.net/releases/net/neoforged/forge"
 
-FORGE_INSTALLER_MIN_VERSION = MinecraftVersion(1, 17, 0)
+FORGE_INSTALLER_MIN_VERSION = MinecraftVersion(1, 17, 1)
+FORGE_MIN_SUPPORTED_VERSION = MinecraftVersion(1, 17, 1)
+FORGE_MAX_SUPPORTED_VERSION = MinecraftVersion(1, 20, 1)
 NEOFORGE_INSTALLER_MIN_VERSION = MinecraftVersion(1, 17, 0)
 
 SOFTWARE_METADATA: dict[str, dict] = {
@@ -132,6 +142,13 @@ SOFTWARE_METADATA: dict[str, dict] = {
         "supports_versions": True,
         "needs_manual_install": True,
     },
+    "quilt": {
+        "name": "Quilt",
+        "description": "Open modding toolchain for Minecraft with a generated argfile launch.",
+        "url": "https://quiltmc.org",
+        "supports_versions": True,
+        "needs_manual_install": True,
+    },
     "spigot": {
         "name": "Spigot",
         "description": "Most widely-used Minecraft server software with plugin support.",
@@ -146,7 +163,7 @@ SOFTWARE_METADATA: dict[str, dict] = {
     },
 }
 
-SERVER_TYPES_REQUIRING_MANUAL_INSTALL: set[str] = {"forge", "neoforge"}
+SERVER_TYPES_REQUIRING_MANUAL_INSTALL: set[str] = {"forge", "neoforge", "quilt"}
 
 
 def _slugify(text: str) -> str:
@@ -160,7 +177,7 @@ def _slugify(text: str) -> str:
 
 
 def server_dir_name(name: str, server_id: str) -> str:
-    """Human-readable directory name: <slug>-<first-8-chars-of-uuid> (e.g. oneblock-reborn-be193e92)."""
+    """Human-readable directory name: <slug>-<first-8-of-uuid>."""
     return f"{_slugify(name)}-{server_id[:8]}"
 
 
@@ -196,18 +213,6 @@ def properties_path(server_id: str) -> Path:
 
 def eula_path(server_id: str) -> Path:
     return server_dir(server_id) / "eula.txt"
-
-
-def _resolve_properties_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:
-    if deployment and deployment.root_path:
-        return deployment.properties_path()
-    return str(properties_path(server_id or "unknown"))
-
-
-def _resolve_eula_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:
-    if deployment and deployment.root_path:
-        return deployment.eula_path()
-    return str(eula_path(server_id or "unknown"))
 
 
 async def fetch_vanilla_versions() -> list[str]:
@@ -306,11 +311,13 @@ async def _fetch_xml_with_retries(url: str, max_retries: int = JAR_MAX_RETRIES) 
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    if resp.status != 200:
-                        raise DownloadError(url, resp.status, f"HTTP {resp.status}")
-                    return await resp.text()
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp,
+            ):
+                if resp.status != 200:
+                    raise DownloadError(url, resp.status, f"HTTP {resp.status}")
+                return await resp.text()
         except Exception as exc:
             last_exc = exc
             if attempt < max_retries:
@@ -362,11 +369,23 @@ def _is_real_forge_minecraft(mc: str) -> bool:
         return False
 
 
+def validate_forge_supported_version(minecraft_version: str) -> MinecraftVersion:
+    """Validate the strict Forge supported range ``1.17.1 <= mc <= 1.20.1``."""
+    try:
+        parsed = MinecraftVersion.parse(minecraft_version)
+    except ValueError as exc:
+        raise UnsupportedForgeVersionError(minecraft_version=minecraft_version) from exc
+    if parsed < FORGE_MIN_SUPPORTED_VERSION or parsed > FORGE_MAX_SUPPORTED_VERSION:
+        raise UnsupportedForgeVersionError(minecraft_version=minecraft_version)
+    return parsed
+
+
 async def fetch_forge_versions() -> list[str]:
-    """Latest Forge build available for each Minecraft version, newest-first.
+    """Latest Forge build available for each supported Minecraft version, newest-first.
 
     Forge publishes its artifacts to Maven; the server JAR is produced by an
     installer at install time, so the version list maps to Minecraft versions.
+    Only the normative ``1.17.1 .. 1.20.1`` range is exposed (OD-v8.4-9).
     """
     cached = _get_cached_metadata("forge")
     if cached is not None:
@@ -385,11 +404,14 @@ async def fetch_forge_versions() -> list[str]:
             continue
         if entry.minecraft in seen:
             continue
-        seen.add(entry.minecraft)
         try:
-            mc_versions.append((MinecraftVersion.parse(entry.minecraft), entry.minecraft))
+            parsed = MinecraftVersion.parse(entry.minecraft)
         except ValueError:
             continue
+        if parsed < FORGE_MIN_SUPPORTED_VERSION or parsed > FORGE_MAX_SUPPORTED_VERSION:
+            continue
+        seen.add(entry.minecraft)
+        mc_versions.append((parsed, entry.minecraft))
     mc_versions.sort(key=lambda entry: entry[0], reverse=True)
     return [mc for _version, mc in mc_versions]
 
@@ -425,7 +447,10 @@ async def resolve_forge_build(
                 _set_cached_metadata("forge", entries)
             except Exception as exc:
                 raise BuildResolutionError(
-                    detail=f"Could not fetch Forge metadata for Minecraft {minecraft_version}: {exc}",
+                    detail=(
+                        "Could not fetch Forge metadata for Minecraft "
+                        f"{minecraft_version}: {exc}"
+                    ),
                     underlying_fetch_failed=True,
                 ) from exc
     best: ForgeVersionEntry | None = None
@@ -574,7 +599,10 @@ async def resolve_neoforge_build(
                 _set_cached_metadata("neoforge", entries)
             except Exception as exc:
                 raise BuildResolutionError(
-                    detail=f"Could not fetch NeoForge metadata for Minecraft {minecraft_version}: {exc}",
+                    detail=(
+                        "Could not fetch NeoForge metadata for Minecraft "
+                        f"{minecraft_version}: {exc}"
+                    ),
                     underlying_fetch_failed=True,
                 ) from exc
     best: NeoForgeVersionEntry | None = None
@@ -625,11 +653,48 @@ async def fetch_bukkit_versions() -> list[str]:
     return await fetch_spigot_versions()
 
 
-VERSION_FETCHERS: dict[str, callable] = {
+async def fetch_quilt_versions() -> list[str]:
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                QUILT_GAME_VERSIONS_URL,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp,
+        ):
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            return [v["version"] for v in data if v.get("stable")]
+    except (TimeoutError, aiohttp.ClientError, ValueError, KeyError, TypeError):
+        return []
+
+
+async def resolve_quilt_loader_version(minecraft_version: str) -> str | None:
+    url = QUILT_LOADER_VERSIONS_URL.format(version=minecraft_version)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp,
+        ):
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            if not isinstance(data, list) or not data:
+                return None
+            loader = data[0].get("loader", {})
+            version = loader.get("version")
+            return str(version) if version else None
+    except (TimeoutError, aiohttp.ClientError, ValueError, KeyError, TypeError):
+        return None
+
+
+VERSION_FETCHERS: dict[str, Callable[[], Awaitable[list[str]]]] = {
     "vanilla": fetch_vanilla_versions,
     "paper": fetch_paper_versions,
     "purpur": fetch_purpur_versions,
     "fabric": fetch_fabric_versions,
+    "quilt": fetch_quilt_versions,
     "forge": fetch_forge_versions,
     "neoforge": fetch_neoforge_versions,
     "spigot": fetch_spigot_versions,
@@ -712,9 +777,12 @@ async def download_server_jar(
     dest = _resolve_jar_dest(deployment, server_id)
     parent = str(Path(dest).parent)
 
+    if server_type == "forge":
+        validate_forge_supported_version(minecraft_version)
+
     if server_type in SERVER_TYPES_REQUIRING_MANUAL_INSTALL:
         if server_type == "forge" and not forge_requires_installer(minecraft_version):
-            # Legacy Forge (< 1.17) uses a plain universal jar — download it.
+            # Legacy Forge (< 1.17.1) is outside the supported range; defensive only.
             pass
         elif server_type == "neoforge" and not neoforge_requires_installer(minecraft_version):
             # Legacy NeoForge (< 1.17) uses a plain universal jar — download it.
@@ -733,6 +801,7 @@ async def download_server_jar(
     jar_url = await _resolve_download_url_async(server_type, minecraft_version)
     fs.ensure_dir(parent)
 
+    content: bytes | None = None
     for attempt in range(JAR_MAX_RETRIES + 1):
         try:
             content = await _do_download(jar_url, dest=dest)
@@ -778,6 +847,7 @@ async def download_installer_jar(
     parent = str(Path(dest).parent)
     fs.ensure_dir(parent)
 
+    content: bytes | None = None
     for attempt in range(JAR_MAX_RETRIES + 1):
         try:
             content = await _do_download(url, dest=dest)
@@ -826,6 +896,7 @@ async def _do_download(url: str, dest: str | None = None) -> bytes | None:
             if resp.status != 200:
                 raise DownloadError(url, resp.status)
             if dest is not None:
+                assert part_path is not None
                 parent = Path(dest).parent
                 parent.mkdir(parents=True, exist_ok=True)
                 with open(part_path, "wb") as f:
@@ -865,12 +936,13 @@ async def _resolve_download_url_async(server_type: str, minecraft_version: str) 
     return await resolver(minecraft_version)
 
 
-def _get_resolver(server_type: str) -> callable:
+def _get_resolver(server_type: str) -> Callable[[str], Awaitable[str]]:
     resolvers = {
         "vanilla": _resolve_vanilla_url,
         "paper": _resolve_paper_url,
         "purpur": _resolve_purpur_url,
         "fabric": _resolve_fabric_url,
+        "quilt": _resolve_quilt_url,
         "spigot": _resolve_spigot_url,
         "bukkit": _resolve_bukkit_url,
         "forge": _resolve_forge_url,
@@ -916,25 +988,164 @@ async def _resolve_vanilla_url(version: str) -> str:
     raise VersionNotFoundError(version, "vanilla")
 
 
-async def _resolve_paper_url(version: str) -> str:
-    url = PAPER_BUILDS_URL.format(version=version)
+@dataclass(frozen=True)
+class PaperBuildResolution:
+    mc_version: str
+    build_id: int
+    channel: str
+    download_url: str
+    sha256: str | None = None
+    size: int | None = None
+    java_min_major: int | None = None
+
+
+def _iter_paper_version_groups(
+    versions: object,
+) -> dict[str, list[str]]:
+    if isinstance(versions, dict):
+        groups: dict[str, list[str]] = {}
+        for group, values in versions.items():
+            if isinstance(values, list):
+                groups[str(group)] = [str(v) for v in values if isinstance(v, str)]
+        return groups
+    if isinstance(versions, list):
+        flat = [str(v) for v in versions if isinstance(v, str)]
+        return {"": flat}
+    return {}
+
+
+def _resolve_paper_version_group(version: str, versions: object) -> str | None:
+    groups = _iter_paper_version_groups(versions)
+    for values in groups.values():
+        if version in values:
+            return version
+    for group, values in groups.items():
+        if group and (group == version or group.startswith(f"{version}.")) and values:
+            try:
+                return max(values, key=MinecraftVersion.parse)
+            except ValueError:
+                return values[0]
+        prefixed = [value for value in values if value.startswith(f"{version}.")]
+        if prefixed:
+            try:
+                return max(prefixed, key=MinecraftVersion.parse)
+            except ValueError:
+                return prefixed[0]
+    return None
+
+
+def _paper_build_java_minimum(build: dict[str, Any]) -> int | None:
+    java = build.get("java")
+    if isinstance(java, dict):
+        version = java.get("version")
+        if isinstance(version, dict):
+            minimum = version.get("minimum")
+            if type(minimum) is int and minimum > 0:
+                return minimum
+        minimum = java.get("minimum")
+        if type(minimum) is int and minimum > 0:
+            return minimum
+    return None
+
+
+async def resolve_paper_build(
+    version: str,
+    *,
+    allow_experimental_paper_builds: bool = False,
+) -> PaperBuildResolution:
+    """Resolve a Paper Fill v3 version group to the highest allowed build."""
+    request_url = PAPER_PROJECT_URL
+    builds_payload: object = None
+    resolved_mc = version
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(
+                request_url, timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
                 if resp.status != 200:
-                    raise DownloadError(url, resp.status, "cannot fetch Paper builds list")
-                builds = await resp.json()
-                if not builds:
+                    raise DownloadError(request_url, resp.status, "cannot fetch Paper project")
+                project = await resp.json()
+            if isinstance(project, list):
+                builds_payload = project
+            else:
+                versions = project.get("versions") if isinstance(project, dict) else None
+                resolved = _resolve_paper_version_group(version, versions)
+                if resolved is None:
                     raise VersionNotFoundError(version, "paper")
-                latest = builds[0]
-                downloads = latest.get("downloads", {})
-                download = downloads.get("server:default") or next(iter(downloads.values()), None)
-                download_url = download.get("url") if download else None
-                if not download_url:
-                    raise VersionNotFoundError(version, "paper")
-                return download_url
-    except (TimeoutError, aiohttp.ClientError, ValueError) as e:
-        raise DownloadError(url, 0, str(e)) from e
+                resolved_mc = resolved
+                builds_url = PAPER_BUILDS_URL.format(version=resolved_mc)
+                async with session.get(
+                    builds_url, timeout=aiohttp.ClientTimeout(total=15)
+                ) as builds_resp:
+                    if builds_resp.status != 200:
+                        raise DownloadError(
+                            builds_url, builds_resp.status, "cannot fetch Paper builds list"
+                        )
+                    builds_payload = await builds_resp.json()
+    except (TimeoutError, aiohttp.ClientError, ValueError) as exc:
+        raise DownloadError(request_url, 0, str(exc)) from exc
+
+    if isinstance(builds_payload, dict):
+        builds_obj = builds_payload.get("builds", [])
+    else:
+        builds_obj = builds_payload
+    if not isinstance(builds_obj, list) or not builds_obj:
+        raise VersionNotFoundError(version, "paper")
+
+    builds = [b for b in builds_obj if isinstance(b, dict)]
+
+    def channel_of(build: dict[str, Any]) -> str:
+        return str(build.get("channel", "STABLE")).upper()
+
+    stable = [b for b in builds if channel_of(b) == "STABLE"]
+    if stable:
+        matching = stable
+    elif allow_experimental_paper_builds:
+        matching = [b for b in builds if channel_of(b) in ("BETA", "ALPHA")]
+    else:
+        matching = []
+    if not matching:
+        raise VersionNotFoundError(version, "paper")
+
+    selected = max(matching, key=lambda b: int(b.get("id", 0) or 0))
+    downloads = selected.get("downloads", {})
+    download = None
+    if isinstance(downloads, dict):
+        download = downloads.get("server:default")
+        if not isinstance(download, dict):
+            download = next((v for v in downloads.values() if isinstance(v, dict)), None)
+    download_url = download.get("url") if isinstance(download, dict) else None
+    if not isinstance(download_url, str) or not download_url:
+        raise VersionNotFoundError(version, "paper")
+
+    checksums = (
+        download.get("checksums")
+        if isinstance(download, dict) and isinstance(download.get("checksums"), dict)
+        else selected.get("checksums", {})
+    )
+    sha256 = checksums.get("sha256") if isinstance(checksums, dict) else None
+    download_size = download.get("size") if isinstance(download, dict) else None
+    size = download_size if type(download_size) is int else selected.get("size")
+    return PaperBuildResolution(
+        mc_version=resolved_mc,
+        build_id=int(selected.get("id", 0) or 0),
+        channel=channel_of(selected),
+        download_url=download_url,
+        sha256=str(sha256) if sha256 else None,
+        size=size if type(size) is int else None,
+        java_min_major=_paper_build_java_minimum(selected),
+    )
+
+
+async def _resolve_paper_url(
+    version: str,
+    *,
+    allow_experimental_paper_builds: bool = False,
+) -> str:
+    resolution = await resolve_paper_build(
+        version, allow_experimental_paper_builds=allow_experimental_paper_builds
+    )
+    return resolution.download_url
 
 
 async def _resolve_purpur_url(version: str) -> str:
@@ -944,22 +1155,33 @@ async def _resolve_purpur_url(version: str) -> str:
 async def _resolve_fabric_url(version: str) -> str:
     url = FABRIC_LOADER_URL.format(version=version)
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    raise DownloadError(url, resp.status, "cannot fetch Fabric loaders")
-                loaders = await resp.json()
-                if not loaders:
-                    raise VersionNotFoundError(version, "fabric")
-                loader = loaders[0]
-                loader_ver = loader["loader"]["version"]
-                installer_ver = loader.get("launcher", {}).get("version", "1.0.1")
-                return (
-                    f"https://meta.fabricmc.net/v2/versions/loader/{version}"
-                    f"/{loader_ver}/{installer_ver}/server/jar"
-                )
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp,
+        ):
+            if resp.status != 200:
+                raise DownloadError(url, resp.status, "cannot fetch Fabric loaders")
+            loaders = await resp.json()
+            if not loaders:
+                raise VersionNotFoundError(version, "fabric")
+            loader = loaders[0]
+            loader_ver = loader["loader"]["version"]
+            installer_ver = loader.get("launcher", {}).get("version", "1.0.1")
+            return (
+                f"https://meta.fabricmc.net/v2/versions/loader/{version}"
+                f"/{loader_ver}/{installer_ver}/server/jar"
+            )
     except (TimeoutError, aiohttp.ClientError, ValueError) as e:
         raise DownloadError(url, 0, str(e)) from e
+
+
+async def _resolve_quilt_url(version: str) -> str:
+    loader_version = await resolve_quilt_loader_version(version)
+    if loader_version is None:
+        raise VersionNotFoundError(version, "quilt")
+    return QUILT_SERVER_JSON_URL.format(
+        mc_version=version, loader_version=loader_version
+    )
 
 
 async def _resolve_spigot_url(version: str) -> str:
@@ -971,6 +1193,7 @@ async def _resolve_bukkit_url(version: str) -> str:
 
 
 async def _resolve_forge_url(version: str) -> str:
+    validate_forge_supported_version(version)
     full_version = await resolve_forge_build(version)
     if full_version is None:
         raise VersionNotFoundError(version, "forge")

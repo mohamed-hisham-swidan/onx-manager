@@ -185,13 +185,14 @@ class ServerProperties:
             raise ValueError(f"view_distance must be 2-32, got {self.view_distance}")
 
 
-class ServerType(str, Enum):
+class ServerType(str, Enum):  # noqa: UP042
     VANILLA = "vanilla"
     PAPER = "paper"
     PURPUR = "purpur"
     FABRIC = "fabric"
     FORGE = "forge"
     NEOFORGE = "neoforge"
+    QUILT = "quilt"
     SPIGOT = "spigot"
     BUKKIT = "bukkit"
 
@@ -208,6 +209,7 @@ class ServerType(str, Enum):
             "fabric": "Fabric",
             "forge": "Forge",
             "neoforge": "NeoForge",
+            "quilt": "Quilt",
             "spigot": "Spigot",
             "bukkit": "Bukkit",
         }
@@ -219,7 +221,7 @@ class ServerMode(str, Enum):  # noqa: UP042
     ADVANCED = "advanced"
 
 
-class LocationType(str, Enum):
+class LocationType(str, Enum):  # noqa: UP042
     LOCAL = "local"
     DOCKER = "docker"
     SSH = "ssh"

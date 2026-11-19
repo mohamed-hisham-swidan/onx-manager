@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field
 
@@ -80,6 +81,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             forge_requires_installer,
             neoforge_requires_installer,
             resolve_server_dir,
+            validate_forge_supported_version,
             write_eula,
             write_server_properties,
         )
@@ -108,6 +110,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             )
 
         provider_type = command.provider
+        docker_provider: Any | None = None
         if provider_type == "docker":
             from app.modules.server.infrastructure.providers import provider_factory
 
@@ -153,6 +156,10 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 error=str(exc),
                 error_code="VALIDATION_ERROR",
             )
+
+        if command.server_type == "forge":
+            # OD-v8.4-9: reject outside 1.17.1 .. 1.20.1 immediately (HTTP 422).
+            validate_forge_supported_version(command.minecraft_version)
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)

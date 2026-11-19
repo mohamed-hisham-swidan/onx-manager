@@ -94,6 +94,28 @@ def derive_loader_ref_from_parts(
         if version is None:
             version = fallback_version
 
+    elif type_value == "quilt":
+        loader_id = "quilt"
+        version = None
+        if server_root:
+            lib_dir = Path(server_root) / "libraries" / "org" / "quiltmc" / "quilt-loader"
+            try:
+                if lib_dir.is_dir():
+                    candidates = sorted(
+                        [
+                            d.name
+                            for d in lib_dir.iterdir()
+                            if d.is_dir() and _is_valid_token(d.name)
+                        ]
+                    )
+                    if candidates:
+                        version = candidates[0]
+            except OSError:
+                pass
+
+        if version is None:
+            version = fallback_version
+
     elif type_value == "forge":
         loader_id = "forge"
         version = None

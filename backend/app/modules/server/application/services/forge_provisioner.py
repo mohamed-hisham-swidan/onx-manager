@@ -14,6 +14,7 @@ from app.modules.server.application.services.installer_provisioner import (
 from app.modules.server.application.services.jar_service import (
     forge_installer_url,
     resolve_forge_build,
+    validate_forge_supported_version,
 )
 from app.modules.server.domain.installer import InstallerRunner
 from app.modules.server.infrastructure.fs import FileSystem
@@ -75,7 +76,12 @@ class ForgeProvisioner(InstallerProvisioner):
     def provider_name(self) -> str:
         return "Forge"
 
+    async def provision(self, server_id: str, minecraft_version: str) -> None:
+        validate_forge_supported_version(minecraft_version)
+        await super().provision(server_id, minecraft_version)
+
     async def _resolve_build(self, minecraft_version: str) -> str | None:
+        validate_forge_supported_version(minecraft_version)
         return await resolve_forge_build(minecraft_version)
 
     def _installer_url(self, full_version: str) -> str:
@@ -86,3 +92,7 @@ class ForgeProvisioner(InstallerProvisioner):
 
     def _installer_args(self) -> str:
         return "java -jar forge-installer.jar --installServer"
+
+    def _unix_args_relpath(self, minecraft_version: str, full_version: str) -> str:
+        del minecraft_version
+        return f"libraries/net/minecraftforge/forge/{full_version}/unix_args.txt"

@@ -82,3 +82,11 @@ class NeoForgeProvisioner(InstallerProvisioner):
 
     def _installer_args(self) -> str:
         return "java -jar neoforge-installer.jar --installServer"
+
+    def _unix_args_relpath(self, minecraft_version: str, full_version: str) -> str:
+        del minecraft_version
+        if full_version.startswith("1.20.1-"):
+            return (
+                f"libraries/net/minecraftforge/forge/{full_version}/unix_args.txt"
+            )
+        return f"libraries/net/neoforged/neoforge/{full_version}/unix_args.txt"

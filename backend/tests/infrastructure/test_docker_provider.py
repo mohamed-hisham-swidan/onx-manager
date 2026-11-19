@@ -175,19 +175,26 @@ class TestDockerProviderContract:
     async def test_docker_start_with_forge_script(self, tmp_path: Path) -> None:
         provider = DockerProvider()
         srv_dir = tmp_path / "test_servers" / "srv-forge"
-        srv_dir.mkdir()
+        unix_args_rel = "libraries/net/minecraftforge/forge/1.20.1-47.4.23/unix_args.txt"
+        unix_args_file = srv_dir / unix_args_rel
+        unix_args_file.parent.mkdir(parents=True)
+        unix_args_file.write_text(
+            "-cp libraries/forge.jar net.minecraftforge.Main\n",
+            encoding="utf-8",
+        )
 
         deployment = ServerDeployment(
             location_type=LocationType.DOCKER,
             root_path=str(srv_dir),
-            startup_command=["bash", "run.sh", "nogui"],
+            startup_command=f"java @user_jvm_args.txt @{unix_args_rel} nogui",
         )
         launch_config = LaunchConfiguration(
-            startup_command=["bash", "run.sh", "nogui"],
+            startup_command=["java", "@user_jvm_args.txt", f"@{unix_args_rel}", "nogui"],
             jvm_flags=("-Dfml.readTimeout=180",),
         )
         config: dict[str, Any] = {
             "image": "eclipse-temurin:21-jre-jammy",
+            "server_type": "forge",
             "port": 25570,
             "memory_min_mb": 3072,
             "memory_max_mb": 6144,
@@ -227,10 +234,93 @@ class TestDockerProviderContract:
         assert "--cpus" in create_args
         assert create_args[create_args.index("--cpus") + 1] == "4"
 
-        # Container command translated to bash /data/run.sh nogui (Decision 4)
+        # Container command translated to argfile launch (OD-v8.4-9)
         img_idx = create_args.index("eclipse-temurin:21-jre-jammy")
         cmd_tokens = create_args[img_idx + 1 :]
-        assert cmd_tokens == ["bash", "/data/run.sh", "nogui"]
+        assert cmd_tokens == [
+            "java",
+            "@/data/user_jvm_args.txt",
+            f"@/data/{unix_args_rel}",
+            "nogui",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_docker_start_missing_unix_args_fails_closed(self, tmp_path: Path) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-forge-missing"
+        srv_dir.mkdir(parents=True)
+        unix_args_rel = "libraries/net/minecraftforge/forge/1.20.1-47.4.23/unix_args.txt"
+
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_command=f"java @user_jvm_args.txt @{unix_args_rel} nogui",
+        )
+        launch_config = LaunchConfiguration(
+            startup_command=["java", "@user_jvm_args.txt", f"@{unix_args_rel}", "nogui"],
+        )
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+            pytest.raises(ProviderError, match="unix_args.txt"),
+        ):
+            await provider.start(
+                server_id="forge-missing",
+                config={"image": "eclipse-temurin:17-jre-jammy", "server_type": "forge"},
+                deployment=deployment,
+                launch_config=launch_config,
+            )
+        assert [c for c in mock_docker.call_args_list if c[0] and c[0][0] == "create"] == []
+
+    @pytest.mark.asyncio
+    async def test_docker_start_allow_legacy_run_sh_rollback(self, tmp_path: Path) -> None:
+        from app.core.config import AppSettings
+
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-forge-legacy"
+        srv_dir.mkdir(parents=True)
+
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_command="bash run.sh nogui",
+        )
+        launch_config = LaunchConfiguration(
+            startup_command=["bash", "run.sh", "nogui"],
+            jvm_flags=("-Dfml.readTimeout=180",),
+        )
+        config: dict[str, Any] = {
+            "image": "eclipse-temurin:17-jre-jammy",
+            "port": 25571,
+            "memory_min_mb": 2048,
+            "memory_max_mb": 4096,
+        }
+
+        with (
+            patch(
+                "app.modules.server.infrastructure.providers.docker.AppSettings",
+                return_value=AppSettings(allow_legacy_run_sh=True),
+            ),
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+        ):
+            mock_docker.side_effect = [
+                (1, "No such container"),  # inspect
+                (0, ""),  # create
+                (0, ""),  # start
+                (0, "6789\n"),  # inspect pid
+            ]
+            result = await provider.start(
+                server_id="forge-legacy-srv",
+                config=config,
+                deployment=deployment,
+                launch_config=launch_config,
+            )
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        create_args = list([c[0] for c in mock_docker.call_args_list if c[0][0] == "create"][0])
+        img_idx = create_args.index("eclipse-temurin:17-jre-jammy")
+        assert create_args[img_idx + 1 :] == ["bash", "/data/run.sh", "nogui"]
 
     @pytest.mark.asyncio
     async def test_docker_start_rejects_server_dir_outside_servers_root(
@@ -357,7 +447,9 @@ class TestDockerProviderContract:
 
         # 2. Graceful stop fails to exit -> raises ProviderError
         with (
-            patch.object(provider, "execute_command", AsyncMock(side_effect=RuntimeError("RCON fail"))),
+            patch.object(
+                provider, "execute_command", AsyncMock(side_effect=RuntimeError("RCON fail"))
+            ),
             patch.object(provider, "_docker_command", AsyncMock(return_value=(0, ""))),
             patch.object(provider, "_wait_for_container_exit", AsyncMock(return_value=False)),
         ):
@@ -366,8 +458,10 @@ class TestDockerProviderContract:
             assert "still running after docker stop -t 30" in str(exc_info.value)
 
         # 3. If container does not exist / is not running -> returns cleanly
-        with (
-            patch.object(provider, "_docker_command", AsyncMock(return_value=(1, "Error: No such container: onx-exit-srv"))),
+        with patch.object(
+            provider,
+            "_docker_command",
+            AsyncMock(return_value=(1, "Error: No such container: onx-exit-srv")),
         ):
             await provider.stop(handle, force=True)
 
@@ -659,6 +753,7 @@ class TestDockerDestroy:
         assert diag.provider == "docker"
         assert diag.exit_code == 1
         assert diag.failure_code == FailureCode.JAVA_VERSION_MISMATCH
+        assert diag.last_log_lines is not None
         assert len(diag.last_log_lines) == 2
 
     @pytest.mark.asyncio
@@ -990,7 +1085,7 @@ class TestDockerDestroy:
             },
         }
 
-        async def fake_cmd(*args, **kwargs):
+        async def fake_cmd(*args: Any, **_kwargs: Any) -> tuple[int, str]:
             if args[0] == "inspect" and "--format" in args and "{{json .}}" in args:
                 return 0, json.dumps(exited_inspect)
             if args[0] == "rm":

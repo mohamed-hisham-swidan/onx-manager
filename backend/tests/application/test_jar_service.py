@@ -9,10 +9,12 @@ from app.core.exceptions import (
     CorruptedDownloadError,
     DownloadError,
     DownloadTimeoutError,
+    UnsupportedForgeVersionError,
     VersionNotFoundError,
 )
 from app.modules.server.application.services.jar_service import (
     SERVER_TYPES_REQUIRING_MANUAL_INSTALL,
+    PaperBuildResolution,
     _fetch_xml_with_retries,
     _parse_forge_metadata,
     _parse_neoforge_metadata,
@@ -22,6 +24,7 @@ from app.modules.server.application.services.jar_service import (
     _resolve_neoforge_url,
     _resolve_paper_url,
     _resolve_purpur_url,
+    _resolve_quilt_url,
     _resolve_spigot_url,
     _resolve_vanilla_url,
     clear_metadata_cache,
@@ -32,6 +35,7 @@ from app.modules.server.application.services.jar_service import (
     fetch_neoforge_versions,
     fetch_paper_versions,
     fetch_purpur_versions,
+    fetch_quilt_versions,
     fetch_spigot_versions,
     fetch_vanilla_versions,
     forge_installer_url,
@@ -42,6 +46,9 @@ from app.modules.server.application.services.jar_service import (
     neoforge_universal_url,
     resolve_forge_build,
     resolve_neoforge_build,
+    resolve_paper_build,
+    resolve_quilt_loader_version,
+    validate_forge_supported_version,
     validate_jar,
 )
 from app.modules.server.domain.runtime_exceptions import (
@@ -120,11 +127,22 @@ class TestURLResolvers:
     @pytest.mark.asyncio
     async def test_paper_success(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            resp = _mock_aresponse(
+            project_resp = _mock_aresponse(200, {"versions": {"1.21": ["1.21"]}})
+            builds_resp = _mock_aresponse(
                 200,
                 [
                     {
+                        "id": 420,
+                        "channel": "STABLE",
+                        "downloads": {
+                            "server:default": {
+                                "url": "https://fill-data.papermc.io/v1/objects/old/paper-1.21-420.jar",
+                            },
+                        },
+                    },
+                    {
                         "id": 427,
+                        "channel": "STABLE",
                         "downloads": {
                             "server:default": {
                                 "url": "https://fill-data.papermc.io/v1/objects/abc/paper-1.21-427.jar",
@@ -133,11 +151,55 @@ class TestURLResolvers:
                     },
                 ],
             )
-            mock_get.return_value = resp
+            mock_get.side_effect = [project_resp, builds_resp]
 
             url = await _resolve_paper_url("1.21")
 
             assert url == "https://fill-data.papermc.io/v1/objects/abc/paper-1.21-427.jar"
+
+    @pytest.mark.asyncio
+    async def test_paper_version_group_and_highest_stable_build(self) -> None:
+        with patch("aiohttp.ClientSession.get") as mock_get:
+            project_resp = _mock_aresponse(
+                200,
+                {"versions": {"26.1": ["26.1.1", "26.1.2"]}},
+            )
+            builds_resp = _mock_aresponse(
+                200,
+                {
+                    "builds": [
+                        {
+                            "id": 200,
+                            "channel": "BETA",
+                            "downloads": {
+                                "server:default": {
+                                    "url": "https://fill-data.papermc.io/v1/objects/beta/paper-26.1.2-200.jar",
+                                },
+                            },
+                        },
+                        {
+                            "id": 150,
+                            "channel": "STABLE",
+                            "downloads": {
+                                "server:default": {
+                                    "url": "https://fill-data.papermc.io/v1/objects/stable/paper-26.1.2-150.jar",
+                                    "checksums": {"sha256": "a" * 64},
+                                    "size": 123456,
+                                },
+                            },
+                        },
+                    ]
+                },
+            )
+            mock_get.side_effect = [project_resp, builds_resp]
+
+            res = await resolve_paper_build("26.1")
+            assert isinstance(res, PaperBuildResolution)
+            assert res.mc_version == "26.1.2"
+            assert res.build_id == 150
+            assert res.channel == "STABLE"
+            assert res.sha256 == "a" * 64
+            assert res.size == 123456
 
     @pytest.mark.asyncio
     async def test_paper_no_builds(self) -> None:
@@ -147,6 +209,33 @@ class TestURLResolvers:
 
             with pytest.raises(VersionNotFoundError, match="not found for paper"):
                 await _resolve_paper_url("1.21")
+
+    @pytest.mark.asyncio
+    async def test_quilt_resolver_and_versions(self) -> None:
+        with patch("aiohttp.ClientSession.get") as mock_get:
+            game_resp = _mock_aresponse(
+                200,
+                [
+                    {"version": "1.20.1", "stable": True},
+                    {"version": "24w14a", "stable": False},
+                ],
+            )
+            loader_resp = _mock_aresponse(
+                200,
+                [{"loader": {"version": "0.25.0"}}],
+            )
+            loader_resp_2 = _mock_aresponse(
+                200,
+                [{"loader": {"version": "0.25.0"}}],
+            )
+            mock_get.side_effect = [game_resp, loader_resp, loader_resp_2]
+
+            assert await fetch_quilt_versions() == ["1.20.1"]
+            assert await resolve_quilt_loader_version("1.20.1") == "0.25.0"
+            assert (
+                await _resolve_quilt_url("1.20.1")
+                == "https://meta.quiltmc.org/v3/versions/loader/1.20.1/0.25.0/server/json"
+            )
 
     @pytest.mark.asyncio
     async def test_fabric_success(self) -> None:
@@ -305,11 +394,14 @@ class TestFetchVersions:
             <latest>26.2-65.1.2</latest>
             <versions>
               <version>1.21.1-52.0.30</version>
-              <version>1.21.1-52.0.29</version>
               <version>1.20.4-49.1.0</version>
+              <version>1.20.1-47.4.23</version>
+              <version>1.20.1-47.4.22</version>
+              <version>1.18.2-40.2.0</version>
+              <version>1.17.1-37.1.1</version>
+              <version>1.17-36.0.0</version>
+              <version>1.16.5-36.2.42</version>
               <version>26.2-65.1.2</version>
-              <version>1.21-51.0.33</version>
-              <version>1.21.8-58.0.3</version>
             </versions>
           </versioning>
         </metadata>
@@ -321,9 +413,8 @@ class TestFetchVersions:
 
             versions = await fetch_forge_versions()
 
-            # "26.2-65.1.2" is Forge's unified artifact revision, not a
-            # Minecraft version — it must not appear in the MC version list.
-            assert versions == ["1.21.8", "1.21.1", "1.21", "1.20.4"]
+            # OD-v8.4-9: Forge only exposes 1.17.1 .. 1.20.1.
+            assert versions == ["1.20.1", "1.18.2", "1.17.1"]
 
     @pytest.mark.asyncio
     async def test_forge_versions_http_error_returns_empty(self) -> None:
@@ -420,11 +511,19 @@ class TestForgeBuildResolution:
             assert await resolve_forge_build("1.20.1") == "1.20.1-47.4.1"
 
     def test_forge_requires_installer(self) -> None:
-        assert forge_requires_installer("1.17")
+        assert forge_requires_installer("1.17.1")
         assert forge_requires_installer("1.20.1")
+        assert not forge_requires_installer("1.17")
         assert not forge_requires_installer("1.16.5")
         assert not forge_requires_installer("1.12.2")
         assert forge_requires_installer("not-a-version")
+
+    def test_validate_forge_supported_version(self) -> None:
+        assert str(validate_forge_supported_version("1.17.1")) == "1.17.1"
+        assert str(validate_forge_supported_version("1.20.1")) == "1.20.1"
+        for bad in ("1.16.5", "1.17.0", "1.20.2", "1.21.1", "invalid"):
+            with pytest.raises(UnsupportedForgeVersionError):
+                validate_forge_supported_version(bad)
 
     def test_forge_artifact_urls(self) -> None:
         assert forge_universal_url("1.12.2-14.23.5.2860") == (
@@ -437,12 +536,13 @@ class TestForgeBuildResolution:
         )
 
     @pytest.mark.asyncio
-    async def test_resolve_forge_url_universal(self) -> None:
+    async def test_resolve_forge_url_rejects_unsupported_and_resolves_supported(self) -> None:
         xml = """
         <metadata>
           <versioning>
             <versions>
               <version>1.16.5-36.2.42</version>
+              <version>1.20.1-47.4.23</version>
             </versions>
           </versioning>
         </metadata>
@@ -453,8 +553,10 @@ class TestForgeBuildResolution:
             resp = _mock_aresponse(200, xml)
             resp.text = AsyncMock(return_value=xml)
             mock_get.return_value = resp
-            url = await _resolve_forge_url("1.16.5")
-            assert url.endswith("forge-1.16.5-36.2.42-universal.jar")
+            with pytest.raises(UnsupportedForgeVersionError):
+                await _resolve_forge_url("1.16.5")
+            url = await _resolve_forge_url("1.20.1")
+            assert url.endswith("forge-1.20.1-47.4.23-universal.jar")
 
     @pytest.mark.asyncio
     async def test_resolve_forge_url_version_missing(self) -> None:
@@ -465,7 +567,9 @@ class TestForgeBuildResolution:
             resp.text = AsyncMock(return_value="<metadata/>")
             mock_get.return_value = resp
             with pytest.raises(VersionNotFoundError, match="forge"):
-                await _resolve_forge_url("1.99.9")
+                await _resolve_forge_url("1.19.9")
+            with pytest.raises(UnsupportedForgeVersionError):
+                await _resolve_forge_url("1.20.2")
 
     @pytest.mark.asyncio
     async def test_resolve_ignores_unified_pseudo_version(self) -> None:
@@ -579,7 +683,10 @@ class TestNeoForgeBuildResolution:
 
     @pytest.mark.asyncio
     async def test_resolve_neoforge_url(self) -> None:
-        xml_neo = "<metadata><versioning><versions><version>21.1.248</version></versions></versioning></metadata>"
+        xml_neo = (
+            "<metadata><versioning><versions>"
+            "<version>21.1.248</version></versions></versioning></metadata>"
+        )
         with patch("aiohttp.ClientSession.get") as mock_get:
             resp = _mock_aresponse(200, xml_neo)
             resp.text = AsyncMock(return_value=xml_neo)
@@ -637,59 +744,32 @@ class TestDownloadServerJar:
             result = await download_server_jar(
                 server_id="test-forge-1",
                 server_type="forge",
-                minecraft_version="1.21",
+                minecraft_version="1.20.1",
             )
             assert result is not None
             assert "test-forge-1" in result
 
     @pytest.mark.asyncio
-    async def test_legacy_forge_downloads_universal_jar(self) -> None:
-        jar_bytes = b"PK\x03\x04" + b"\x00" * (1024 * 1024)
-        entries = _parse_forge_metadata(
-            "<metadata><versioning><version>1.16.5-36.2.42</version></versioning></metadata>"
-        )
-        mock_download = AsyncMock(return_value=jar_bytes)
-        with (
-            patch(
-                "app.modules.server.application.services.jar_service._fetch_forge_metadata",
-                new=AsyncMock(return_value=entries),
-            ),
-            patch(
-                "app.modules.server.application.services.jar_service._do_download",
-                new=mock_download,
-            ),
-            patch("app.modules.server.application.services.jar_service.local_fs") as mock_fs,
-        ):
-            mock_fs.exists.return_value = True
-            mock_fs.size.return_value = len(jar_bytes)
-            mock_fs.read_binary.return_value = jar_bytes
-
-            result = await download_server_jar(
-                server_id="test-forge-legacy",
-                server_type="forge",
-                minecraft_version="1.16.5",
-            )
-            assert result is not None
-            universal_url = (
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/"
-                "1.16.5-36.2.42/forge-1.16.5-36.2.42-universal.jar"
-            )
-            assert universal_url in [c.args[0] for c in mock_download.await_args_list]
-            mock_fs.write_binary_atomic.assert_called_once()
+    async def test_unsupported_forge_version_rejected_on_download(self) -> None:
+        with patch("app.modules.server.application.services.jar_service.local_fs"):
+            for bad_mc in ("1.16.5", "1.17.0", "1.20.2", "1.21"):
+                with pytest.raises(UnsupportedForgeVersionError):
+                    await download_server_jar(
+                        server_id="test-forge-bad",
+                        server_type="forge",
+                        minecraft_version=bad_mc,
+                    )
 
     @pytest.mark.asyncio
     async def test_download_server_jar_downloads_once_on_success(self) -> None:
         """Regression: the retry loop must stop after the first successful
         download instead of re-downloading on every attempt."""
         jar_bytes = b"PK\x03\x04" + b"\x00" * (1024 * 1024)
-        entries = _parse_forge_metadata(
-            "<metadata><versioning><version>1.16.5-36.2.42</version></versioning></metadata>"
-        )
         mock_download = AsyncMock(return_value=jar_bytes)
         with (
             patch(
-                "app.modules.server.application.services.jar_service._fetch_forge_metadata",
-                new=AsyncMock(return_value=entries),
+                "app.modules.server.application.services.jar_service._resolve_download_url_async",
+                new=AsyncMock(return_value="https://example.com/paper-1.20.4.jar"),
             ),
             patch(
                 "app.modules.server.application.services.jar_service._do_download",
@@ -703,8 +783,8 @@ class TestDownloadServerJar:
 
             await download_server_jar(
                 server_id="test-once",
-                server_type="forge",
-                minecraft_version="1.16.5",
+                server_type="paper",
+                minecraft_version="1.20.4",
             )
 
             assert mock_download.await_count == 1
@@ -849,6 +929,7 @@ class TestDownloadServerJar:
     async def test_manual_install_types_listed(self) -> None:
         assert "forge" in SERVER_TYPES_REQUIRING_MANUAL_INSTALL
         assert "neoforge" in SERVER_TYPES_REQUIRING_MANUAL_INSTALL
+        assert "quilt" in SERVER_TYPES_REQUIRING_MANUAL_INSTALL
 
     @pytest.mark.asyncio
     async def test_neoforge_returns_dest_path(self) -> None:
@@ -898,7 +979,10 @@ class TestMetadataCacheAndRetries:
 
     @pytest.mark.asyncio
     async def test_cache_expiry_triggers_new_fetch(self) -> None:
-        xml_forge = "<metadata><versioning><versions><version>1.20.1-47.4.23</version></versions></versioning></metadata>"
+        xml_forge = (
+            "<metadata><versioning><versions>"
+            "<version>1.20.1-47.4.23</version></versions></versioning></metadata>"
+        )
         with (
             patch(
                 "app.modules.server.application.services.jar_service._fetch_xml_with_retries",
@@ -917,7 +1001,10 @@ class TestMetadataCacheAndRetries:
 
     @pytest.mark.asyncio
     async def test_clear_metadata_cache(self) -> None:
-        xml_forge = "<metadata><versioning><versions><version>1.20.1-47.4.23</version></versions></versioning></metadata>"
+        xml_forge = (
+            "<metadata><versioning><versions>"
+            "<version>1.20.1-47.4.23</version></versions></versioning></metadata>"
+        )
         with patch(
             "app.modules.server.application.services.jar_service._fetch_xml_with_retries",
             AsyncMock(return_value=xml_forge),
@@ -1049,7 +1136,7 @@ class TestMetadataCacheAndRetries:
             def __init__(self):
                 self.calls = 0
 
-            async def read(self, n: int = -1) -> bytes:
+            async def read(self, _n: int = -1) -> bytes:
                 self.calls += 1
                 if self.calls == 1:
                     return b"some-partial-data"

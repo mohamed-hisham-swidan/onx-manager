@@ -69,6 +69,7 @@ class AppSettings(BaseSettings):
     server_startup_timeout_seconds: int = 120
     test_boot_timeout_seconds: int = 120
     advanced_mode_enabled: bool = Field(default_factory=lambda: os.name == "posix")
+    allow_legacy_run_sh: bool = False
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
 
@@ -243,6 +244,8 @@ def get_active_panel_bind() -> tuple[str, int]:
     global _ACTIVE_PANEL_BIND_HOST, _ACTIVE_PANEL_BIND_PORT
     if _ACTIVE_PANEL_BIND_HOST is None or _ACTIVE_PANEL_BIND_PORT is None:
         init_active_panel_bind()
+    assert _ACTIVE_PANEL_BIND_HOST is not None
+    assert _ACTIVE_PANEL_BIND_PORT is not None
     return _ACTIVE_PANEL_BIND_HOST, _ACTIVE_PANEL_BIND_PORT
 
 

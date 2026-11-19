@@ -9,9 +9,11 @@ import os
 import posixpath
 import re
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from app.core.allowlist import validate_canonical_relpath
 from app.core.config import AppSettings
 from app.core.container_hardening import (
     CAP_DROP_ALL_VALUE,
@@ -47,6 +49,10 @@ from app.modules.server.infrastructure.providers.base import (
 )
 from app.modules.server.infrastructure.providers.patterns import detect_failure
 from app.modules.shared.value_objects import MinecraftVersion
+from app.modules.versioning.infrastructure.java_floor import (
+    resolve_java_floor_from_mc_version,
+    temurin_docker_image_for_java_major,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,47 +166,59 @@ def resolve_host_mount_path(
 def resolve_docker_image(
     config: dict[str, Any] | None = None,
     minecraft_version: str | MinecraftVersion | None = None,
+    *,
+    java_major: int | None = None,
 ) -> str:
     """Resolve the appropriate Docker base image based on Minecraft version.
 
-    - Minecraft >= 26.1 requires Java 25+.
-    - Minecraft >= 1.20.5 requires Java 21.
-    - Minecraft >= 1.17 requires Java 17.
-    - Minecraft < 1.17 requires Java 8.
     - Explicit config['image'] takes absolute priority.
+    - An explicit ``java_major`` (or ``config['java_major']``) maps through Temurin.
+    - Otherwise the deterministic Minecraft Java floor is used.
     """
     cfg = config or {}
     if cfg.get("image") is not None:
         return validate_docker_image(str(cfg["image"]))
 
+    resolved_major = java_major
+    if resolved_major is None and cfg.get("java_major") is not None:
+        with contextlib.suppress(TypeError, ValueError):
+            resolved_major = int(cfg["java_major"])
+    if resolved_major is not None:
+        return validate_docker_image(temurin_docker_image_for_java_major(resolved_major))
+
     version_val = cfg.get("minecraft_version") or minecraft_version
     if not version_val:
         return validate_docker_image(AppSettings().docker_default_image)
+    return validate_docker_image(
+        temurin_docker_image_for_java_major(
+            resolve_java_floor_from_mc_version(version_val)
+        )
+    )
 
-    major = 0
-    minor = 0
-    patch = 0
 
-    if isinstance(version_val, MinecraftVersion):
-        major, minor, patch = version_val.major, version_val.minor, version_val.patch
-    else:
-        v_str = str(version_val).strip()
-        match = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?", v_str)
+_UNIX_ARGS_TOKEN_RE = re.compile(
+    r"@(?:/)?(?:data/)?(libraries/[A-Za-z0-9._+/-]+/unix_args\.txt)"
+)
+
+
+def extract_unix_args_relpath(
+    startup_command: Sequence[str] | None = None,
+    *,
+    unix_args_relpath: str | None = None,
+) -> str | None:
+    """Return the canonical ``libraries/.../unix_args.txt`` relpath, if any."""
+    if unix_args_relpath is not None:
+        rel = validate_canonical_relpath(unix_args_relpath.lstrip("/"))
+        if not rel.startswith("libraries/") or not rel.endswith("/unix_args.txt"):
+            raise ValueError(f"Invalid unix_args relpath: {unix_args_relpath!r}")
+        return rel
+    for token in startup_command or ():
+        match = _UNIX_ARGS_TOKEN_RE.search(str(token))
         if match:
-            major = int(match.group(1))
-            minor = int(match.group(2) or 0)
-            patch = int(match.group(3) or 0)
-
-    if major >= 26:
-        return validate_docker_image("eclipse-temurin:25-jre")
-    if major == 1:
-        if minor > 20 or (minor == 20 and patch >= 5):
-            return validate_docker_image("eclipse-temurin:21-jre-jammy")
-        if minor >= 17:
-            return validate_docker_image("eclipse-temurin:17-jre-jammy")
-        return validate_docker_image("eclipse-temurin:8-jre-jammy")
-
-    return validate_docker_image(AppSettings().docker_default_image)
+            rel = validate_canonical_relpath(match.group(1))
+            if rel.startswith("libraries/") and rel.endswith("/unix_args.txt"):
+                return rel
+    return None
 
 
 def build_docker_server_cmd(
@@ -212,6 +230,8 @@ def build_docker_server_cmd(
     cpu_cores: int = 0,
     image: str = "",
     force_itzg_entrypoint: bool = False,
+    *,
+    unix_args_relpath: str | None = None,
 ) -> list[str]:
     """Build the CMD arguments for launching a Minecraft server inside a Docker container.
 
@@ -230,7 +250,20 @@ def build_docker_server_cmd(
     - (c) Disk-based run.sh detection: old code never checked disk; test_runner.py
           checks disk at staging time and passes startup_command explicitly.
     """
-    # Script detection: only from startup_command, never from disk (verbatim old behaviour).
+    # Priority 1 (Argfile launch — ND-4 / OD-v8.4-9).
+    resolved_unix_args = extract_unix_args_relpath(
+        startup_command, unix_args_relpath=unix_args_relpath
+    )
+    if resolved_unix_args is not None:
+        return [
+            "java",
+            "@/data/user_jvm_args.txt",
+            f"@/data/{resolved_unix_args}",
+            "nogui",
+        ]
+
+    # Priority 2 (Legacy run.sh / run.bat token in startup_command).
+    # Script detection: only from startup_command, never from disk.
     is_script = False
     if startup_command:
         cmd_str = " ".join(startup_command)
@@ -429,7 +462,9 @@ class DockerProvider(ServerProvider):
         launch_config: LaunchConfiguration | None = None,
     ) -> DeploymentResult:
         cfg = config or {}
-        image = resolve_docker_image(config=cfg)
+        image = resolve_docker_image(
+            config=cfg, minecraft_version=cfg.get("minecraft_version")
+        )
         container_name = f"{IDENTITY.temp_prefix_new}{server_id}"
         port = int(cfg.get("port", 25565))
         memory_min = int(cfg.get("memory_min_mb", 1024))
@@ -437,7 +472,7 @@ class DockerProvider(ServerProvider):
         cpu_cores = int(cfg.get("cpu_cores") or 0)
         cpu_affinity = cfg.get("cpu_affinity")
         if cpu_cores > 0 or cpu_affinity:
-            CpuAllocation.validate(cpu_cores, cpu_affinity)
+            CpuAllocation.validate(cpu_cores, str(cpu_affinity or ""))
 
         # Whole-directory volume mount contract (Decision 3) & Windows normalization (Decision 7)
         server_dir = ""
@@ -576,7 +611,7 @@ class DockerProvider(ServerProvider):
             create_args.extend(["-e", f"{k}={v}"])
 
         # Launch translation (Decision 4 & SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 Step 1)
-        startup_cmd = None
+        startup_cmd: list[str] | None = None
         if launch_config and launch_config.startup_command:
             startup_cmd = (
                 list(launch_config.startup_command)
@@ -604,6 +639,43 @@ class DockerProvider(ServerProvider):
         elif cfg.get("java_args"):
             resolved_jvm_flags = cfg["java_args"]
 
+        resolved_unix_args = extract_unix_args_relpath(
+            startup_cmd, unix_args_relpath=cfg.get("unix_args_relpath")
+        )
+        server_type = str(cfg.get("server_type") or "")
+        argfile_expected = resolved_unix_args is not None or server_type in (
+            "forge",
+            "neoforge",
+            "quilt",
+        )
+        if resolved_unix_args is None and server_dir and Path(server_dir).is_dir():
+            for pattern in (
+                "libraries/net/neoforged/neoforge/*/unix_args.txt",
+                "libraries/net/minecraftforge/forge/*/unix_args.txt",
+                "libraries/org/quiltmc/quilt-loader/*/unix_args.txt",
+            ):
+                matches = sorted(Path(server_dir).glob(pattern))
+                if matches:
+                    resolved_unix_args = matches[0].relative_to(Path(server_dir)).as_posix()
+                    argfile_expected = True
+                    break
+
+        if resolved_unix_args is None and argfile_expected:
+            raise ProviderError(
+                "docker",
+                "start",
+                "Required argfile 'libraries/.../unix_args.txt' is missing",
+            )
+
+        if resolved_unix_args is not None and server_dir:
+            argfile_path = Path(server_dir) / resolved_unix_args
+            if not argfile_path.is_file() or argfile_path.stat().st_size <= 0:
+                raise ProviderError(
+                    "docker",
+                    "start",
+                    f"Required argfile '{resolved_unix_args}' is missing or empty",
+                )
+
         is_script = False
         if startup_cmd:
             cmd_str = " ".join(startup_cmd)
@@ -612,20 +684,34 @@ class DockerProvider(ServerProvider):
         elif server_dir and (Path(server_dir) / "run.sh").is_file():
             is_script = True
 
-        if is_script and server_dir:
+        if resolved_unix_args is not None and server_dir:
             self._write_user_jvm_args(
                 server_dir, memory_min, memory_max, cpu_cores, launch_config, cfg
             )
+        elif is_script:
+            if not AppSettings().allow_legacy_run_sh:
+                raise ProviderError(
+                    "docker",
+                    "start",
+                    "Legacy run.sh execution is disabled and unix_args.txt is missing",
+                )
+            if server_dir:
+                self._write_user_jvm_args(
+                    server_dir, memory_min, memory_max, cpu_cores, launch_config, cfg
+                )
 
         server_cmd = build_docker_server_cmd(
             startup_command=startup_cmd,
             startup_jar=resolved_jar,
-            jvm_flags=resolved_jvm_flags,
+            jvm_flags=(
+                list(resolved_jvm_flags) if resolved_jvm_flags is not None else None
+            ),
             memory_min_mb=memory_min,
             memory_max_mb=memory_max,
             cpu_cores=cpu_cores,
             image=image,
             force_itzg_entrypoint=(launch_config is None),
+            unix_args_relpath=resolved_unix_args,
         )
 
         ports_list = [game_port_spec]

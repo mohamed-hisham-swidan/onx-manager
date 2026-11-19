@@ -49,6 +49,7 @@ from app.core.allowlist import (
 from app.core.exceptions import (
     ConflictError,
     InsufficientStorageError,
+    LecMissingError,
     ServerModeVersioningDisabledError,
     ValidationError,
 )
@@ -103,7 +104,7 @@ _LEC_TREES: dict[str, tuple[str, ...]] = {
     "quilt": ("libraries",),
     "forge": ("libraries",),
     "neoforge": ("libraries",),
-    "paper": ("cache", "versions"),
+    "paper": ("cache", "versions", "libraries"),
     "purpur": ("cache", "versions"),
 }
 
@@ -671,12 +672,10 @@ class CleanExportService:
             lec_root = Path(os.path.abspath(os.fspath(request.lec_root)))
         else:
             lec_root = self._layout.lec / lec.key
-        if lec_root.is_symlink() or not lec_root.is_dir():
-            raise ValidationError(
-                "LEC tree is missing for export",
-                field="lec",
-                details={"key": lec.key[:128]},
-            )
+        if lec_root.is_symlink():
+            raise ValidationError("LEC tree must not contain symlinks", field="lec")
+        if not lec_root.is_dir():
+            raise LecMissingError(lec_key=lec.key)
         if os.path.realpath(lec_root) != str(lec_root):
             raise ValidationError("LEC tree must not contain symlinks", field="lec")
 
@@ -698,10 +697,9 @@ class CleanExportService:
                 )
                 copied_any = True
         if not copied_any:
-            raise ValidationError(
-                "LEC tree does not contain the required loader files",
-                field="lec",
-                details={"key": lec.key[:128]},
+            raise LecMissingError(
+                lec_key=lec.key,
+                message=f"LEC missing: '{lec.key}' does not contain required loader files",
             )
         if parts.loader in {"forge", "neoforge", "quilt"}:
             unix_args = destination / _unix_args_relpath(parts)

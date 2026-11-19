@@ -13,7 +13,11 @@ from pathlib import Path
 import pytest
 
 from app.core.config import AppSettings
-from app.core.exceptions import ServerModeVersioningDisabledError, ValidationError
+from app.core.exceptions import (
+    LecMissingError,
+    ServerModeVersioningDisabledError,
+    ValidationError,
+)
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
 from app.modules.versioning.domain.lockfile import (
     EnvServer,
@@ -129,6 +133,7 @@ def _prepare_lec(layout: HostStateLayout) -> None:
     lec = layout.lec / "paper" / "1.20.4" / "499"
     _write(lec, "cache/patched.jar", b"patched-paper")
     _write(lec, "versions/1.20.4/server.jar", b"vanilla-paper")
+    _write(lec, "libraries/com/example/paper-lib.jar", b"paper-lib")
 
 
 def _write_marker(path: Path, file_count: int = 1) -> None:
@@ -229,6 +234,9 @@ def test_export_composes_five_steps_and_writes_marker(
 
     assert (destination / "cache" / "patched.jar").read_bytes() == b"patched-paper"
     assert (destination / "versions" / "1.20.4" / "server.jar").read_bytes() == b"vanilla-paper"
+    assert (destination / "libraries" / "com" / "example" / "paper-lib.jar").read_bytes() == (
+        b"paper-lib"
+    )
 
     assert (destination / "world" / "level.dat").read_bytes() == b"level-data"
     assert (destination / "world" / "playerdata" / "steve.dat").read_bytes() == b"player-data"
@@ -649,3 +657,47 @@ def test_archive_reserved_paths_are_rejected(
         archive.addfile(member, io.BytesIO(b"x"))
     with pytest.raises(ValidationError, match="reserved for the export service"):
         service._extract_archive(archive_path, target)
+
+
+@POSIX_ONLY
+def test_missing_lec_fails_export_with_lec_missing_error(
+    repo: tuple[HostStateLayout, Path, str],
+    tmp_path: Path,
+) -> None:
+    layout, root, sha = repo
+    destination = tmp_path / "export-missing-lec"
+    with pytest.raises(LecMissingError) as exc_info:
+        CleanExportService(layout).export(
+            _request(
+                layout,
+                root,
+                sha,
+                destination=destination,
+                lockfile=_lockfile(lec=LecRef(key=PAPER_LEC_KEY)),
+            )
+        )
+    assert exc_info.value.http_status == 409
+    assert "LEC missing" in str(exc_info.value)
+    assert not destination.exists()
+
+
+@POSIX_ONLY
+def test_empty_lec_tree_fails_export_with_lec_missing_error(
+    repo: tuple[HostStateLayout, Path, str],
+    tmp_path: Path,
+) -> None:
+    layout, root, sha = repo
+    lec = layout.lec / "paper" / "1.20.4" / "499"
+    lec.mkdir(parents=True)
+    destination = tmp_path / "export-empty-lec"
+    with pytest.raises(LecMissingError, match="LEC missing"):
+        CleanExportService(layout).export(
+            _request(
+                layout,
+                root,
+                sha,
+                destination=destination,
+                lockfile=_lockfile(lec=LecRef(key=PAPER_LEC_KEY)),
+            )
+        )
+    assert not destination.exists()

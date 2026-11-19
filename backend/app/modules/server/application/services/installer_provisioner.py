@@ -6,13 +6,15 @@ import os
 import shutil
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import aiohttp
 
+from app.core.config import AppSettings
 from app.core.event_bus import EventBus
-from app.core.exceptions import DownloadError, DownloadTimeoutError
+from app.core.exceptions import DownloadError, DownloadTimeoutError, UnsupportedForgeVersionError
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.application.services.jar_service import (
@@ -20,7 +22,12 @@ from app.modules.server.application.services.jar_service import (
 )
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.events import ForgeProvisionProgressEvent
-from app.modules.server.domain.installer import InstallerResult, InstallerRunner, ProgressLine
+from app.modules.server.domain.installer import (
+    InstallerResult,
+    InstallerRunner,
+    ProgressLine,
+    RunnerOutput,
+)
 from app.modules.server.domain.runtime_exceptions import (
     BuildResolutionError,
     InstallerDownloadError,
@@ -151,6 +158,11 @@ class InstallerProvisioner(ABC):
         """Return the CLI command string to execute the installer."""
         ...
 
+    @abstractmethod
+    def _unix_args_relpath(self, minecraft_version: str, full_version: str) -> str:
+        """Return the canonical ``libraries/.../unix_args.txt`` relative path."""
+        ...
+
     def _run_sh_name(self) -> str:
         """Return the expected launcher script name."""
         return "run.sh"
@@ -183,7 +195,7 @@ class InstallerProvisioner(ABC):
 
     def _classify_failure(self, exc: Exception) -> FailureDisposition:
         """Classify a provisioning exception into TRANSIENT, AMBIGUOUS, or FATAL."""
-        if isinstance(exc, InsufficientDiskError):
+        if isinstance(exc, (InsufficientDiskError, UnsupportedForgeVersionError)):
             return FailureDisposition(
                 classification=FailureClass.FATAL,
                 preserve_directory=False,
@@ -247,15 +259,22 @@ class InstallerProvisioner(ABC):
                     try:
                         fresh_check = await _load_server(sid)
                         if fresh_check is None:
-                            logger.info("Server %s was deleted during provisioning; skipping finish save", sid)
+                            logger.info(
+                                "Server %s was deleted during provisioning; skipping finish save",
+                                sid,
+                            )
                             return
                     except Exception:
-                        logger.info("Server %s was deleted during provisioning; skipping finish save", sid)
+                        logger.info(
+                            "Server %s was deleted during provisioning; skipping finish save",
+                            sid,
+                        )
                         return
 
                     await _save_server(server, self._event_bus)
                     logger.info(
-                        '%s provisioning complete for server "%s" (%s) — start_command="bash %s nogui"',
+                        '%s provisioning complete for server "%s" (%s) — '
+                        'start_command="bash %s nogui"',
                         self.provider_name,
                         server.name,
                         sid,
@@ -270,7 +289,8 @@ class InstallerProvisioner(ABC):
                     ):
                         backoff = 1.0 * (2**attempt)
                         logger.warning(
-                            "%s provisioning attempt %d/%d for server %s failed transiently (%s: %s). Retrying in %.1fs...",
+                            "%s provisioning attempt %d/%d for server %s failed "
+                            "transiently (%s: %s). Retrying in %.1fs...",
                             self.provider_name,
                             attempt + 1,
                             self._max_retries,
@@ -287,7 +307,8 @@ class InstallerProvisioner(ABC):
                         and attempt >= self._max_retries - 1
                     ):
                         logger.error(
-                            "%s provisioning exhausted %d attempts for server %s (%s: %s). Manual intervention required.",
+                            "%s provisioning exhausted %d attempts for server %s (%s: %s). "
+                            "Manual intervention required.",
                             self.provider_name,
                             self._max_retries,
                             sid,
@@ -326,16 +347,20 @@ class InstallerProvisioner(ABC):
         await download_installer_jar(installer_url, installer_dest, fs=self._fs)
 
         result: InstallerResult | None = None
-        async for progress in self._runner.run(
-            self._installer_args(),
-            timeout=self._install_timeout,
-            cwd=server_dir,
-        ):
+        installer_stream = cast(
+            AsyncGenerator[RunnerOutput, None],
+            self._runner.run(
+                self._installer_args(),
+                timeout=self._install_timeout,
+                cwd=server_dir,
+            ),
+        )
+        async for progress in installer_stream:
             if isinstance(progress, ProgressLine):
                 if self._event_bus:
                     await self._event_bus.publish(
                         ForgeProvisionProgressEvent(
-                            server_id=str(sid),
+                            server_id=sid,
                             stage=progress.stage,
                             percent=progress.percent,
                             message=progress.message,
@@ -363,15 +388,51 @@ class InstallerProvisioner(ABC):
                 exit_code=result.exit_code,
             )
 
-        script_name, startup_command = self._detect_launch_script(server_dir)
-        if not script_name:
-            raise InstallerExecutionError(
-                server_id=str(sid),
-                detail=(
-                    f"installer finished but neither {self._run_sh_name()} "
-                    "nor run.bat was produced"
-                ),
-            )
+        script_name = ""
+        startup_command: list[str] = []
+        if AppSettings().allow_legacy_run_sh:
+            script_name, startup_command = self._detect_launch_script(server_dir)
+            if not script_name:
+                raise InstallerExecutionError(
+                    server_id=str(sid),
+                    detail=(
+                        f"installer finished but neither {self._run_sh_name()} "
+                        "nor run.bat was produced"
+                    ),
+                )
+        else:
+            unix_args_rel = self._unix_args_relpath(minecraft_version, full_version)
+            unix_args_path = os.path.join(server_dir, unix_args_rel)
+            if not self._fs.exists(unix_args_path):
+                raise InstallerExecutionError(
+                    server_id=str(sid),
+                    detail=f"installer finished but {unix_args_rel} was not produced",
+                )
+            startup_command = [
+                "java",
+                "@user_jvm_args.txt",
+                f"@{unix_args_rel}",
+                "nogui",
+            ]
+            for name in (
+                "run.sh",
+                "run.bat",
+                "ServerStarterJar",
+                "serverstarter.jar",
+                self._installer_filename(),
+            ):
+                target = os.path.join(server_dir, name)
+                try:
+                    if self._fs.exists(target):
+                        self._fs.delete(target)
+                except Exception as exc:
+                    logger.warning(
+                        "Could not remove builder artifact %s (server %s, %s: %s)",
+                        target,
+                        sid,
+                        type(exc).__name__,
+                        exc,
+                    )
 
         try:
             self._fs.delete(installer_dest)
@@ -435,7 +496,8 @@ class InstallerProvisioner(ABC):
                 self._fs.delete_dir(server_dir)
             except Exception as cleanup_exc:
                 logger.exception(
-                    "Failed to clean up server directory %s after fatal provisioning error (%s: %s)",
+                    "Failed to clean up server directory %s after fatal provisioning "
+                    "error (%s: %s)",
                     server_dir,
                     type(cleanup_exc).__name__,
                     cleanup_exc,
