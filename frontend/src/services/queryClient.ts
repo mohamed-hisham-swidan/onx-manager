@@ -89,4 +89,15 @@ export const queryKeys = {
     targets: (serverId: string) => ["exposure", "targets", serverId] as const,
     ports: (serverId: string) => ["exposure", "ports", serverId] as const,
   },
+  p55: {
+    curseforgeIntegration: () =>
+      ["settings", "integrations", "curseforge"] as const,
+    lecEntries: () => ["lec", "entries"] as const,
+    serverSettings: (serverId: string) =>
+      ["servers", "p55-settings", serverId] as const,
+    upgrades: (serverId: string) =>
+      ["servers", "upgrades", serverId] as const,
+    upgradeDetail: (serverId: string, upgradeId: string) =>
+      ["servers", "upgrades", serverId, upgradeId] as const,
+  },
 };

@@ -28,6 +28,7 @@ import { resolveServerMode } from "@/server_manager/utils/serverMode";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
+import { UpgradePinnedBanner } from "@/server_manager/components/p55/UpgradePinnedBanner";
 
 function useSafeServersList() {
   const queryClient = useContext(QueryClientContext);
@@ -579,6 +580,8 @@ export function ServerShell() {
               </nav>
             </div>
           </div>
+
+          <UpgradePinnedBanner serverId={effectiveServerId} />
 
           <ErrorBoundary>
             <Suspense fallback={<RouteFallback />}>

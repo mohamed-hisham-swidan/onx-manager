@@ -15,6 +15,10 @@ import { Pagination } from "@/components/ui/Pagination";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
+import {
+  ModpackInstallWizardModal,
+  SafeUpgradeWizardModal,
+} from "@/server_manager/components/p55";
 import type { PluginResponse } from "@/types";
 
 const PAGE_SIZE = 15;
@@ -222,6 +226,8 @@ export function ServerModsPage() {
   const [loaderFilter, setLoaderFilter] = useState("all");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isModpackWizardOpen, setIsModpackWizardOpen] = useState(false);
+  const [isSafeUpgradeWizardOpen, setIsSafeUpgradeWizardOpen] = useState(false);
 
   const effectiveServerId = routeServerId
     ? routeServerId
@@ -230,6 +236,8 @@ export function ServerModsPage() {
       : lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
         ? lastUsedServerId
         : selectedServerId;
+
+  const activeServer = servers?.find((s) => s.server_id === effectiveServerId);
 
   const { data: mods, isLoading, error } = usePluginsList(effectiveServerId);
   const uploadMod = useUploadPluginOrMod(effectiveServerId);
@@ -330,14 +338,34 @@ export function ServerModsPage() {
         icon="plugin"
         actions={
           effectiveServerId ? (
-            <button
-              type="button"
-              onClick={handleBrowseMarketplace}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
-            >
-              <Icon name="plus" size={16} />
-              Browse Marketplace
-            </button>
+            <>
+              <button
+                type="button"
+                data-testid="open-modpack-wizard-btn"
+                onClick={() => setIsModpackWizardOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+              >
+                <Icon name="download" size={16} />
+                Install Modpack (.mrpack / CurseForge)
+              </button>
+              <button
+                type="button"
+                data-testid="open-safe-upgrade-wizard-btn"
+                onClick={() => setIsSafeUpgradeWizardOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+              >
+                <Icon name="restart" size={16} />
+                1-Click Safe Upgrade
+              </button>
+              <button
+                type="button"
+                onClick={handleBrowseMarketplace}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
+              >
+                <Icon name="plus" size={16} />
+                Browse Marketplace
+              </button>
+            </>
           ) : undefined
         }
       />
@@ -564,6 +592,24 @@ export function ServerModsPage() {
               }
             />
           )}
+        </>
+      )}
+
+      {effectiveServerId && (
+        <>
+          <ModpackInstallWizardModal
+            serverId={effectiveServerId}
+            isOpen={isModpackWizardOpen}
+            onClose={() => setIsModpackWizardOpen(false)}
+          />
+          <SafeUpgradeWizardModal
+            serverId={effectiveServerId}
+            isOpen={isSafeUpgradeWizardOpen}
+            onClose={() => setIsSafeUpgradeWizardOpen(false)}
+            serverMode={activeServer?.mode}
+            serverType={activeServer?.server_type}
+            currentMc={activeServer?.minecraft_version}
+          />
         </>
       )}
 

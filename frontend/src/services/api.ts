@@ -108,6 +108,21 @@ import type {
   PushGitHubBranchRequest,
   RotateGitHubCredentialsRequest,
   RunIsolatedTestRequest,
+  ApplyUpgradeRequest,
+  CurseForgeIntegrationKeySetRequest,
+  CurseForgeIntegrationStatusResponse,
+  LecEntryResponse,
+  LecGcRequest,
+  LecGcResponse,
+  LecPrewarmRequest,
+  LecPrewarmResponse,
+  ModpackInspectResponse,
+  ModpackInstallRequest,
+  ModpackInstallResponse,
+  PlanUpgradeRequest,
+  PrepareUpgradeTestRequest,
+  PrepareUpgradeTestResponse,
+  RollbackUpgradeRequest,
   SaveBranchDataTemplateRequest,
   ScanLiveChangesResponse,
   ScanResult,
@@ -116,8 +131,12 @@ import type {
   ServerCreateRequest,
   ServerDetailResponse,
   ServerImportRequest,
+  ServerP55SettingsResponse,
+  ServerP55SettingsUpdateRequest,
   ServerResponse,
   ServerTag,
+  ServerUpgradeListResponse,
+  ServerUpgradeResponse,
   ServerTestRun,
   ServerUpdateRequest,
   SetBranchProtectionRequest,
@@ -1187,6 +1206,144 @@ export function createApiClient(
       request<{ status: string }>("/api/v1/exposure/credentials/remove", {
         method: "POST",
       }),
+
+    // P5.5 Panel CurseForge Integration
+    getCurseForgeIntegrationStatus: () =>
+      request<CurseForgeIntegrationStatusResponse>(
+        "/api/v1/settings/integrations/curseforge",
+      ),
+    setCurseForgeIntegrationKey: (body: CurseForgeIntegrationKeySetRequest) =>
+      request<CurseForgeIntegrationStatusResponse>(
+        "/api/v1/settings/integrations/curseforge",
+        { method: "PUT", body },
+      ),
+    deleteCurseForgeIntegrationKey: () =>
+      request<CurseForgeIntegrationStatusResponse>(
+        "/api/v1/settings/integrations/curseforge",
+        { method: "DELETE" },
+      ),
+
+    // P5.5 Host Loader Environment Cache (LEC)
+    listLecEntries: () =>
+      request<LecEntryResponse[]>("/api/v1/lec/entries"),
+    prewarmLecEntry: (body: LecPrewarmRequest) =>
+      request<LecPrewarmResponse>("/api/v1/lec/prewarm", {
+        method: "POST",
+        body,
+      }),
+    gcLecEntries: (body: LecGcRequest = { min_age_days: 7 }) =>
+      request<LecGcResponse>("/api/v1/lec/gc", { method: "POST", body }),
+
+    // P5.5 Per-server settings
+    getServerP55Settings: (serverId: string) =>
+      request<ServerP55SettingsResponse>(
+        `/api/v1/servers/${serverId}/p55-settings`,
+      ),
+    updateServerP55Settings: (
+      serverId: string,
+      body: ServerP55SettingsUpdateRequest,
+    ) =>
+      request<ServerP55SettingsResponse>(
+        `/api/v1/servers/${serverId}/p55-settings`,
+        { method: "PUT", body },
+      ),
+
+    // P5.5 Modpack inspect & install
+    inspectModpack: (
+      serverId: string,
+      file: File,
+      options?: {
+        format?: "auto" | "mrpack" | "curseforge";
+        project_id?: string;
+        version_id?: string;
+        install_optional_server_files?: boolean;
+      },
+    ) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (options?.format) formData.append("format", options.format);
+      if (options?.project_id) formData.append("project_id", options.project_id);
+      if (options?.version_id) formData.append("version_id", options.version_id);
+      if (options?.install_optional_server_files !== undefined) {
+        formData.append(
+          "install_optional_server_files",
+          options.install_optional_server_files ? "true" : "false",
+        );
+      }
+      return request<ModpackInspectResponse>(
+        `/api/v1/servers/${serverId}/modpacks/inspect`,
+        { method: "POST", body: formData },
+      );
+    },
+    installModpack: (serverId: string, body: ModpackInstallRequest) =>
+      request<ModpackInstallResponse>(
+        `/api/v1/servers/${serverId}/modpacks/install`,
+        { method: "POST", body },
+      ),
+
+    // P5.5 1-Click Safe Upgrade lifecycle
+    listServerUpgrades: (serverId: string) =>
+      request<ServerUpgradeListResponse>(
+        `/api/v1/servers/${serverId}/upgrades`,
+      ),
+    getServerUpgrade: (serverId: string, upgradeId: string) =>
+      request<ServerUpgradeResponse>(
+        `/api/v1/servers/${serverId}/upgrades/${encodeURIComponent(upgradeId)}`,
+      ),
+    planServerUpgrade: (serverId: string, body: PlanUpgradeRequest) =>
+      request<ServerUpgradeResponse>(
+        `/api/v1/servers/${serverId}/upgrades/plan`,
+        { method: "POST", body },
+      ),
+    resolveUpgradeManualUpload: (
+      serverId: string,
+      upgradeId: string,
+      file: File,
+      options?: { file_id?: number | null; path?: string | null },
+    ) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (options?.file_id != null) {
+        formData.append("file_id", String(options.file_id));
+      }
+      if (options?.path) formData.append("path", options.path);
+      return request<ServerUpgradeResponse>(
+        `/api/v1/servers/${serverId}/upgrades/${encodeURIComponent(upgradeId)}/manual-upload`,
+        { method: "POST", body: formData },
+      );
+    },
+    prepareServerUpgradeTest: (
+      serverId: string,
+      upgradeId: string,
+      body: PrepareUpgradeTestRequest = {},
+    ) =>
+      request<PrepareUpgradeTestResponse>(
+        `/api/v1/servers/${serverId}/upgrades/${encodeURIComponent(upgradeId)}/prepare-test`,
+        { method: "POST", body },
+      ),
+    applyServerUpgrade: (
+      serverId: string,
+      upgradeId: string,
+      body: ApplyUpgradeRequest = {},
+    ) =>
+      request<ServerUpgradeResponse>(
+        `/api/v1/servers/${serverId}/upgrades/${encodeURIComponent(upgradeId)}/apply`,
+        { method: "POST", body },
+      ),
+    confirmServerUpgrade: (serverId: string, upgradeId: string) =>
+      request<ServerUpgradeResponse>(
+        `/api/v1/servers/${serverId}/upgrades/${encodeURIComponent(upgradeId)}/confirm`,
+        { method: "POST" },
+      ),
+    rollbackServerUpgrade: (
+      serverId: string,
+      upgradeId: string,
+      body: RollbackUpgradeRequest = { reason: "operator emergency rollback" },
+    ) =>
+      request<ServerUpgradeResponse>(
+        `/api/v1/servers/${serverId}/upgrades/${encodeURIComponent(upgradeId)}/rollback`,
+        { method: "POST", body },
+      ),
 
     // Operations (Phase 5.5 Stage A)
     createOperation: (body: CreateOperationRequest, idempotencyKey?: string) =>

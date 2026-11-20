@@ -554,3 +554,34 @@ export function validateLocalPort(port: number, serverGamePort: number): { valid
 }
 
 
+
+// P5.5 shared re-exports (single source of truth lives in server_manager/types)
+export type {
+  ApplyUpgradeRequest,
+  CompatibilityMatrixPayload,
+  CurseForgeIntegrationKeySetRequest,
+  CurseForgeIntegrationStatusResponse,
+  InstallPlanFileItem,
+  InstallPlanOverrideItem,
+  InstallPlanPayload,
+  LecEntryResponse,
+  LecGcRequest,
+  LecGcResponse,
+  LecPrewarmRequest,
+  LecPrewarmResponse,
+  ManualDownloadBlockerItem,
+  MatrixEntryItem,
+  MatrixStatusType,
+  ModpackInspectResponse,
+  ModpackInstallRequest,
+  ModpackInstallResponse,
+  P55LoaderId,
+  PlanUpgradeRequest,
+  PrepareUpgradeTestRequest,
+  PrepareUpgradeTestResponse,
+  RollbackUpgradeRequest,
+  ServerP55SettingsResponse,
+  ServerP55SettingsUpdateRequest,
+  ServerUpgradeListResponse,
+  ServerUpgradeResponse,
+} from "@/server_manager/types";

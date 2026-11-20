@@ -1140,3 +1140,302 @@ export interface GitHubWebhookDeliveryResponse {
   received_at: string;
   processed_at: string | null;
 }
+
+// ── P5.5 Modpacks, 1-Click Safe Upgrades, LEC & CurseForge Integration ──────
+
+export type P55LoaderId = "fabric" | "quilt" | "forge" | "neoforge" | "paper";
+
+export type MatrixStatusType =
+  | "warning: unresolved_carried"
+  | "blocker: no_target_build"
+  | "blocker: missing_dependency"
+  | "blocker: missing_transitive_dependency"
+  | "blocker: incompatible"
+  | "blocker: untrusted_host"
+  | "blocker: manual_download_required"
+  | "warning"
+  | "add"
+  | "remove"
+  | "carried"
+  | "unchanged";
+
+export interface CurseForgeIntegrationKeySetRequest {
+  api_key: string;
+}
+
+export interface CurseForgeIntegrationStatusResponse {
+  configured: boolean;
+  source: "panel" | "env" | "none";
+  hint: string | null;
+}
+
+export interface LecEntryResponse {
+  lec_key: string;
+  loader_id: string;
+  mc_version: string;
+  loader_version: string;
+  installer_version: string | null;
+  java_major: number | null;
+  status: string;
+  size_bytes: number;
+  file_count: number;
+  complete_manifest_sha256: string | null;
+  ready_on_disk: boolean;
+  last_used_at: string | null;
+  updated_at: string | null;
+}
+
+export interface LecPrewarmRequest {
+  lec_key?: string | null;
+  loader_id?: P55LoaderId | null;
+  mc_version?: string | null;
+  loader_version?: string | null;
+  installer_version?: string | null;
+  async_mode?: boolean;
+}
+
+export interface LecPrewarmResponse {
+  lec_key: string;
+  status: string;
+  file_count: number;
+  total_bytes: number;
+  java_major: number | null;
+  unix_args_relpath: string | null;
+  operation_id: string | null;
+}
+
+export interface LecGcRequest {
+  min_age_days: number;
+}
+
+export interface LecGcResponse {
+  pruned_lec_keys: string[];
+  pruned_cas_digests: string[];
+  freed_bytes: number;
+}
+
+export interface ServerP55SettingsUpdateRequest {
+  health_gate_boot_timeout_seconds?: number | null;
+  install_optional_server_files?: boolean | null;
+  allow_experimental_paper_builds?: boolean | null;
+  download_host_allowlist?: string[] | null;
+}
+
+export interface ServerP55SettingsResponse {
+  server_id: string;
+  health_gate_boot_timeout_seconds: number;
+  install_optional_server_files: boolean;
+  allow_experimental_paper_builds: boolean;
+  download_host_allowlist: string[];
+  default_allowed_hosts: string[];
+}
+
+export interface InstallPlanFileItem {
+  path: string;
+  sha1: string;
+  sha512: string | null;
+  sha256: string | null;
+  size: number;
+  downloads: string[];
+  env_server: string;
+  optional: boolean;
+  origin: string;
+  project_id: string | null;
+  version_id: string | null;
+  source_layer: string;
+  curseforge_project_id: number | null;
+  curseforge_file_id: number | null;
+}
+
+export interface InstallPlanOverrideItem {
+  path: string;
+  archive_path: string;
+  source_layer: string;
+  classification: string;
+  sha256: string;
+  sha512: string;
+  sha1: string;
+  size: number;
+}
+
+export interface ManualDownloadBlockerItem {
+  path: string;
+  filename: string;
+  project_id: number | null;
+  file_id: number | null;
+  webpage_url: string;
+  expected_size: number | null;
+  expected_sha1: string | null;
+  expected_sha512: string | null;
+  required: boolean;
+  reason: string;
+  blocker_type: string;
+  resolved: boolean;
+  resolved_sha256: string | null;
+}
+
+export interface InstallPlanPayload {
+  source: string;
+  project_id: string;
+  version_id: string;
+  version_label: string;
+  index_sha256: string;
+  mc_version: string;
+  loader_id: string;
+  loader_version: string;
+  files: InstallPlanFileItem[];
+  overrides: InstallPlanOverrideItem[];
+  manual_blockers: ManualDownloadBlockerItem[];
+  skipped_client_files: string[];
+  skipped_optional_files: string[];
+  skipped_client_override_jars: string[];
+  discarded_paths: string[];
+  warnings: string[];
+}
+
+export interface ModpackInspectResponse {
+  server_id: string;
+  staged_pack_id: string;
+  source: string;
+  mc_version: string;
+  loader_id: string;
+  loader_version: string;
+  has_unresolved_blockers: boolean;
+  plan: InstallPlanPayload;
+}
+
+export interface ModpackInstallRequest {
+  staged_pack_id: string;
+  lec_key?: string | null;
+  build_lec?: boolean;
+  fabric_installer_version?: string;
+  async_mode?: boolean;
+}
+
+export interface ModpackInstallResponse {
+  server_id: string;
+  upgrade_id: string;
+  status: string;
+  mc_version: string;
+  loader_id: string;
+  loader_version: string;
+  lec_key: string | null;
+  files_installed: number;
+  base_overrides_count: number;
+  commit_sha: string | null;
+  operation_id: string | null;
+}
+
+export interface MatrixEntryItem {
+  path: string;
+  status: MatrixStatusType;
+  origin: string;
+  source_sha256: string | null;
+  source_sha512: string | null;
+  source_project_id: string | null;
+  source_version_id: string | null;
+  target_sha256: string | null;
+  target_sha512: string | null;
+  target_sha1: string | null;
+  target_size: number | null;
+  target_project_id: string | null;
+  target_version_id: string | null;
+  target_version_number: string | null;
+  download_url: string | null;
+  required_by: string[];
+  detail: string;
+  manual_blocker: ManualDownloadBlockerItem | null;
+  excluded_by_operator: boolean;
+  is_blocker: boolean;
+}
+
+export interface CompatibilityMatrixPayload {
+  source_mc: string;
+  target_mc: string;
+  source_loader: { id: string; version: string };
+  target_loader: { id: string; version: string };
+  entries: MatrixEntryItem[];
+  bfs_depth_reached: number;
+  bfs_projects_resolved: number;
+  excluded_paths: string[];
+  has_blockers: boolean;
+  blockers_count: number;
+  warnings_count: number;
+}
+
+export interface PlanUpgradeRequest {
+  target_mc: string;
+  target_loader_id: P55LoaderId;
+  target_loader_version: string;
+  target_lec_key?: string | null;
+  staged_pack_id?: string | null;
+  excluded_paths?: string[];
+  version_types?: Array<"release" | "beta" | "alpha">;
+}
+
+export interface PrepareUpgradeTestRequest {
+  target_slug?: string | null;
+  resolved_conflicts?: Record<string, string>;
+  start_test?: boolean;
+  allow_public_test_join?: boolean;
+  requested_memory_mb?: number | null;
+  requested_cpu_cores?: number | null;
+  check_os_ports?: boolean;
+}
+
+export interface ApplyUpgradeRequest {
+  resolved_conflicts?: Record<string, string>;
+  async_mode?: boolean;
+}
+
+export interface RollbackUpgradeRequest {
+  reason: string;
+}
+
+export interface ServerUpgradeResponse {
+  id: string;
+  server_id: string;
+  kind: string;
+  mode: string;
+  status: string;
+  source_mc: string | null;
+  target_mc: string;
+  source_loader_id: string | null;
+  source_loader_version: string | null;
+  target_loader_id: string;
+  target_loader_version: string;
+  target_lec_key: string | null;
+  upgrade_branch: string | null;
+  operation_id: string | null;
+  journal_id: string | null;
+  previous_main_sha: string | null;
+  target_main_sha: string | null;
+  pre_upgrade_backup_id: string | null;
+  class_c_snapshot_id: string | null;
+  data_template_id: string | null;
+  plan: InstallPlanPayload | null;
+  matrix: CompatibilityMatrixPayload | null;
+  manual_blockers: ManualDownloadBlockerItem[] | null;
+  pinned_until_confirm: boolean;
+  health_gate_passed: boolean;
+  reminder_72h_overdue: boolean;
+  error_code: string | null;
+  error_message: string | null;
+  confirmed_at: string | null;
+  rolled_back_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServerUpgradeListResponse {
+  server_id: string;
+  items: ServerUpgradeResponse[];
+  active_upgrade: ServerUpgradeResponse | null;
+  banner_active: boolean;
+  reminder_72h_overdue: boolean;
+}
+
+export interface PrepareUpgradeTestResponse {
+  upgrade: ServerUpgradeResponse;
+  runtime: StartBranchRunResponse | null;
+}

@@ -15,6 +15,10 @@ import { StartingMonitorBanner } from "@/server_manager/components/StartingMonit
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
 import { useClipboard } from "@/hooks/useClipboard";
 import { ApiError } from "@/services/api";
+import {
+  ModpackInstallWizardModal,
+  SafeUpgradeWizardModal,
+} from "@/server_manager/components/p55";
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -62,6 +66,8 @@ export function ServerDetailPage() {
   const { copy } = useClipboard();
 
   const [infoExpanded, setInfoExpanded] = useState(false);
+  const [isModpackWizardOpen, setIsModpackWizardOpen] = useState(false);
+  const [isSafeUpgradeWizardOpen, setIsSafeUpgradeWizardOpen] = useState(false);
 
   useEffect(() => {
     if (!serverId) return;
@@ -301,6 +307,35 @@ export function ServerDetailPage() {
 
         {/* Right (col-span-4 or 3 on wide monitors): Consolidated Real-Time Telemetry & Diagnostics Stack */}
         <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-3.5">
+          {/* Card 0: Modpack & 1-Click Upgrade Quick Actions */}
+          <div
+            data-testid="modpack-upgrade-quick-actions"
+            className="rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs space-y-2.5"
+          >
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-1.5">
+              <Icon name="modrinth" size={14} className="text-accent-primary" />
+              Modpack &amp; 1-Click Upgrade
+            </h3>
+            <button
+              type="button"
+              data-testid="detail-open-modpack-wizard-btn"
+              onClick={() => setIsModpackWizardOpen(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+            >
+              <Icon name="download" size={14} />
+              Install Modpack
+            </button>
+            <button
+              type="button"
+              data-testid="detail-open-safe-upgrade-wizard-btn"
+              onClick={() => setIsSafeUpgradeWizardOpen(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+            >
+              <Icon name="restart" size={14} />
+              1-Click Safe Upgrade
+            </button>
+          </div>
+
           {/* Card 1: Network & Address */}
           <div className="rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs">
             <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-1.5">
@@ -445,6 +480,20 @@ export function ServerDetailPage() {
           </div>
         </div>
       </div>
+
+      <ModpackInstallWizardModal
+        serverId={serverId}
+        isOpen={isModpackWizardOpen}
+        onClose={() => setIsModpackWizardOpen(false)}
+      />
+      <SafeUpgradeWizardModal
+        serverId={serverId}
+        isOpen={isSafeUpgradeWizardOpen}
+        onClose={() => setIsSafeUpgradeWizardOpen(false)}
+        serverMode={server.mode}
+        serverType={server.server_type}
+        currentMc={server.minecraft_version}
+      />
     </div>
   );
 }

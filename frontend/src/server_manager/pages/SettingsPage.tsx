@@ -10,6 +10,7 @@ import { InvitationsSection } from "@/server_manager/components/InvitationsSecti
 import { AccessSection } from "@/server_manager/components/AccessSection";
 import { AppearanceSettingsSection } from "@/server_manager/components/AppearanceSettingsSection";
 import { ApiKeysPage } from "@/server_manager/pages/ApiKeysPage";
+import { PanelP55IntegrationsSection } from "@/server_manager/components/p55/PanelP55IntegrationsSection";
 
 interface FormState {
   app_name: string;
@@ -26,7 +27,13 @@ interface FormState {
   test_boot_timeout_seconds: number;
 }
 
-type TabType = "system" | "appearance" | "invitations" | "access" | "api-keys";
+type TabType =
+  | "system"
+  | "appearance"
+  | "invitations"
+  | "access"
+  | "api-keys"
+  | "integrations";
 
 interface TabDefinition {
   id: TabType;
@@ -41,6 +48,12 @@ const TABS: TabDefinition[] = [
   { id: "invitations", label: "Invitations", icon: "users", description: "Invite tokens and access onboarding" },
   { id: "access", label: "Access Control", icon: "lock", description: "LAN vs global exposure posture" },
   { id: "api-keys", label: "API Keys", icon: "hard-drive", description: "Programmatic tokens and CI/CD auth" },
+  {
+    id: "integrations",
+    label: "Modpacks & Cache (LEC)",
+    icon: "modrinth",
+    description: "CurseForge API key and host Loader Environment Cache",
+  },
 ];
 
 type CategoryId = "all" | "general" | "security" | "fault-tolerance" | "telemetry";
@@ -292,8 +305,10 @@ export function SettingsPage() {
         <InvitationsSection />
       ) : activeTab === "access" ? (
         <AccessSection />
-      ) : (
+      ) : activeTab === "api-keys" ? (
         <ApiKeysPage />
+      ) : (
+        <PanelP55IntegrationsSection />
       )}
     </div>
   );

@@ -25,6 +25,10 @@ import {
 } from "@/server_manager/components/versioning/GitHubModals";
 import { BranchRunPanel } from "@/server_manager/components/versioning/BranchRunPanel";
 import {
+  ModpackInstallWizardModal,
+  SafeUpgradeWizardModal,
+} from "@/server_manager/components/p55";
+import {
   BranchConsoleActivityModal,
   BranchPortSetModal,
   DataTemplatesModal,
@@ -144,6 +148,8 @@ export function ServerVersioningPage() {
   // Modals state
   const [isNewBranchOpen, setIsNewBranchOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
+  const [isP55ModpackWizardOpen, setIsP55ModpackWizardOpen] = useState(false);
+  const [isP55SafeUpgradeWizardOpen, setIsP55SafeUpgradeWizardOpen] = useState(false);
 
   const [isNewCommitOpen, setIsNewCommitOpen] = useState(false);
   const [newCommitMessage, setNewCommitMessage] = useState("");
@@ -641,6 +647,24 @@ export function ServerVersioningPage() {
         >
           <Icon name="database" size={13} />
           <span>Data Templates</span>
+        </button>
+        <button
+          type="button"
+          data-testid="versioning-open-modpack-wizard-btn"
+          onClick={() => setIsP55ModpackWizardOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
+        >
+          <Icon name="download" size={13} />
+          <span>Install Modpack</span>
+        </button>
+        <button
+          type="button"
+          data-testid="versioning-open-safe-upgrade-wizard-btn"
+          onClick={() => setIsP55SafeUpgradeWizardOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
+        >
+          <Icon name="restart" size={13} />
+          <span>1-Click Safe Upgrade Wizard</span>
         </button>
       </div>
 
@@ -1184,6 +1208,22 @@ export function ServerVersioningPage() {
           }}
           onClose={() => setIsWebhookDeliveriesOpen(false)}
         />
+      )}
+
+      {serverId && (
+        <>
+          <ModpackInstallWizardModal
+            serverId={serverId}
+            isOpen={isP55ModpackWizardOpen}
+            onClose={() => setIsP55ModpackWizardOpen(false)}
+          />
+          <SafeUpgradeWizardModal
+            serverId={serverId}
+            isOpen={isP55SafeUpgradeWizardOpen}
+            onClose={() => setIsP55SafeUpgradeWizardOpen(false)}
+            serverMode="advanced"
+          />
+        </>
       )}
     </div>
   );
