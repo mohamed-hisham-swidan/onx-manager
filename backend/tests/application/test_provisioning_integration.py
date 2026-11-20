@@ -80,7 +80,7 @@ class TestCreateServerProvisioning:
         cmd = CreateServerCommand(
             name="Integration Forge",
             server_type="forge",
-            minecraft_version="1.21.4",
+            minecraft_version="1.20.1",
         )
 
         with patch(

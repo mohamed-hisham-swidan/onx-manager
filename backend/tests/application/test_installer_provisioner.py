@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from types import SimpleNamespace
@@ -103,6 +102,10 @@ class ConcreteTestProvisioner(InstallerProvisioner):
 
     def _installer_args(self) -> str:
         return "java -jar test-installer.jar --installServer"
+
+    def _unix_args_relpath(self, minecraft_version: str, full_version: str) -> str:
+        del minecraft_version
+        return f"libraries/net/example/test/{full_version}/unix_args.txt"
 
 
 class TestFailureClassification:
@@ -331,17 +334,21 @@ class TestSubclassContractParity:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "provisioner_cls,server_type,resolve_fn",
+        "provisioner_cls,server_type,resolve_fn,mc_version,full_build",
         [
             (
                 ForgeProvisioner,
                 ServerType.FORGE,
                 "app.modules.server.application.services.forge_provisioner.resolve_forge_build",
+                "1.20.1",
+                "1.20.1-build-99",
             ),
             (
                 NeoForgeProvisioner,
                 ServerType.NEOFORGE,
                 "app.modules.server.application.services.neoforge_provisioner.resolve_neoforge_build",
+                "1.21.1",
+                "1.21.1-build-99",
             ),
         ],
     )
@@ -350,6 +357,8 @@ class TestSubclassContractParity:
         provisioner_cls: type[InstallerProvisioner],
         server_type: ServerType,
         resolve_fn: str,
+        mc_version: str,
+        full_build: str,
     ) -> None:
         sid = f"srv-{server_type.value}"
         server = _create_test_server(sid, server_type, f"/data/{sid}")
@@ -364,7 +373,7 @@ class TestSubclassContractParity:
                 "app.modules.server.application.services.installer_provisioner._save_server",
                 AsyncMock(),
             ),
-            patch(resolve_fn, AsyncMock(return_value="1.21.1-build-99")),
+            patch(resolve_fn, AsyncMock(return_value=full_build)),
             patch(
                 "app.modules.server.application.services.installer_provisioner.download_installer_jar",
                 AsyncMock(return_value=f"/data/{sid}/installer.jar"),
@@ -378,27 +387,29 @@ class TestSubclassContractParity:
                 runner=_make_runner(InstallerResult(exit_code=0, output="Installation complete")),
                 fs=fs,
             )
-            await provisioner.provision(sid, "1.21.1")
+            await provisioner.provision(sid, mc_version)
 
             assert server.status == ServerStatus.CREATED
             assert server.launch_config is not None
             expected_cmd = (
-                ("run.bat", "nogui") if sys.platform == "win32" else ("bash", "run.sh", "nogui")
+                "java",
+                "@user_jvm_args.txt",
+                f"@{provisioner._unix_args_relpath(mc_version, full_build)}",
+                "nogui",
             )
             assert server.launch_config.startup_command == expected_cmd
-            assert fs.delete.call_count == 1
-            assert (
-                Path(fs.delete.call_args[0][0]).as_posix()
-                == f"/data/{sid}/{provisioner._installer_filename()}"
-            )
+            deleted_paths = [Path(call.args[0]).as_posix() for call in fs.delete.call_args_list]
+            assert f"/data/{sid}/{provisioner._installer_filename()}" in deleted_paths
+            assert f"/data/{sid}/run.sh" in deleted_paths
+            assert f"/data/{sid}/run.bat" in deleted_paths
 
     @pytest.mark.asyncio
     async def test_windows_run_bat_detected_and_configured_without_bash(self) -> None:
         sid = "srv-win-forge"
         server = _create_test_server(sid, ServerType.FORGE, f"/data/{sid}")
         fs = MagicMock()
-        # Simulate run.bat exists, run.sh does NOT exist
-        fs.exists.side_effect = lambda path: path.endswith("run.bat")
+        # Simulate run.bat + unix_args.txt exist, run.sh does NOT exist (OD-v8.4-9 argfile launch)
+        fs.exists.side_effect = lambda path: path.endswith(("run.bat", "unix_args.txt"))
         fs.write_text.return_value = None
         fs.delete.return_value = None
 
@@ -413,7 +424,7 @@ class TestSubclassContractParity:
             ),
             patch(
                 "app.modules.server.application.services.forge_provisioner.resolve_forge_build",
-                AsyncMock(return_value="1.21.1-build-99"),
+                AsyncMock(return_value="1.20.1-build-99"),
             ),
             patch(
                 "app.modules.server.application.services.installer_provisioner.download_installer_jar",
@@ -428,9 +439,14 @@ class TestSubclassContractParity:
                 runner=_make_runner(InstallerResult(exit_code=0, output="Installation complete")),
                 fs=fs,
             )
-            await provisioner.provision(sid, "1.21.1")
+            await provisioner.provision(sid, "1.20.1")
 
             assert server.status == ServerStatus.CREATED
             assert server.launch_config is not None
-            assert server.launch_config.startup_command == ("run.bat", "nogui")
+            assert server.launch_config.startup_command == (
+                "java",
+                "@user_jvm_args.txt",
+                "@libraries/net/minecraftforge/forge/1.20.1-build-99/unix_args.txt",
+                "nogui",
+            )
             assert "bash" not in server.launch_config.startup_command
