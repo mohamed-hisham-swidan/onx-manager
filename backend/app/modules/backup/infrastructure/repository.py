@@ -49,7 +49,6 @@ class SQLBackupRepository(BackupRepository):
         model.error_message = job.error_message or None
         model.completed_at = job.completed_at
         model.pinned = bool(job.pinned)
-        model.tier = job.tier
         await self._session.flush()
 
     async def delete_job(self, backup_id: BackupJobId) -> None:
@@ -88,10 +87,6 @@ class SQLBackupRepository(BackupRepository):
         if retention_days is not None and retention_days < 0:
             raise ValidationError("retention_days must be non-negative", field="retention_days")
 
-        # When neither max_backups nor retention_days is specified, fall back to
-        # the server's backup policy for defaults. Tier-based retention applies:
-        #   Tier-1: FIFO = max_backups (default 5)
-        #   Tier-2: retention_days cutoff (default 7d) + max 4 weekly
         if max_backups is None and retention_days is None:
             policy = await self._session.get(BackupPolicyModel, str(server_id))
             if policy is None:
@@ -108,20 +103,13 @@ class SQLBackupRepository(BackupRepository):
         moment = now or datetime.now(UTC)
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=UTC)
+        cutoff = (
+            moment - timedelta(days=retention_days) if retention_days is not None else None
+        )
 
         to_delete: set[str] = set()
-
-        # ---- Tier-1: FIFO pruning (keep last `max_backups` unpinned) ----
-        tier_1_rows = [r for r in rows if (r.tier or "tier_1") == "tier_1"]
-        tier_1_max = max_backups if max_backups is not None else 5
-        for row in tier_1_rows[tier_1_max:]:
-            to_delete.add(row.id)
-        # Optional retention_days cutoff also applies to tier-1 (legacy compat).
-        if retention_days is not None:
-            cutoff = moment - timedelta(days=retention_days)
-            for row in tier_1_rows:
-                if row.id in to_delete:
-                    continue
+        if cutoff is not None:
+            for row in rows:
                 created_at = row.created_at
                 if created_at is None:
                     continue
@@ -130,34 +118,10 @@ class SQLBackupRepository(BackupRepository):
                 if created_at < cutoff:
                     to_delete.add(row.id)
 
-        # ---- Tier-2: retention_days cutoff + max 4 weekly ----
-        tier_2_rows = [r for r in rows if (r.tier or "tier_1") == "tier_2"]
-        if retention_days is not None:
-            cutoff = moment - timedelta(days=retention_days)
-            for row in tier_2_rows:
-                created_at = row.created_at
-                if created_at is None:
-                    continue
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=UTC)
-                if created_at < cutoff:
-                    to_delete.add(row.id)
-        # Weekly: keep at most 4 weekly snapshots (one per ISO week).
-        tier_2_survivors = [r for r in tier_2_rows if r.id not in to_delete]
-        seen_weeks: set[str] = set()
-        weekly_survivors: list = []
-        for row in tier_2_survivors:
-            created_at = row.created_at
-            if created_at is None:
-                continue
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=UTC)
-            week_key = created_at.strftime("%G-W%V")
-            if week_key not in seen_weeks:
-                seen_weeks.add(week_key)
-                weekly_survivors.append(row)
-        for row in weekly_survivors[4:]:
-            to_delete.add(row.id)
+        if max_backups is not None:
+            survivors = [row for row in rows if row.id not in to_delete]
+            for row in survivors[max_backups:]:
+                to_delete.add(row.id)
 
         if not to_delete:
             return []
@@ -240,5 +204,4 @@ class SQLBackupRepository(BackupRepository):
             created_at=model.created_at,
             completed_at=model.completed_at,
             pinned=bool(model.pinned),
-            tier=model.tier or "tier_1",
         )

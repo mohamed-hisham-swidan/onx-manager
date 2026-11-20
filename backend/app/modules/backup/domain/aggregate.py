@@ -46,7 +46,6 @@ class BackupJob(AggregateRoot):
         created_at: datetime | None = None,
         completed_at: datetime | None = None,
         pinned: bool = False,
-        tier: str = "tier_1",
     ) -> None:
         super().__init__()
         self._backup_id = backup_id
@@ -60,7 +59,6 @@ class BackupJob(AggregateRoot):
         self._created_at = created_at or datetime.now(UTC)
         self._completed_at = completed_at
         self._pinned = bool(pinned)
-        self._tier = tier
 
     @property
     def backup_id(self) -> BackupJobId:
@@ -112,10 +110,6 @@ class BackupJob(AggregateRoot):
     def unpin(self) -> None:
         self._pinned = False
 
-    @property
-    def tier(self) -> str:
-        return self._tier
-
     @classmethod
     def create(
         cls,
@@ -123,14 +117,12 @@ class BackupJob(AggregateRoot):
         server_id: ServerId,
         backup_type: BackupType = BackupType.FULL,
         pinned: bool = False,
-        tier: str = "tier_1",
     ) -> BackupJob:
         job = cls(
             backup_id=backup_id,
             server_id=server_id,
             backup_type=backup_type,
             pinned=pinned,
-            tier=tier,
         )
         job._add_event(BackupStartedEvent(backup_id=str(backup_id), server_id=str(server_id)))
         return job
