@@ -173,7 +173,7 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
             except Exception:
                 pass
 
-        # 7. Teardown provider resources (containers, tmux sessions, process trees, caches)
+        # 7. Teardown provider resources (containers, process trees, caches)
         if provider is not None:
             try:
                 await asyncio.wait_for(

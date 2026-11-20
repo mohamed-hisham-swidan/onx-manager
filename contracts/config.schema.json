@@ -40,8 +40,8 @@
     },
     "provider_type": {
       "type": "string",
-      "enum": ["local", "docker", "remote", "cloud", "local_windows"],
-      "default": "local"
+      "enum": ["docker", "remote", "cloud"],
+      "default": "docker"
     },
     "stop_timeout_seconds": {
       "type": "integer",

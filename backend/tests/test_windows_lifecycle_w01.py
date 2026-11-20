@@ -205,7 +205,7 @@ class TestRunningStartTimePersistenceChain:
             properties=ServerProperties(port=PortNumber(25565)),
             runtime=RuntimeInfo(
                 status="running",
-                provider="local_windows",
+                provider="docker",
                 host="127.0.0.1",
                 port=25565,
                 pid=1234,
@@ -220,7 +220,7 @@ class TestRunningStartTimePersistenceChain:
         loaded = await repo.get(ServerId("srv-rst-1"))
         assert loaded is not None
         assert loaded.runtime is not None
-        assert loaded.runtime.provider == "local_windows"
+        assert loaded.runtime.provider == "docker"
         assert loaded.runtime.start_time == 1724912300
         assert loaded.runtime.running_start_time == pytest.approx(expected_rst, 0.001)
 

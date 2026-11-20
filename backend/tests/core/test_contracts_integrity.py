@@ -52,8 +52,12 @@ def test_config_schema_integrity_f092() -> None:
     with open(config_schema_file, encoding="utf-8") as f:
         config_schema = json.load(f)
 
-    # local_windows must be recognized in provider_type enum
-    assert "local_windows" in config_schema["properties"]["provider_type"]["enum"]
+    # P6-2: local runtime providers removed; Docker is the default provider type
+    provider_type_schema = config_schema["properties"]["provider_type"]
+    assert "docker" in provider_type_schema["enum"]
+    assert provider_type_schema["default"] == "docker"
+    assert "local" not in provider_type_schema["enum"]
+    assert "local_windows" not in provider_type_schema["enum"]
 
     # java_args must support array of strings or string
     java_args_schema = config_schema["properties"]["java_args"]

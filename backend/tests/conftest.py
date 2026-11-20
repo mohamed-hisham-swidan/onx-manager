@@ -110,10 +110,6 @@ def _guard_real_signals(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
     - Wraps `os.kill` and `os.killpg` during tests; allows signaling only if the target
       PID/PGID is a verified descendant of the current pytest process (via psutil).
     - If targeting an unrelated/non-child process, raises `AssertionError` (not `OSError`).
-    - Note on LocalLinuxProvider: `LocalLinuxProvider._is_pid_alive` (local.py ~529-545)
-      catches broad `Exception` and falls back to a real `kill -0` shell probe; tests
-      exercising `LocalLinuxProvider` with simulated/fake PIDs must mock `_is_pid_alive`
-      and/or `_run_command`/shell probes to prevent unhandled probe escapes.
     - Win32 residual: The `ctypes.windll.kernel32.TerminateProcess` path in `process_utils.py`
       (`platform_force_kill`) is platform-native on Windows and is not intercepted by this
       POSIX-focused `os.kill` wrapper.
