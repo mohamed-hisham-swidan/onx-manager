@@ -111,6 +111,7 @@ class ImportServerRequest(BaseModel):
     whitelist: bool = False
     view_distance: int = Field(default=10, ge=2, le=32)
     simulation_distance: int = Field(default=10, ge=2, le=32)
+    provider: str | None = Field(default=None)
     mode: str = Field(default="simple")
 
     @field_validator("mode")
@@ -119,3 +120,18 @@ class ImportServerRequest(BaseModel):
         if v not in ("simple", "advanced"):
             raise ValueError(f"Invalid mode: {v!r}. Must be 'simple' or 'advanced'")
         return v
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if not normalized:
+            return None
+        if normalized != "docker":
+            raise ValueError(
+                "Local runtime providers are no longer supported; "
+                "'docker' is the only supported runtime provider."
+            )
+        return "docker"

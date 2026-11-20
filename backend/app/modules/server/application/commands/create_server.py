@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import Field
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
-from app.core.config import ConfigFactory
+from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.exceptions import MCSError, ProvisioningError
 from app.core.idempotency import IdempotencyKey
@@ -34,6 +34,23 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 logger = logging.getLogger(__name__)
+
+_BLOCKED_LOCAL_PROVIDERS = frozenset({"local", "local_linux", "local_windows"})
+
+
+def _docker_ping_on_implicit_create() -> bool:
+    """Return whether implicit (provider=None) creation must verify Docker.
+
+    Explicit ``provider="docker"`` creation always pings the daemon. Implicit
+    creation is hermetic for offline/unit callers by default, and can be made
+    strict with ``ONX_DOCKER_PING_ON_IMPLICIT_CREATE=true``.
+    """
+    settings = AppSettings()
+    explicit = getattr(settings, "docker_ping_on_implicit_create", None)
+    if isinstance(explicit, bool):
+        return explicit
+    raw = os.environ.get("ONX_DOCKER_PING_ON_IMPLICIT_CREATE", "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class CreateServerCommand(Command):
@@ -109,9 +126,31 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 error_code="VALIDATION_ERROR",
             )
 
-        provider_type = command.provider
+        raw_provider = (command.provider or "").strip().lower()
+        if raw_provider in _BLOCKED_LOCAL_PROVIDERS:
+            return CommandResult(
+                success=False,
+                error=(
+                    "Local runtime providers are deprecated and blocked; "
+                    "Docker is the only supported runtime"
+                ),
+                error_code="INVALID_PROVIDER",
+            )
+
+        resolved_provider = raw_provider or default_provider_for_platform()
+        if resolved_provider != "docker":
+            return CommandResult(
+                success=False,
+                error=(
+                    f"Unsupported provider '{command.provider}'; "
+                    "Docker is the only supported runtime"
+                ),
+                error_code="INVALID_PROVIDER",
+            )
+
+        should_ping_docker = raw_provider == "docker" or _docker_ping_on_implicit_create()
         docker_provider: Any | None = None
-        if provider_type == "docker":
+        if should_ping_docker:
             from app.modules.server.infrastructure.providers import provider_factory
 
             docker_provider = provider_factory.get("docker")
@@ -128,19 +167,8 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                     error_code="DOCKER_UNAVAILABLE",
                 )
 
-        resolved_provider = provider_type or default_provider_for_platform()
-        if resolved_provider == "docker":
-            location_type = LocationType.DOCKER
-            runtime_info = RuntimeInfo(provider="docker")
-        elif resolved_provider in ("local", "local_windows"):
-            location_type = LocationType.LOCAL
-            runtime_info = RuntimeInfo(provider=resolved_provider)
-        else:
-            return CommandResult(
-                success=False,
-                error=f"Unknown provider: {provider_type}",
-                error_code="INVALID_PROVIDER",
-            )
+        location_type = LocationType.DOCKER
+        runtime_info = RuntimeInfo(provider="docker")
 
         server_id = ServerId()
         server_dir_path = resolve_server_dir(
@@ -307,7 +335,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 event_bus=self._event_bus,
             )
 
-        if provider_type == "docker" and docker_provider is not None:
+        if resolved_provider == "docker" and docker_provider is not None:
             try:
                 from app.modules.server.infrastructure.providers.docker import (
                     resolve_docker_image,

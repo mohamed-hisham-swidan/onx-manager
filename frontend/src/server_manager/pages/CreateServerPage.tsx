@@ -56,15 +56,10 @@ export function CreateServerPage() {
     api
       .health?.()
       .then((h) => {
-        const isDocker = h.docker ?? false;
-        setDockerAvailable(isDocker);
-        if (!isDocker) {
-          setData((d) => (d.provider === "docker" ? { ...d, provider: "" } : d));
-        }
+        setDockerAvailable(h.docker ?? false);
       })
       .catch(() => {
         setDockerAvailable(false);
-        setData((d) => (d.provider === "docker" ? { ...d, provider: "" } : d));
       });
   }, [api]);
 
@@ -130,7 +125,7 @@ export function CreateServerPage() {
         whitelist: data.whitelist,
         view_distance: Number(data.viewDistance) || 10,
         simulation_distance: Number(data.simulationDistance) || 10,
-        provider: data.provider || undefined,
+        provider: "docker",
         mode: data.mode,
       });
       setCreatedId(result.server_id as string);

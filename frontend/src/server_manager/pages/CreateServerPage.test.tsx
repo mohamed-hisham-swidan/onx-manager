@@ -292,6 +292,8 @@ describe("CreateServerPage Configuration step", () => {
     const dockerBtn = screen.getByRole("button", { name: /Docker Container/i });
     expect(dockerBtn).toBeDisabled();
     expect(screen.getByText("Docker daemon not detected")).toBeInTheDocument();
+    expect(screen.getByTestId("docker-provider-card")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Host Process/i })).not.toBeInTheDocument();
   });
 
   it("allows selecting Docker Container when available and forwards provider on create", async () => {
@@ -333,7 +335,7 @@ describe("CreateServerPage Configuration step", () => {
     );
   });
 
-  it("omits provider or sends undefined when Host Process is selected", async () => {
+  it("removes Host Process and sends provider docker by default", async () => {
     healthMock.mockResolvedValue({ docker: true });
     const user = userEvent.setup();
     renderPage();
@@ -342,15 +344,12 @@ describe("CreateServerPage Configuration step", () => {
     await user.click(await screen.findByRole("button", { name: "1.21.1" }));
 
     expect(await screen.findByText("Runtime Provider")).toBeInTheDocument();
-    const dockerBtn = screen.getByRole("button", { name: /Docker Container/i });
-    const hostBtn = screen.getByRole("button", { name: /Host Process/i });
-
-    // Select Docker Container first, then switch back to Host Process
-    await user.click(dockerBtn);
-    await user.click(hostBtn);
+    const dockerCard = screen.getByTestId("docker-provider-card");
+    expect(dockerCard).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Host Process/i })).not.toBeInTheDocument();
 
     const nameInput = screen.getByPlaceholderText("My Awesome Server");
-    await user.type(nameInput, "Host Process Server");
+    await user.type(nameInput, "Docker Only Server");
 
     // Next to Properties
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -358,17 +357,18 @@ describe("CreateServerPage Configuration step", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByText("Review & Create")).toBeInTheDocument();
-    expect(screen.getByText("Host Process")).toBeInTheDocument();
+    expect(screen.getByText("Docker Container")).toBeInTheDocument();
+    expect(screen.queryByText("Host Process")).not.toBeInTheDocument();
     expect(screen.getByText("Mode")).toBeInTheDocument();
     expect(screen.getByText("Simple")).toBeInTheDocument();
 
-    // Click Create Server
+    // Click Create Server without toggling the provider
     await user.click(screen.getByRole("button", { name: "Create Server" }));
 
     expect(mutateAsyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: "Host Process Server",
-        provider: undefined,
+        name: "Docker Only Server",
+        provider: "docker",
         mode: "simple",
       })
     );

@@ -221,7 +221,6 @@ class TestServerCreationGating:
         cmd = CreateServerCommand(
             name="adv-fail",
             minecraft_version="1.20.4",
-            provider="local",
             mode="advanced",
         )
 
@@ -308,7 +307,6 @@ class TestServerCreationGating:
         create_cmd = CreateServerCommand(
             name="simple-create",
             minecraft_version="1.20.4",
-            provider="local",
             mode="simple",
         )
 

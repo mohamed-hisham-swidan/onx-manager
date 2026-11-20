@@ -48,6 +48,21 @@ class ServerCreateRequest(BaseModel):
             raise ValueError(f"Invalid mode: {v!r}. Must be 'simple' or 'advanced'")
         return v
 
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if not normalized:
+            return None
+        if normalized != "docker":
+            raise ValueError(
+                "Local runtime providers are no longer supported; "
+                "'docker' is the only supported runtime provider."
+            )
+        return "docker"
+
 
 class ServerUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")

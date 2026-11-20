@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import shlex
-import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -37,10 +36,12 @@ def _reject_shell_metachars(value: str, field: str) -> None:
 
 
 def default_provider_for_platform() -> str:
-    """Return the default provider type for the current platform."""
-    if sys.platform == "win32":
-        return "local_windows"
-    return "local"
+    """Return the default provider type for the current platform.
+
+    Per OD-v8.6-1 / Phase P6 Docker-only consolidation, Docker is the sole
+    supported runtime on POSIX and Windows hosts.
+    """
+    return "docker"
 
 
 @dataclass(frozen=True)

@@ -18,10 +18,7 @@ from app.modules.server.application.commands.create_server import (
     CreateServerCommand,
     CreateServerHandler,
 )
-from app.modules.server.domain.value_objects import (
-    LocationType,
-    default_provider_for_platform,
-)
+from app.modules.server.domain.value_objects import LocationType
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
@@ -83,6 +80,7 @@ class TestCreateServerProviderSelection:
             repo = SQLServerRepository(session)
             server = await repo.get(ServerId(server_id))
             assert server is not None
+            assert server.deployment is not None
             assert server.deployment.location_type == LocationType.DOCKER
             assert server.runtime.provider == "docker"
         mock_docker.ensure_image.assert_awaited_once_with("eclipse-temurin:17-jre-jammy")
@@ -224,43 +222,48 @@ class TestCreateServerProviderSelection:
             repo = SQLServerRepository(session)
             server = await repo.get(ServerId(server_id))
             assert server is not None
-            assert server.deployment.location_type == LocationType.LOCAL
-            assert server.runtime.provider == default_provider_for_platform()
+            assert server.deployment is not None
+            assert server.deployment.location_type == LocationType.DOCKER
+            assert server.runtime.provider == "docker"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("blocked_provider", ["local", "local_linux", "local_windows"])
     async def test_create_server_explicit_local_provider(
-        self, tmp_path: Path
+        self, tmp_path: Path, blocked_provider: str
     ) -> None:
         event_bus = EventBus()
         handler = CreateServerHandler(event_bus)
+        target_dir = tmp_path / f"srv-{blocked_provider}"
         cmd = CreateServerCommand(
-            name="local-test-server",
+            name=f"{blocked_provider}-test-server",
             server_type="vanilla",
             minecraft_version="1.20.4",
-            provider="local",
+            provider=blocked_provider,
+            install_dir=str(target_dir),
         )
 
         with (
             patch(
                 "app.modules.server.application.services.jar_service.download_server_jar",
                 AsyncMock(),
-            ),
+            ) as mock_download,
             patch(
                 "app.modules.server.application.services.jar_service.resolve_server_dir",
-                return_value=str(tmp_path / "srv-local"),
+                return_value=str(target_dir),
             ),
         ):
             result = await handler.handle(cmd)
 
-        assert result.success is True
-        server_id = result.data["server_id"]
+        assert result.success is False
+        assert result.error_code == "INVALID_PROVIDER"
+        assert "Local runtime providers are deprecated and blocked" in (result.error or "")
+        assert not target_dir.exists()
+        mock_download.assert_not_called()
 
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
-            server = await repo.get(ServerId(server_id))
-            assert server is not None
-            assert server.deployment.location_type == LocationType.LOCAL
-            assert server.runtime.provider == "local"
+            servers = await repo.list()
+            assert len(servers) == 0
 
     @pytest.mark.asyncio
     async def test_create_server_invalid_provider_rejected(self) -> None:
@@ -296,7 +299,7 @@ class TestCreateServerProviderSelection:
             name="timeout-test-server",
             server_type="paper",
             minecraft_version="26.2",
-            provider="local",
+            provider=None,
         )
 
         with (

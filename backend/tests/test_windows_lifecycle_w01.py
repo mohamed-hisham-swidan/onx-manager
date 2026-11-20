@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
 from alembic.config import Config
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from alembic import command
@@ -21,6 +21,9 @@ from app.core.settings_store import (
     init_settings_store,
 )
 from app.modules.auth.infrastructure.models import UserModel  # noqa: F401 - registers users table
+from app.modules.server.application.services.docker_migration import (
+    migrate_all_local_servers_to_docker,
+)
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
     JavaArguments,
@@ -40,14 +43,9 @@ from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 class TestPlatformProviderDefault:
     def test_default_provider_for_platform(self):
-        with patch.object(sys, "platform", "win32"):
-            assert default_provider_for_platform() == "local_windows"
-
-        with patch.object(sys, "platform", "linux"):
-            assert default_provider_for_platform() == "local"
-
-        with patch.object(sys, "platform", "darwin"):
-            assert default_provider_for_platform() == "local"
+        for platform in ("win32", "linux", "darwin"):
+            with patch.object(sys, "platform", platform):
+                assert default_provider_for_platform() == "docker"
 
     def test_runtime_info_default_empty(self):
         info = RuntimeInfo()
@@ -55,51 +53,33 @@ class TestPlatformProviderDefault:
         assert info.running_start_time is None
 
     def test_server_aggregate_default_provider_on_linux(self):
-        with patch(
-            "app.modules.server.domain.aggregate.default_provider_for_platform",
-            return_value="local",
-        ):
-            server = Server(
-                server_id=ServerId("srv-linux"),
-                name="Linux Server",
-                server_type=ServerType("vanilla"),
-                minecraft_version=MinecraftVersion.parse("1.20.4"),
-                memory=MemoryAllocation(1024, 2048),
-                java_args=JavaArguments(),
-                properties=ServerProperties(port=PortNumber(25565)),
-            )
-            assert server.runtime.provider == "local"
+        server = Server(
+            server_id=ServerId("srv-linux"),
+            name="Linux Server",
+            server_type=ServerType("vanilla"),
+            minecraft_version=MinecraftVersion.parse("1.20.4"),
+            memory=MemoryAllocation(1024, 2048),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
+        )
+        assert server.runtime.provider == "docker"
 
     def test_server_aggregate_default_provider_on_windows(self):
-        with patch(
-            "app.modules.server.domain.aggregate.default_provider_for_platform",
-            return_value="local_windows",
-        ):
-            server = Server(
-                server_id=ServerId("srv-win"),
-                name="Win Server",
-                server_type=ServerType("vanilla"),
-                minecraft_version=MinecraftVersion.parse("1.20.4"),
-                memory=MemoryAllocation(1024, 2048),
-                java_args=JavaArguments(),
-                properties=ServerProperties(port=PortNumber(25565)),
-            )
-            assert server.runtime.provider == "local_windows"
+        server = Server(
+            server_id=ServerId("srv-win"),
+            name="Win Server",
+            server_type=ServerType("vanilla"),
+            minecraft_version=MinecraftVersion.parse("1.20.4"),
+            memory=MemoryAllocation(1024, 2048),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
+        )
+        assert server.runtime.provider == "docker"
 
     def test_server_config_default_provider(self):
-        with patch(
-            "app.modules.server.domain.value_objects.sys.platform",
-            "win32",
-        ):
-            cfg_win = ServerConfig(server_id="s1", name="Win")
-            assert cfg_win.provider == "local_windows"
-
-        with patch(
-            "app.modules.server.domain.value_objects.sys.platform",
-            "linux",
-        ):
-            cfg_linux = ServerConfig(server_id="s2", name="Linux")
-            assert cfg_linux.provider == "local"
+        for platform in ("win32", "linux", "darwin"):
+            cfg = ServerConfig(server_id=f"s-{platform}", name=platform)
+            assert cfg.provider == "docker"
 
 
 # ─── 2. Startup Migration Tests ───
@@ -107,7 +87,7 @@ class TestPlatformProviderDefault:
 
 class TestWindowsStartupMigration:
     @pytest_asyncio.fixture
-    async def db_session(self) -> AsyncSession:
+    async def db_session(self) -> AsyncGenerator[AsyncSession, None]:
         engine = create_async_engine("sqlite+aiosqlite://", echo=False)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -119,10 +99,9 @@ class TestWindowsStartupMigration:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_migration_updates_local_to_local_windows_on_win32(
+    async def test_migration_migrates_legacy_local_rows_to_docker(
         self, db_session: AsyncSession
     ):
-        # Seed servers with provider="local" and provider="custom"
         s1 = ServerModel(
             id="s1",
             name="Server 1",
@@ -135,32 +114,38 @@ class TestWindowsStartupMigration:
             name="Server 2",
             server_type="paper",
             minecraft_version="1.20.4",
-            provider="docker",
+            provider="local_windows",
         )
-        db_session.add_all([s1, s2])
+        s3 = ServerModel(
+            id="s3",
+            name="Server 3",
+            server_type="vanilla",
+            minecraft_version="1.20.4",
+            provider="docker",
+            location_type="docker",
+        )
+        db_session.add_all([s1, s2, s3])
         await db_session.commit()
 
-        # Run migration logic as in main.py under sys.platform="win32"
-        with patch.object(sys, "platform", "win32"):
-            if sys.platform == "win32":
-                target_provider = default_provider_for_platform()  # "local_windows"
-                stmt = select(ServerModel).where(ServerModel.provider == "local")
-                result = await db_session.execute(stmt)
-                servers_to_migrate = result.scalars().all()
+        report = await migrate_all_local_servers_to_docker(db_session)
 
-                if servers_to_migrate:
-                    for s in servers_to_migrate:
-                        s.provider = target_provider
-                    await db_session.commit()
+        assert report.migrated_count == 2
+        assert report.skipped_already_docker == 1
+        assert report.errors == ()
 
-        # Verify
         re_s1 = await db_session.get(ServerModel, "s1")
         re_s2 = await db_session.get(ServerModel, "s2")
-        assert re_s1.provider == "local_windows"
-        assert re_s2.provider == "docker"
+        re_s3 = await db_session.get(ServerModel, "s3")
+        assert re_s1 is not None and re_s2 is not None and re_s3 is not None
+        assert str(re_s1.provider) == "docker"
+        assert str(re_s1.location_type) == "docker"
+        assert str(re_s2.provider) == "docker"
+        assert str(re_s2.location_type) == "docker"
+        assert str(re_s3.provider) == "docker"
+        assert str(re_s3.location_type) == "docker"
 
     @pytest.mark.asyncio
-    async def test_migration_noop_on_linux(self, db_session: AsyncSession):
+    async def test_migration_idempotent_on_every_platform(self, db_session: AsyncSession):
         s1 = ServerModel(
             id="s1",
             name="Server 1",
@@ -171,42 +156,20 @@ class TestWindowsStartupMigration:
         db_session.add(s1)
         await db_session.commit()
 
-        with patch.object(sys, "platform", "linux"):
-            if sys.platform == "win32":
-                target_provider = default_provider_for_platform()
-                stmt = select(ServerModel).where(ServerModel.provider == "local")
-                result = await db_session.execute(stmt)
-                for s in result.scalars().all():
-                    s.provider = target_provider
-                await db_session.commit()
+        for platform in ("win32", "linux", "darwin"):
+            with patch.object(sys, "platform", platform):
+                report = await migrate_all_local_servers_to_docker(db_session)
+            assert report.errors == ()
 
         re_s1 = await db_session.get(ServerModel, "s1")
-        assert re_s1.provider == "local"
+        assert re_s1 is not None
+        assert str(re_s1.provider) == "docker"
+        assert str(re_s1.location_type) == "docker"
 
-    @pytest.mark.asyncio
-    async def test_migration_idempotent(self, db_session: AsyncSession):
-        s1 = ServerModel(
-            id="s1",
-            name="Server 1",
-            server_type="vanilla",
-            minecraft_version="1.20.4",
-            provider="local",
-        )
-        db_session.add(s1)
-        await db_session.commit()
-
-        for _ in range(2):
-            with patch.object(sys, "platform", "win32"):
-                target_provider = default_provider_for_platform()
-                stmt = select(ServerModel).where(ServerModel.provider == "local")
-                result = await db_session.execute(stmt)
-                servers_to_migrate = result.scalars().all()
-                for s in servers_to_migrate:
-                    s.provider = target_provider
-                await db_session.commit()
-
-        re_s1 = await db_session.get(ServerModel, "s1")
-        assert re_s1.provider == "local_windows"
+        second = await migrate_all_local_servers_to_docker(db_session)
+        assert second.migrated_count == 0
+        assert second.skipped_already_docker == 1
+        assert second.errors == ()
 
 
 # ─── 3. running_start_time Persistence & mark_running Tests ───
@@ -214,7 +177,7 @@ class TestWindowsStartupMigration:
 
 class TestRunningStartTimePersistenceChain:
     @pytest_asyncio.fixture
-    async def db_session(self) -> AsyncSession:
+    async def db_session(self) -> AsyncGenerator[AsyncSession, None]:
         engine = create_async_engine("sqlite+aiosqlite://", echo=False)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
