@@ -18,6 +18,7 @@ class BackupJobModel(Base, TimestampMixin):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     storage_path = Column(String(512), nullable=True)
     pinned = Column(Boolean, nullable=False, default=False)
+    tier = Column(String(16), nullable=False, default="tier_1")
 
 
 class BackupPolicyModel(Base, TimestampMixin):
