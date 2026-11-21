@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy
+from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupTier
 from app.modules.shared.value_objects import BackupJobId, ServerId
 
 
@@ -12,7 +12,12 @@ class BackupRepository(ABC):
     async def get_job(self, backup_id: BackupJobId) -> BackupJob: ...
 
     @abstractmethod
-    async def list_jobs(self, server_id: ServerId | None = None) -> list[BackupJob]: ...
+    async def list_jobs(
+        self,
+        server_id: ServerId | None = None,
+        *,
+        tier: BackupTier | None = None,
+    ) -> list[BackupJob]: ...
 
     @abstractmethod
     async def save_job(self, job: BackupJob) -> None: ...
@@ -31,6 +36,10 @@ class BackupRepository(ABC):
         max_backups: int | None = None,
         retention_days: int | None = None,
         now: datetime | None = None,
+        tier: BackupTier | None = None,
+        tier1_keep: int = 5,
+        tier2_daily: int = 7,
+        tier2_weekly: int = 4,
     ) -> list[str]: ...
 
     @abstractmethod

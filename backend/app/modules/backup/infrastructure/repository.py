@@ -5,7 +5,13 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupStatus, BackupType
+from app.modules.backup.domain.aggregate import (
+    BackupJob,
+    BackupPolicy,
+    BackupStatus,
+    BackupTier,
+    BackupType,
+)
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.models import (
     BackupJobModel,
@@ -27,10 +33,17 @@ class SQLBackupRepository(BackupRepository):
             raise NotFoundError(f"Backup job '{backup_id}' not found")
         return self._job_model_to_domain(model)
 
-    async def list_jobs(self, server_id: ServerId | None = None) -> list[BackupJob]:
+    async def list_jobs(
+        self,
+        server_id: ServerId | None = None,
+        *,
+        tier: BackupTier | None = None,
+    ) -> list[BackupJob]:
         stmt = select(BackupJobModel).order_by(BackupJobModel.created_at.desc())
         if server_id:
             stmt = stmt.where(BackupJobModel.server_id == str(server_id))
+        if tier is not None:
+            stmt = stmt.where(BackupJobModel.tier == tier.value)
         result = await self._session.execute(stmt)
         return [self._job_model_to_domain(m) for m in result.scalars().all()]
 
@@ -49,6 +62,7 @@ class SQLBackupRepository(BackupRepository):
         model.error_message = job.error_message or None
         model.completed_at = job.completed_at
         model.pinned = bool(job.pinned)
+        model.tier = job.tier.value
         await self._session.flush()
 
     async def delete_job(self, backup_id: BackupJobId) -> None:
@@ -79,6 +93,10 @@ class SQLBackupRepository(BackupRepository):
         max_backups: int | None = None,
         retention_days: int | None = None,
         now: datetime | None = None,
+        tier: BackupTier | None = None,
+        tier1_keep: int = 5,
+        tier2_daily: int = 7,
+        tier2_weekly: int = 4,
     ) -> list[str]:
         from app.core.exceptions import ValidationError
 
@@ -86,6 +104,77 @@ class SQLBackupRepository(BackupRepository):
             raise ValidationError("max_backups must be non-negative", field="max_backups")
         if retention_days is not None and retention_days < 0:
             raise ValidationError("retention_days must be non-negative", field="retention_days")
+
+        moment = now or datetime.now(UTC)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+
+        if tier is not None:
+            stmt = (
+                select(BackupJobModel)
+                .where(
+                    BackupJobModel.server_id == str(server_id),
+                    BackupJobModel.tier == tier.value,
+                )
+                .order_by(BackupJobModel.created_at.desc())
+            )
+            result = await self._session.execute(stmt)
+            unpinned = [row for row in result.scalars().all() if not bool(row.pinned)]
+
+            to_delete: set[str] = set()
+            if tier == BackupTier.TIER_1:
+                if tier1_keep < 0:
+                    raise ValidationError("tier1_keep must be non-negative", field="tier1_keep")
+                for row in unpinned[tier1_keep:]:
+                    to_delete.add(str(row.id))
+            else:
+                if tier2_daily < 0 or tier2_weekly < 0:
+                    raise ValidationError(
+                        "tier2 retention counts must be non-negative",
+                        field="tier2_daily",
+                    )
+                daily_buckets = {
+                    (moment - timedelta(days=offset)).date()
+                    for offset in range(tier2_daily)
+                }
+                weekly_buckets = {
+                    (moment - timedelta(weeks=offset)).isocalendar()[:2]
+                    for offset in range(tier2_weekly)
+                }
+                kept_days: set[object] = set()
+                kept_weeks: set[tuple[int, int]] = set()
+                keep_ids: set[str] = set()
+
+                for row in unpinned:
+                    created_at = row.created_at
+                    if created_at is None:
+                        continue
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=UTC)
+                    day_key = created_at.date()
+                    iso = created_at.isocalendar()
+                    week_key = (iso[0], iso[1])
+
+                    keep_for_day = day_key in daily_buckets and day_key not in kept_days
+                    keep_for_week = week_key in weekly_buckets and week_key not in kept_weeks
+                    if keep_for_day:
+                        kept_days.add(day_key)
+                    if keep_for_week:
+                        kept_weeks.add(week_key)
+                    if keep_for_day or keep_for_week:
+                        keep_ids.add(str(row.id))
+
+                for row in unpinned:
+                    if str(row.id) not in keep_ids:
+                        to_delete.add(str(row.id))
+
+            if not to_delete:
+                return []
+            await self._session.execute(
+                delete(BackupJobModel).where(BackupJobModel.id.in_(to_delete))
+            )
+            await self._session.flush()
+            return sorted(to_delete)
 
         if max_backups is None and retention_days is None:
             policy = await self._session.get(BackupPolicyModel, str(server_id))
@@ -100,14 +189,11 @@ class SQLBackupRepository(BackupRepository):
             .order_by(BackupJobModel.created_at.desc())
         )
         rows = [row for row in result.scalars().all() if not bool(row.pinned)]
-        moment = now or datetime.now(UTC)
-        if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=UTC)
         cutoff = (
             moment - timedelta(days=retention_days) if retention_days is not None else None
         )
 
-        to_delete: set[str] = set()
+        to_delete = set()
         if cutoff is not None:
             for row in rows:
                 created_at = row.created_at
@@ -204,4 +290,5 @@ class SQLBackupRepository(BackupRepository):
             created_at=model.created_at,
             completed_at=model.completed_at,
             pinned=bool(model.pinned),
+            tier=BackupTier(getattr(model, "tier", None) or "tier_1"),
         )

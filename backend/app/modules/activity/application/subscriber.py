@@ -106,20 +106,28 @@ class ActivityEventSubscriber(EventHandler):
             return f"Plugin/mod '{pid}' updated", "plugin.updated"
 
         # Backups
-        if event_name == "BackupStartedEvent":
-            return "Backup creation started", "backup.started"
-        if event_name == "BackupCompletedEvent":
+        if event_name in {
+            "BackupStartedEvent",
+            "BackupCompletedEvent",
+            "BackupFailedEvent",
+            "BackupRestoredEvent",
+            "BackupDeletedEvent",
+        }:
+            raw_tier = str(getattr(event, "tier", "") or "").strip().lower()
+            tier_label = "Tier-2" if raw_tier == "tier_2" else "Tier-1"
+            if event_name == "BackupStartedEvent":
+                return f"{tier_label} backup creation started", "backup.started"
+            if event_name == "BackupCompletedEvent":
+                bid = getattr(event, "backup_id", "")[:8]
+                return f"{tier_label} backup completed (ID: {bid})", "backup.completed"
+            if event_name == "BackupFailedEvent":
+                reason = getattr(event, "reason", "unknown")
+                return f"{tier_label} backup failed: {reason}", "backup.failed"
+            if event_name == "BackupRestoredEvent":
+                bid = getattr(event, "backup_id", "")[:8]
+                return f"Restored from {tier_label} backup (ID: {bid})", "backup.restored"
             bid = getattr(event, "backup_id", "")[:8]
-            return f"Backup completed (ID: {bid})", "backup.completed"
-        if event_name == "BackupFailedEvent":
-            reason = getattr(event, "reason", "unknown")
-            return f"Backup failed: {reason}", "backup.failed"
-        if event_name == "BackupRestoredEvent":
-            bid = getattr(event, "backup_id", "")[:8]
-            return f"Restored from backup (ID: {bid})", "backup.restored"
-        if event_name == "BackupDeletedEvent":
-            bid = getattr(event, "backup_id", "")[:8]
-            return f"Backup deleted (ID: {bid})", "backup.deleted"
+            return f"{tier_label} backup deleted (ID: {bid})", "backup.deleted"
 
         # Exposure
         if event_name == "ServerExposureEnabledEvent":
