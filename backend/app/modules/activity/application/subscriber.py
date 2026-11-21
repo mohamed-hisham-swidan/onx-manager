@@ -85,6 +85,10 @@ class ActivityEventSubscriber(EventHandler):
             return "Server configuration updated", "server.config_changed"
         if event_name == "ServerDeletedEvent":
             return "Server deleted", "server.deleted"
+        if event_name == "ServerConvertedToAdvancedEvent":
+            return "Server converted to advanced", "server.converted.to_advanced"
+        if event_name == "ServerConvertedToSimpleEvent":
+            return "Server converted to simple", "server.converted.to_simple"
 
         # Plugins / Mods
         if event_name == "PluginInstalledEvent":

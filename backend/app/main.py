@@ -18,6 +18,7 @@ from app.api.v1.routers import (
     activity,
     auth,
     backups,
+    conversion,
     exposure,
     files,
     health,
@@ -499,6 +500,7 @@ def create_app() -> FastAPI:
     app.include_router(servers.router)
     app.include_router(exposure.router)
     app.include_router(backups.router)
+    app.include_router(conversion.router)
     app.include_router(plugins.router)
     app.include_router(files.router)
     app.include_router(marketplace.router)
