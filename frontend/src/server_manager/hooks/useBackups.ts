@@ -7,11 +7,11 @@ function useApi() {
   return createAuthenticatedApi();
 }
 
-export function useBackupsList(serverId?: string) {
+export function useBackupsList(serverId?: string, tier?: string) {
   const api = useApi();
   return useQuery({
-    queryKey: queryKeys.backups.list(serverId),
-    queryFn: () => api.listBackups(serverId),
+    queryKey: queryKeys.backups.list(serverId, tier),
+    queryFn: () => api.listBackups(serverId, tier),
   });
 }
 

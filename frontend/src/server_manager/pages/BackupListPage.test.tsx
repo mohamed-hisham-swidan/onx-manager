@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BackupListPage } from "./BackupListPage";
+import * as toastStore from "@/stores/toastStore";
 import type { BackupResponse } from "@/types";
 
 const mockBackups: BackupResponse[] = [
@@ -17,6 +18,8 @@ const mockBackups: BackupResponse[] = [
     error_message: "",
     created_at: "2024-01-01T00:00:00Z",
     completed_at: "2024-01-01T01:00:00Z",
+    tier: "tier_1",
+    pinned: false,
   },
   {
     backup_id: "bkp-2",
@@ -28,6 +31,21 @@ const mockBackups: BackupResponse[] = [
     error_message: "boom",
     created_at: "2024-01-02T00:00:00Z",
     completed_at: "2024-01-02T00:05:00Z",
+    tier: "tier_2",
+    pinned: true,
+  },
+  {
+    backup_id: "bkp-3",
+    server_id: "srv-2",
+    backup_type: "full",
+    status: "completed",
+    size_bytes: 4096,
+    checksum: "ghi",
+    error_message: "",
+    created_at: "2024-01-03T00:00:00Z",
+    completed_at: "2024-01-03T01:00:00Z",
+    tier: "tier_2",
+    pinned: false,
   },
 ];
 
@@ -105,7 +123,7 @@ describe("BackupListPage", () => {
     expect(screen.getByText("Total backups")).toBeInTheDocument();
     expect(screen.getByText("Total size")).toBeInTheDocument();
     expect(screen.getByText("Last successful backup")).toBeInTheDocument();
-    expect(screen.getByText("Instant copy available")).toBeInTheDocument();
+    expect(screen.getByText("Dual-Engine Storage: Tier-1 Reflink / Tier-2 AEAD")).toBeInTheDocument();
     const statRows = screen.getAllByText("Alpha");
     expect(statRows.length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("1.0 MB").length).toBeGreaterThanOrEqual(1);
@@ -125,7 +143,7 @@ describe("BackupListPage", () => {
 
   it("renders backup rows with statuses", () => {
     renderPage();
-    expect(screen.getByText("full")).toBeInTheDocument();
+    expect(screen.getAllByText("full")).toHaveLength(2);
     expect(screen.getAllByText("completed").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("failed").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Beta").length).toBeGreaterThanOrEqual(1);
@@ -141,15 +159,16 @@ describe("BackupListPage", () => {
     renderPage();
     expect(screen.getByLabelText("Verify bkp-1")).toBeInTheDocument();
     expect(screen.getByLabelText("Verify bkp-2")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Delete backup")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Delete backup")).toHaveLength(3);
   });
 
   it("filters by server", () => {
     renderPage();
-    expect(within(getTable()).getByText("Alpha")).toBeInTheDocument();
+    expect(within(getTable()).getAllByText("Alpha")).toHaveLength(1);
+    expect(within(getTable()).getAllByText("Beta")).toHaveLength(2);
     fireEvent.change(screen.getByLabelText("Filter by server"), { target: { value: "srv-2" } });
-    expect(within(getTable()).getByText("Beta")).toBeInTheDocument();
-    expect(within(getTable()).queryByText("Alpha")).not.toBeInTheDocument();
+    expect(within(getTable()).getAllByText("Beta")).toHaveLength(2);
+    expect(within(getTable()).queryAllByText("Alpha")).toHaveLength(0);
   });
 
   it("filters by status", () => {
@@ -197,9 +216,7 @@ describe("BackupListPage", () => {
 
     await user.click(screen.getByLabelText("Restore bkp-1"));
     expect(screen.getByText("Restore backup?")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Restoring will overwrite current server files/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/crash-safe triad swap/i)).toBeInTheDocument();
     expect(mockRestoreMutate).not.toHaveBeenCalled();
 
     // Confirm restore in dialog
@@ -218,5 +235,54 @@ describe("BackupListPage", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("Restore backup?")).not.toBeInTheDocument();
     expect(mockRestoreMutate).not.toHaveBeenCalled();
+  });
+
+  it("renders tier badge and pinned badge", () => {
+    renderPage();
+    expect(screen.getAllByText("Tier-1 Snapshot")).toHaveLength(1);
+    expect(screen.getAllByText("Tier-2 Archive")).toHaveLength(2);
+    expect(screen.getByText("Pinned")).toBeInTheDocument();
+    expect(
+      screen.getByTitle("Pinned backup — exempt from automated retention pruning"),
+    ).toBeInTheDocument();
+  });
+
+  it("filters backups by tier", () => {
+    renderPage();
+    expect(within(getTable()).getAllByText("Alpha")).toHaveLength(1);
+    expect(within(getTable()).getAllByText("Beta")).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Filter by tier"), { target: { value: "tier_2" } });
+    expect(within(getTable()).getAllByText("Beta")).toHaveLength(2);
+    expect(within(getTable()).queryAllByText("Alpha")).toHaveLength(0);
+  });
+
+  it("displays tier-specific restore confirmation copy", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByLabelText("Restore bkp-1"));
+    expect(screen.getByText(/crash-safe triad swap/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByLabelText("Restore bkp-3"));
+    expect(screen.getByText(/decrypt and unpack this Tier-2 portable archive/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
+  it("handles 202 deferred restore response with an info toast", async () => {
+    const user = userEvent.setup();
+    const toastSpy = vi.spyOn(toastStore, "toast");
+    renderPage();
+
+    mockRestoreMutate.mockImplementationOnce((_id, options) => {
+      options?.onSuccess?.({ deferred: true });
+    });
+
+    await user.click(screen.getByLabelText("Restore bkp-1"));
+    await user.click(screen.getByRole("button", { name: "Restore" }));
+
+    expect(mockRestoreMutate).toHaveBeenCalledWith("bkp-1", expect.any(Object));
+    expect(toastSpy).toHaveBeenCalledWith("info", "Restore Scheduled", "Server is active. Restore will execute once the server is stopped.");
+    expect(toastSpy).not.toHaveBeenCalledWith("success", "Restore Started", expect.any(String));
   });
 });

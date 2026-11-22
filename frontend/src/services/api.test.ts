@@ -795,4 +795,62 @@ describe("createApiClient", () => {
     );
   });
 
+  // P7-3 backups tier filtering
+  it("listBackups passes tier query parameter", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([]));
+    await api.listBackups(undefined, "tier_2");
+    const url = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(url).toContain("/api/v1/backups?tier=tier_2");
+  });
+
+  it("createBackup passes tier, archive_format, include_cas_jars", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ backup_id: "bkp-1" }));
+    await api.createBackup({
+      server_id: "s1",
+      backup_type: "full",
+      tier: "tier_2",
+      archive_format: "tar.zst",
+      include_cas_jars: true,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/backups",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          server_id: "s1",
+          backup_type: "full",
+          tier: "tier_2",
+          archive_format: "tar.zst",
+          include_cas_jars: true,
+        }),
+      }),
+    );
+  });
+
+  // P7-3 conversion endpoints
+  it("convertToAdvanced calls POST /api/v1/servers/:id/convert/to-advanced", async () => {
+    const res = { server_id: "s1", mode: "advanced", main_commit_sha: "sha-1", backup_id: "bkp-1", cas_ingested: 3 };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(res));
+    const result = await api.convertToAdvanced("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/convert/to-advanced",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(result).toEqual(res);
+  });
+
+  it("convertToSimple calls POST /api/v1/servers/:id/convert/to-simple", async () => {
+    const res = { new_server_id: "s2", name: "Production SMP (Simple)" };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(res));
+    const result = await api.convertToSimple("s1", { name: "Production SMP (Simple)", port: 25565 });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/convert/to-simple",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Production SMP (Simple)", port: 25565 }),
+      }),
+    );
+    expect(result).toEqual(res);
+  });
+
 });

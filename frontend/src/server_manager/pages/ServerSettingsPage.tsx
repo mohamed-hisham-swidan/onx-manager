@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ServerP55SettingsCard } from "@/server_manager/components/p55/ServerP55SettingsCard";
+import { ServerModeConversionCard } from "@/server_manager/components/ServerModeConversionCard";
 import { toast } from "@/stores/toastStore";
 
 export function ServerSettingsPage() {
@@ -54,6 +55,8 @@ export function ServerSettingsPage() {
       <ServerSettingsSection serverId={serverId!} server={server} />
 
       <ServerP55SettingsCard serverId={serverId!} />
+
+      <ServerModeConversionCard serverId={serverId!} server={server} />
 
       {/* Danger Zone: Delete Server */}
       <section

@@ -18,7 +18,7 @@ export const queryKeys = {
   },
   backups: {
     all: ["backups"] as const,
-    list: (serverId?: string) => ["backups", "list", serverId] as const,
+    list: (serverId?: string, tier?: string) => ["backups", "list", serverId, tier] as const,
     detail: (id: string) => ["backups", "detail", id] as const,
   },
   plugins: {

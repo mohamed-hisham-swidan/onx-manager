@@ -23,6 +23,9 @@ import type {
   UserResponse,
   VerifyBackupResponse,
   SystemStatusResponse,
+  ConvertToAdvancedResponse,
+  ConvertToSimpleRequest,
+  ConvertToSimpleResponse,
   BootstrapRequest,
   BootstrapResponse,
   CreateInviteRequest,
@@ -896,8 +899,8 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/command`, { method: "POST", body }),
 
     // Backups
-    listBackups: (serverId?: string) =>
-      request<BackupResponse[]>("/api/v1/backups", { params: { server_id: serverId } }),
+    listBackups: (serverId?: string, tier?: string) =>
+      request<BackupResponse[]>("/api/v1/backups", { params: { server_id: serverId, tier } }),
     createBackup: (body: CreateBackupRequest) =>
       request<Record<string, unknown>>("/api/v1/backups", { method: "POST", body }),
     getBackup: (backupId: string) =>
@@ -908,6 +911,15 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/backups/${backupId}/restore`, { method: "POST" }),
     verifyBackup: (backupId: string) =>
       request<VerifyBackupResponse>(`/api/v1/backups/${backupId}/verify`, { method: "POST" }),
+    convertToAdvanced: (serverId: string) =>
+      request<ConvertToAdvancedResponse>(`/api/v1/servers/${serverId}/convert/to-advanced`, {
+        method: "POST",
+      }),
+    convertToSimple: (serverId: string, body: ConvertToSimpleRequest) =>
+      request<ConvertToSimpleResponse>(`/api/v1/servers/${serverId}/convert/to-simple`, {
+        method: "POST",
+        body,
+      }),
 
     // Plugins
     listPlugins: (serverId: string) =>
