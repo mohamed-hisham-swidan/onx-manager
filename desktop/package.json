@@ -1,0 +1,44 @@
+{
+  "name": "onx-manager-desktop",
+  "version": "0.1.0",
+  "description": "ONX Manager Desktop Shell — lightweight Electron wrapper for Local and Remote ONX panels",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/backendManager.js && node --check src/connectionsStore.js && node --check src/launcher.js",
+    "test": "node --test src/test/*.test.mjs",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win nsis",
+    "build:linux": "electron-builder --linux AppImage"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "io.onxmanager.desktop",
+    "productName": "ONX Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "!src/test/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game"
+    }
+  }
+}

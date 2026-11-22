@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <title>ONX Manager — Connect</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0e14;
+      --card: #131823;
+      --elevated: #1b2232;
+      --border: #273248;
+      --text: #e6edf7;
+      --muted: #8b9bb4;
+      --accent: #38bdf8;
+      --accent-fg: #06131f;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --err: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .shell {
+      width: 100%;
+      max-width: 820px;
+      display: grid;
+      gap: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand img { width: 38px; height: 38px; border-radius: 10px; }
+    .brand h1 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+    .brand p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .card h2 { margin: 0; font-size: 16px; }
+    .desc { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      width: fit-content;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.running { background: var(--ok); }
+    .dot.starting { background: var(--warn); }
+    .dot.error { background: var(--err); }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+    input {
+      width: 100%;
+      padding: 9px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.12); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary {
+      background: var(--accent);
+      color: var(--accent-fg);
+      border-color: transparent;
+    }
+    .alert {
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--elevated);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .alert.error { border-color: rgba(248, 113, 113, 0.45); color: var(--err); }
+    .alert.ok { border-color: rgba(52, 211, 153, 0.45); color: var(--ok); }
+    .saved-list { display: flex; flex-direction: column; gap: 8px; }
+    .saved-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .saved-meta { min-width: 0; }
+    .saved-name { font-size: 13px; font-weight: 600; }
+    .saved-url { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    pre.logs {
+      margin: 0;
+      padding: 10px;
+      border-radius: 8px;
+      background: #06080d;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+    }
+    pre.logs.open { display: block; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div class="brand">
+        <img src="../assets/icon.svg" alt="ONX Manager" />
+        <div>
+          <h1>ONX Manager</h1>
+          <p>Desktop Launcher · Local Panel or Remote VPS Connection</p>
+        </div>
+      </div>
+      <span id="shortcut-hint" class="desc">Tip: Press Ctrl+Shift+K anytime to switch panels</span>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <h2>1. Local Machine (Default)</h2>
+        <p class="desc">
+          Runs the ONX Manager backend silently in the background with your isolated Python 3.12 runtime and loads the UI directly.
+        </p>
+        <div class="status-pill">
+          <span id="backend-dot" class="dot"></span>
+          <span id="backend-status-text">Checking local backend...</span>
+        </div>
+        <div id="local-error" class="alert error" style="display:none;"></div>
+        <div class="row">
+          <button id="btn-connect-local" class="primary" type="button">Open Local Panel</button>
+          <button id="btn-restart-local" type="button">Restart Backend</button>
+          <button id="btn-toggle-logs" type="button">Logs</button>
+        </div>
+        <pre id="backend-logs" class="logs"></pre>
+      </article>
+
+      <article class="card">
+        <h2>2. Connect to Remote Server / VPS</h2>
+        <p class="desc">
+          Connect directly to your VPS or a friend's shared ONX panel URL (including Cloudflare Tunnels or reverse proxies).
+        </p>
+        <form id="remote-form">
+          <div style="margin-bottom: 10px;">
+            <label for="remote-name">Label (optional)</label>
+            <input id="remote-name" type="text" placeholder="My Survival VPS" />
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label for="remote-url">Panel URL</label>
+            <input id="remote-url" type="url" placeholder="https://mc.example.com" required />
+          </div>
+          <div id="remote-status" class="alert" style="display:none; margin-bottom: 12px;"></div>
+          <div class="row">
+            <button id="btn-test-remote" type="button">Test Connection</button>
+            <button id="btn-connect-remote" class="primary" type="submit">Connect &amp; Save</button>
+          </div>
+        </form>
+        <div id="saved-remotes-wrap" style="display:none;">
+          <label>Saved Remote Panels</label>
+          <div id="saved-remotes" class="saved-list"></div>
+        </div>
+      </article>
+    </section>
+  </main>
+  <script src="./launcher.js"></script>
+</body>
+</html>

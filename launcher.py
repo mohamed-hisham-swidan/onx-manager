@@ -99,13 +99,13 @@ PYTHON_INSTALLER_URL = (
 WINDOWS_PYTHON_STOP_TEXT = (
     "Python 3.12.x was not found or could not be installed. "
     "onx-manager requires exactly Python 3.12; 3.13/3.14 are not supported. "
-    "Install Python 3.12 from python.org, then re-run start.bat."
+    "Install Python 3.12 from python.org (or run install.ps1)."
 )
 POSIX_PYTHON_STOP_TEXT = (
     "Python 3.12.x is required. onx-manager does not support Python 3.13/3.14. "
     "Install Python 3.12 with one of: 'uv python install 3.12' (recommended), "
     "'brew install python@3.12' (macOS), or your distro's python3.12 package, "
-    "then re-run ./start.sh."
+    "then re-run ./install.sh."
 )
 
 
@@ -213,6 +213,10 @@ class LauncherConfig:
     startup_timeout: int = STARTUP_TIMEOUT
     active_backend_port: int | None = None
     configured_backend_port: int = BACKEND_PORT
+    backend_only: bool = False
+    headless: bool = False
+    deployment_profile: str | None = None
+    static_dir: str | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -549,21 +553,24 @@ def print_banner() -> None:
 
 
 def print_usage() -> None:
-    print(f"  {c('bold', f'{PROJECT_NAME} — Development Launcher')}")
+    print(f"  {c('bold', f'{PROJECT_NAME} — Unified Launcher & Service Supervisor')}")
     print()
     print(f"  {c('cyan', 'Usage')}:")
-    print(f"    python launcher.py              {c('dim', 'Start dev environment')}")
-    print(f"    python launcher.py --stop       {c('dim', 'Stop all processes')}")
-    print(f"    python launcher.py --restart    {c('dim', 'Restart everything')}")
-    print(f"    python launcher.py --status     {c('dim', 'Show status')}")
-    print(f"    python launcher.py --status --watch{c('dim', '  Live monitoring')}")
-    print(f"    python launcher.py --logs       {c('dim', 'Show service logs')}")
-    print(f"    python launcher.py --self-test  {c('dim', 'Verify prerequisites')}")
-    print(f"    python launcher.py --install-node{c('dim', ' Install Node.js 20 LTS (Win)')}")
-    print(f"    python launcher.py --install-cpp{c('dim', '  Install C++ Build Tools (Win)')}")
-    print(f"    python launcher.py --code       {c('dim', 'Also open VS Code')}")
-    print(f"    python launcher.py --swagger    {c('dim', 'Also open Swagger API docs')}")
-    print(f"    python launcher.py --help       {c('dim', 'Show this help')}")
+    print(f"    python launcher.py                  {c('dim', 'Start dev environment (or single-process if built)')}")
+    print(f"    python launcher.py --backend-only   {c('dim', 'Single-process mode (backend + static SPA)')}")
+    print(f"    python launcher.py --dev            {c('dim', 'Force dual-process dev mode (backend + Vite)')}")
+    print(f"    python launcher.py --headless       {c('dim', 'Run backgrounded without opening terminal/browser')}")
+    print(f"    python launcher.py --profile local  {c('dim', 'Set panel ONX_DEPLOYMENT_PROFILE (local|vps)')}")
+    print(f"    python launcher.py --port 8000      {c('dim', 'Preferred backend port')}")
+    print(f"    python launcher.py --stop           {c('dim', 'Stop all processes')}")
+    print(f"    python launcher.py --restart        {c('dim', 'Restart everything')}")
+    print(f"    python launcher.py --status         {c('dim', 'Show status')}")
+    print(f"    python launcher.py --status --watch {c('dim', 'Live monitoring')}")
+    print(f"    python launcher.py --logs           {c('dim', 'Show service logs')}")
+    print(f"    python launcher.py --self-test      {c('dim', 'Verify prerequisites')}")
+    print(f"    python launcher.py --code           {c('dim', 'Also open VS Code')}")
+    print(f"    python launcher.py --swagger        {c('dim', 'Also open Swagger API docs')}")
+    print(f"    python launcher.py --help           {c('dim', 'Show this help')}")
     print()
 
 
@@ -1441,19 +1448,26 @@ class TerminalOpener:
         port: int,
         env: dict[str, str] | None = None,
     ) -> int | None:
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+        no_reload = merged_env.get("ONX_LAUNCHER_NO_RELOAD") == "1"
+        reload_flags = "--workers 1" if no_reload else "--reload --reload-dir app"
+        bind_host = merged_env.get("ONX_PANEL_BIND_HOST", "0.0.0.0")
+
         if os.name == "nt":
             esc_backend = TerminalOpener.escape_cmd_path(BACKEND_DIR)
             esc_python = TerminalOpener.escape_cmd_path(python)
             cmd_str = (
                 f'cd /d "{esc_backend}" && "{esc_python}" -m uvicorn app.main:app '
-                f"--host 0.0.0.0 --port {port} --reload --reload-dir app"
+                f"--host {bind_host} --port {port} {reload_flags}"
             )
         else:
             cmd_str = (
                 f"cd '{BACKEND_DIR}' && "
                 f"PYTHONPATH='{BACKEND_DIR}' "
                 f"{python} -m uvicorn app.main:app "
-                f"--host 0.0.0.0 --port {port} --reload --reload-dir app"
+                f"--host {bind_host} --port {port} {reload_flags}"
             )
         return TerminalOpener._open("Backend", cmd_str, BACKEND_LOG, env, WINDOW_BACKEND)
 
@@ -1485,7 +1499,8 @@ class TerminalOpener:
         if extra_env:
             env.update(extra_env)
 
-        full_cmd = TerminalOpener._build_cmd(service_title, wrapped, geometry)
+        headless = env.get("ONX_LAUNCHER_HEADLESS") == "1"
+        full_cmd = [] if headless else TerminalOpener._build_cmd(service_title, wrapped, geometry)
         if full_cmd:
             try:
                 proc = subprocess.Popen(
@@ -1522,6 +1537,7 @@ class TerminalOpener:
                 popen_cmd: list[str] | str = ["bash", "-c", cmd_str]
             else:
                 popen_cmd = f'cmd.exe /s /c "{cmd_str}"'
+                popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
             proc = subprocess.Popen(
                 popen_cmd,
@@ -1705,7 +1721,7 @@ class Validator:
                     f"Python {PINNED_PYTHON_DISPLAY}.x (3.13 and 3.14 are not supported)."
                 ),
                 (
-                    "Run start.ps1 (Windows) or start.sh (Linux/macOS) so Python 3.12 "
+                    "Run install.ps1 (Windows) or ./install.sh (Linux/macOS) so Python 3.12 "
                     "is installed and selected, or invoke launcher.py with a Python "
                     "3.12 interpreter."
                 ),
@@ -3228,59 +3244,60 @@ def validate_startup_prerequisites(cfg: LauncherConfig) -> tuple[bool, Path | No
         else:
             log_ok("Backend dependencies installed")
 
-    # 3. Node.js runtime
-    log_step("Node.js", "Checking runtime environment...")
-    try:
-        node_ver = Validator.check_node()
-        log_ok(f"Node.js {node_ver}")
-    except ValidationError as e:
-        if os.name == "nt" and cfg.auto_install_deps:
-            log_step("Node.js", "Node.js missing. Attempting automatic installation...")
-            if auto_install_node_windows():
-                try:
-                    node_ver = Validator.check_node()
-                    log_ok(f"Node.js {node_ver}")
-                except ValidationError:
+    # 3-5. Frontend Node/npm dependencies (skipped in single-process --backend-only mode)
+    if not getattr(cfg, "backend_only", False):
+        log_step("Node.js", "Checking runtime environment...")
+        try:
+            node_ver = Validator.check_node()
+            log_ok(f"Node.js {node_ver}")
+        except ValidationError as e:
+            if os.name == "nt" and cfg.auto_install_deps:
+                log_step("Node.js", "Node.js missing. Attempting automatic installation...")
+                if auto_install_node_windows():
+                    try:
+                        node_ver = Validator.check_node()
+                        log_ok(f"Node.js {node_ver}")
+                    except ValidationError:
+                        fix_msg = "Install Node.js 18+ from https://nodejs.org\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
+                        ErrorHandler.show("Node.js installation verification failed.", fix_msg)
+                        return False, None
+                else:
                     fix_msg = "Install Node.js 18+ from https://nodejs.org\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
-                    ErrorHandler.show("Node.js installation verification failed.", fix_msg)
+                    ErrorHandler.show(str(e), fix_msg)
                     return False, None
             else:
-                fix_msg = "Install Node.js 18+ from https://nodejs.org\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
+                fix_msg = "Install Node.js 18+ from https://nodejs.org"
+                if os.name == "nt":
+                    fix_msg += "\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
                 ErrorHandler.show(str(e), fix_msg)
                 return False, None
-        else:
-            fix_msg = "Install Node.js 18+ from https://nodejs.org"
-            if os.name == "nt":
-                fix_msg += "\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
-            ErrorHandler.show(str(e), fix_msg)
+
+        # 4. npm package manager
+        try:
+            npm_ver = Validator.check_npm()
+            log_ok(f"npm {npm_ver}")
+        except ValidationError as e:
+            ErrorHandler.show(str(e), e.fix or "npm should come with Node.js — reinstall Node")
             return False, None
 
-    # 4. npm package manager
-    try:
-        npm_ver = Validator.check_npm()
-        log_ok(f"npm {npm_ver}")
-    except ValidationError as e:
-        ErrorHandler.show(str(e), e.fix or "npm should come with Node.js — reinstall Node")
-        return False, None
-
-    # 5. Frontend node_modules dependencies
-    if not Validator.check_frontend_deps():
-        if cfg.auto_install_deps:
-            log_step("Frontend", "Frontend node_modules missing. Auto-installing...")
-            if not install_npm_deps():
+        # 5. Frontend node_modules dependencies
+        if not Validator.check_frontend_deps():
+            if cfg.auto_install_deps:
+                log_step("Frontend", "Frontend node_modules missing. Auto-installing...")
+                if not install_npm_deps():
+                    ErrorHandler.show(
+                        "Failed to install frontend dependencies.",
+                        f"Try running manually: cd {FRONTEND_DIR} && npm install",
+                    )
+                    return False, None
+            else:
                 ErrorHandler.show(
-                    "Failed to install frontend dependencies.",
-                    f"Try running manually: cd {FRONTEND_DIR} && npm install",
+                    "Frontend dependencies not installed.",
+                    f"Run: cd {FRONTEND_DIR} && npm install",
                 )
                 return False, None
         else:
-            ErrorHandler.show(
-                "Frontend dependencies not installed.",
-                f"Run: cd {FRONTEND_DIR} && npm install",
-            )
-            return False, None
-    else:
-        log_ok("Frontend dependencies installed")
+            log_ok("Frontend dependencies installed")
 
     # 6. Database schema readiness & reconciliation
     if not reconcile_database(python):
@@ -3917,14 +3934,23 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
         pid = None
         spawn_time = None
         try:
+            backend_env: dict[str, str] = {
+                "PYTHONPATH": str(BACKEND_DIR),
+                "ONX_DATABASE_URL": canonical_db_url,
+                "ONX_PANEL_BIND_PORT": str(port),
+            }
+            if getattr(cfg, "deployment_profile", None):
+                backend_env["ONX_DEPLOYMENT_PROFILE"] = str(cfg.deployment_profile)
+            if getattr(cfg, "static_dir", None):
+                backend_env["ONX_STATIC_DIR"] = str(cfg.static_dir)
+            if getattr(cfg, "headless", False):
+                backend_env["ONX_LAUNCHER_HEADLESS"] = "1"
+            if getattr(cfg, "backend_only", False):
+                backend_env["ONX_LAUNCHER_NO_RELOAD"] = "1"
             pid = TerminalOpener.open_backend(
                 python,
                 port,
-                {
-                    "PYTHONPATH": str(BACKEND_DIR),
-                    "ONX_DATABASE_URL": canonical_db_url,
-                    "ONX_PANEL_BIND_PORT": str(port),
-                },
+                backend_env,
             )
             if pid is None:
                 log_error("Failed to launch backend terminal")
@@ -4225,20 +4251,25 @@ def cmd_start() -> int:
         log_error("Backend startup failed. Aborting.")
         return 1
 
-    # Start frontend
-    print(f"\n  {c('bold', '▸ Starting Frontend')} {c('dim', '──')}")
-    if not start_frontend(cfg):
-        log_error("Frontend startup failed.")
-        return 1
+    # Start frontend (skipped in single-process --backend-only mode)
+    active_port = cfg.active_backend_port or cfg.backend_port
+    if not getattr(cfg, "backend_only", False):
+        print(f"\n  {c('bold', '▸ Starting Frontend')} {c('dim', '──')}")
+        if not start_frontend(cfg):
+            log_error("Frontend startup failed.")
+            return 1
+        target_url = FRONTEND_URL
+    else:
+        target_url = f"http://127.0.0.1:{active_port}/"
 
     PIDManager.save_started_at()
     elapsed = time.time() - start_time
 
     # Open browser
     if cfg.open_browser:
-        log_step("Browser", "Opening frontend...")
+        log_step("Browser", "Opening ONX Manager...")
         try:
-            webbrowser.open(FRONTEND_URL)
+            webbrowser.open(target_url)
             log_ok("Browser opened")
         except Exception as e:
             log_warn(f"Could not open browser: {e}")
@@ -4247,13 +4278,12 @@ def cmd_start() -> int:
     if cfg.open_swagger:
         log_step("Swagger", "Opening API docs...")
         try:
-            active_port = cfg.active_backend_port or cfg.backend_port
             webbrowser.open(f"http://localhost:{active_port}/docs")
             log_ok("Swagger opened")
         except Exception as e:
             log_warn(f"Could not open Swagger: {e}")
 
-    ReadyScreen.show(elapsed, cfg.active_backend_port or cfg.backend_port, cfg.frontend_port)
+    ReadyScreen.show(elapsed, active_port, active_port if getattr(cfg, "backend_only", False) else cfg.frontend_port)
     return 0
 
 
@@ -4442,6 +4472,17 @@ def cmd_install_cpp() -> int:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _parse_flag_value(raw_args: list[str], flag: str) -> str | None:
+    prefix = f"{flag}="
+    for idx, arg in enumerate(raw_args):
+        low = arg.lower()
+        if low.startswith(prefix):
+            return arg.split("=", 1)[1]
+        if low == flag and idx + 1 < len(raw_args):
+            return raw_args[idx + 1]
+    return None
+
+
 def main() -> int:
     MCS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -4454,18 +4495,15 @@ def main() -> int:
     elif "--unicode" in args or "--force-unicode" in args:
         _unicode_enabled = True
 
-    if "--help" in args or "-h" in args:
+    if "--help" in args or "-h" in args or "help" in args:
         print_banner()
         print_usage()
         return 0
 
-    if "--stop" in args:
+    if "--stop" in args or "stop" in args:
         return cmd_stop()
 
-    if "--restart" in args:
-        return cmd_restart()
-
-    if "--self-test" in args:
+    if "--self-test" in args or "self-test" in args:
         return cmd_self_test()
 
     if "--install-node" in args or "--node" in args:
@@ -4474,21 +4512,52 @@ def main() -> int:
     if "--install-cpp" in args or "--cpp-tools" in args:
         return cmd_install_cpp()
 
-    if "--logs" in args:
+    if "--logs" in args or "logs" in args:
         return cmd_logs()
 
-    if "--status" in args:
+    if "--status" in args or "status" in args:
         if "--watch" in args:
             return cmd_status_watch()
         return cmd_status()
 
+    cfg = ConfigManager.instance().load()
+    if "--backend-only" in args or "--single-process" in args or "open" in args:
+        cfg.backend_only = True
+    if "--dev" in args:
+        cfg.backend_only = False
+    if "--headless" in args:
+        cfg.headless = True
+    if "--no-browser" in args:
+        cfg.open_browser = False
+    if "open" in args:
+        cfg.backend_only = True
+        cfg.headless = True
+        cfg.open_browser = True
+        if cfg.deployment_profile is None:
+            cfg.deployment_profile = "local"
+
+    profile_val = _parse_flag_value(raw_args, "--profile")
+    if profile_val and profile_val.lower() in ("local", "vps"):
+        cfg.deployment_profile = profile_val.lower()
+
+    port_val = _parse_flag_value(raw_args, "--port")
+    if port_val is not None:
+        parsed_port = _validate_preferred_port("--port", port_val)
+        if parsed_port is not None:
+            cfg.backend_port = parsed_port
+
+    static_val = _parse_flag_value(raw_args, "--static-dir")
+    if static_val is not None:
+        cfg.static_dir = static_val
+
+    if "--restart" in args or "restart" in args:
+        return cmd_restart()
+
     if "--code" in args or "--vscode" in args:
-        cfg = ConfigManager.instance().load()
         cfg.open_vscode = True
         ConfigManager.instance().save()
 
     if "--swagger" in args:
-        cfg = ConfigManager.instance().load()
         cfg.open_swagger = True
         ConfigManager.instance().save()
 
