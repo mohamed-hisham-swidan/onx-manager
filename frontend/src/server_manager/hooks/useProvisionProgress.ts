@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { useProvisionProgressStore } from "@/stores/provisionProgressStore";
 
@@ -38,14 +38,4 @@ export function useProvisionProgress(serverId: string | null): ProvisionProgress
     message: storeProgress.message,
     timestamp: storeProgress.timestamp,
   };
-}
-
-export function useProvisionProgressActions(): {
-  clearProgress: (serverId: string) => void;
-} {
-  const clearProgress = useCallback((serverId: string) => {
-    useProvisionProgressStore.getState().clearProgress(serverId);
-  }, []);
-
-  return { clearProgress };
 }
