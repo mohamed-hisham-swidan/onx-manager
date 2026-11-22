@@ -353,6 +353,14 @@ def test_quarantine_rejects_invalid_paths(tmp_path: Path, member: str) -> None:
         _quarantine(archive)
 
 
+def test_quarantine_rejects_raw_backslash_from_orig_filename(tmp_path: Path) -> None:
+    archive = _write_zip(tmp_path / "orig.zip", {"dir/evil.txt": b"x"})
+    with zipfile.ZipFile(archive, "r") as zf:
+        zf.infolist()[0].orig_filename = "dir\\evil.txt"
+        with pytest.raises(ModpackFormatError):
+            validate_archive_quarantine(zf)
+
+
 def test_quarantine_rejects_symlink_member(tmp_path: Path) -> None:
     archive = tmp_path / "symlink.zip"
     with zipfile.ZipFile(archive, "w") as zf:

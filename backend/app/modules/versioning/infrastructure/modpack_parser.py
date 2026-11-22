@@ -158,6 +158,15 @@ def validate_archive_quarantine(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     seen: dict[str, tuple[str, bool]] = {}
     for info in infos:
         _is_regular_or_directory(info)
+        # On Windows, zipfile.ZipInfo.__init__ converts os.sep ('\\') to '/' and
+        # strips NUL bytes into info.filename while keeping the central-directory
+        # string in info.orig_filename. Reject raw backslashes/NULs from orig_filename too.
+        raw_orig = getattr(info, "orig_filename", info.filename)
+        if "\\" in raw_orig or "\x00" in raw_orig:
+            raise ModpackFormatError(
+                f"Archive member has an invalid path: {raw_orig[:128]!r}",
+                field="archive.member",
+            )
         relpath = _member_relpath(info)
         if not relpath:
             raise ModpackFormatError("Archive member has an empty path", field="archive.member")
