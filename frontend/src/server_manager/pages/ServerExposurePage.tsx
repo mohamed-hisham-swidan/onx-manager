@@ -7,6 +7,7 @@ import { TargetListSection } from "@/server_manager/components/TargetListSection
 import { GlobalExposureActionsCard } from "@/server_manager/components/GlobalExposureActionsCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
+import { ConfigureCredentialsModal } from "@/components/auth/ConfigureCredentialsModal";
 import { Skeleton } from "@/components/Skeleton";
 import { Icon } from "@/components/ui/Icon";
 import { useQuery } from "@tanstack/react-query";
@@ -19,10 +20,15 @@ import type {
   ClaimResponse,
 } from "@/types";
 
+function isPasswordRequiredError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  return (err as { code?: unknown }).code === "PASSWORD_REQUIRED_FOR_EXPOSURE";
+}
+
 export function ServerExposurePage() {
   const { serverId } = useParams<{ serverId: string }>();
   const api = useMemo(() => createAuthenticatedApi(), []);
-  const { isLocal, showFullControls, toggleShowFullVpsControls } = useDeploymentProfile();
+  const { isLocal, isLocalZeroLogin, showFullControls, toggleShowFullVpsControls } = useDeploymentProfile();
 
   // 1. Fetch Current User Identity for RBAC (Spec §7, F-75-09)
   const { data: currentUser } = useQuery({
@@ -60,6 +66,8 @@ export function ServerExposurePage() {
   const [isGeneratingClaim, setIsGeneratingClaim] = useState(false);
   const [isResettingAgent, setIsResettingAgent] = useState(false);
   const [claimData, setClaimData] = useState<ClaimResponse | null>(null);
+  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void> | void) | null>(null);
 
   const disableButtonRef = useRef<HTMLButtonElement>(null);
   const modalCancelButtonRef = useRef<HTMLButtonElement>(null);
@@ -74,7 +82,7 @@ export function ServerExposurePage() {
     setClaimData(null);
   }
 
-  const handleGenerateClaim = async (): Promise<ClaimResponse | void> => {
+  const executeGenerateClaim = async (): Promise<ClaimResponse | void> => {
     try {
       setIsGeneratingClaim(true);
       const res = await api.generateClaim();
@@ -83,11 +91,25 @@ export function ServerExposurePage() {
       toast("success", "Claim Link Generated", "Authorize with playit.gg to complete setup.");
       return res;
     } catch (err: unknown) {
+      if (isPasswordRequiredError(err)) {
+        setPendingAction(() => async () => { await executeGenerateClaim(); });
+        setIsCredentialsModalOpen(true);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Failed to generate claim link";
       toast("error", "Claim Generation Failed", msg);
     } finally {
       setIsGeneratingClaim(false);
     }
+  };
+
+  const handleGenerateClaim = async (): Promise<ClaimResponse | void> => {
+    if (isLocalZeroLogin) {
+      setPendingAction(() => async () => { await executeGenerateClaim(); });
+      setIsCredentialsModalOpen(true);
+      return;
+    }
+    return executeGenerateClaim();
   };
 
   const handleResetAgent = async () => {
@@ -104,6 +126,23 @@ export function ServerExposurePage() {
     }
   };
 
+  const executeSaveExposure = (params: {
+    method: ExposureMethodType;
+    desired_state: "ENABLED" | "DISABLED";
+    cloudflare_token?: string;
+    hostname?: string;
+    acknowledged_warning?: boolean;
+  }) => {
+    setExposure(params, {
+      onError: (err) => {
+        if (isPasswordRequiredError(err)) {
+          setPendingAction(() => () => executeSaveExposure(params));
+          setIsCredentialsModalOpen(true);
+        }
+      },
+    });
+  };
+
   const handleSaveExposure = (params: {
     method: ExposureMethodType;
     desired_state: "ENABLED" | "DISABLED";
@@ -111,7 +150,13 @@ export function ServerExposurePage() {
     hostname?: string;
     acknowledged_warning?: boolean;
   }) => {
-    setExposure(params);
+    const requiresCredentials = params.desired_state === "ENABLED" && params.method !== "none";
+    if (requiresCredentials && isLocalZeroLogin) {
+      setPendingAction(() => () => executeSaveExposure(params));
+      setIsCredentialsModalOpen(true);
+      return;
+    }
+    executeSaveExposure(params);
   };
 
   const handleConfirmDisable = () => {
@@ -182,6 +227,35 @@ export function ServerExposurePage() {
           )}
         </div>
       </div>
+
+      {/* Passwordless Local Mode Gate Notice */}
+      {isLocalZeroLogin && (
+        <div
+          data-testid="passwordless-exposure-banner"
+          role="alert"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-status-warning-border bg-status-warning-bg p-4"
+        >
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-status-warning">
+              <Icon name="lock" size={14} />
+              <span>Security Setup Required for Public Exposure</span>
+            </div>
+            <p className="text-xs text-text-secondary">
+              You are running in passwordless local mode. Set an administrator username and password before enabling external tunnels or remote access.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingAction(null);
+              setIsCredentialsModalOpen(true);
+            }}
+            className="shrink-0 rounded-lg bg-accent-primary px-3.5 py-2 text-xs font-medium text-accent-contrast-text hover:bg-accent-hover transition-colors cursor-pointer"
+          >
+            Set Username &amp; Password
+          </button>
+        </div>
+      )}
 
       {/* Quick-Share Guidance in Local Mode vs Full Topology in VPS Mode */}
       {isLocal && !showFullControls ? (
@@ -411,6 +485,21 @@ export function ServerExposurePage() {
           </div>
         </div>
       </Modal>
+
+      <ConfigureCredentialsModal
+        open={isCredentialsModalOpen}
+        onClose={() => {
+          setIsCredentialsModalOpen(false);
+          setPendingAction(null);
+        }}
+        onSuccess={async () => {
+          const action = pendingAction;
+          setPendingAction(null);
+          if (action) {
+            await action();
+          }
+        }}
+      />
     </div>
   );
 }

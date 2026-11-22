@@ -197,6 +197,23 @@ class CronExpression:
 
 
 @dataclass(frozen=True)
+class Username:
+    value: str
+
+    _pattern: ClassVar[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
+
+    def __post_init__(self) -> None:
+        cleaned = self.value.strip()
+        if cleaned != self.value:
+            object.__setattr__(self, "value", cleaned)
+        if not self._pattern.match(self.value):
+            raise ValueError(f"Invalid username: {self.value!r}")
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
 class EmailAddress:
     value: str
 

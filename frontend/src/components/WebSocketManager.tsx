@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { queryClient } from "@/services/queryClient";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/stores/authStore";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import { useActivityStore, toActivityEvent } from "@/stores/activityStore";
 import { useProvisionProgressStore, toProvisionProgressEvent } from "@/stores/provisionProgressStore";
 import { useOperationStore } from "@/operations/stores/operationStore";
@@ -28,6 +29,8 @@ function toQueryKey(key: string): string[] {
 
 export function WebSocketManager() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { isLocalZeroLogin } = useDeploymentProfile();
+  const canConnect = isAuthenticated || isLocalZeroLogin;
   const addEvent = useActivityStore((s) => s.addEvent);
   const setEvents = useActivityStore((s) => s.setEvents);
 
@@ -86,13 +89,14 @@ export function WebSocketManager() {
     onCacheUpdate,
     onEvent,
     onStateSync,
-    autoConnect: isAuthenticated,
+    autoConnect: canConnect,
+    allowAnonymous: isLocalZeroLogin,
   });
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!canConnect) return;
     subscribe(["server:*"]);
-  }, [isAuthenticated, subscribe]);
+  }, [canConnect, subscribe]);
 
   return null;
 }

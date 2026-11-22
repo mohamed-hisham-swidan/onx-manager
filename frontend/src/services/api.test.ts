@@ -36,16 +36,48 @@ describe("createApiClient", () => {
   it("login sends POST with body", async () => {
     const resp = { access_token: "tok", refresh_token: "rtok", token_type: "bearer", expires_in: 3600 };
     vi.mocked(fetch).mockImplementationOnce(mockFetch(resp));
-    const result = await api.login({ email: "a@b.com", password: "secret" });
+    const result = await api.login({ username: "admin", password: "secret" });
 
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8000/api/v1/auth/login",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ email: "a@b.com", password: "secret" }),
+        body: JSON.stringify({ username: "admin", password: "secret" }),
       }),
     );
     expect(result.access_token).toBe("tok");
+  });
+
+  it("configureCredentials sends POST to /api/v1/setup/credentials", async () => {
+    const resp = {
+      success: true,
+      message: "ok",
+      user_id: "local-admin",
+      username: "admin",
+      access_token: "tok",
+      refresh_token: "rtok",
+      token_type: "bearer",
+      expires_in: 900,
+    };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(resp));
+    const result = await api.configureCredentials({
+      username: "admin",
+      password: "Password123!",
+      display_name: "admin",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/setup/credentials",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          username: "admin",
+          password: "Password123!",
+          display_name: "admin",
+        }),
+      }),
+    );
+    expect(result.username).toBe("admin");
   });
 
   it("injects authorization header when token available", async () => {

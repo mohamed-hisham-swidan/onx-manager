@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import InvalidValueError, PermissionDenied
+from app.core.local_auth import require_password_configured_for_exposure
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.version import get_app_version
 from app.modules.auth.domain.aggregate import AccessMode
@@ -42,6 +43,11 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
                     "access_mode", command.access_mode, "Instance is not initialized"
                 )
 
+            if target_mode == AccessMode.GLOBAL:
+                await require_password_configured_for_exposure(
+                    uow.session, action="access_mode_global"
+                )
+
             state.set_access_mode(target_mode)
             await sys_repo.save(state)
 
@@ -60,5 +66,6 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
                 else str(target_mode),
                 "user_count": user_count,
                 "version": get_app_version(),
+                "password_configured": state.password_configured,
             },
         )

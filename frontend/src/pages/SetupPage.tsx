@@ -13,8 +13,7 @@ export function SetupPage() {
   const navigate = useNavigate();
   const { isLocal } = useDeploymentProfile();
 
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -28,8 +27,8 @@ export function SetupPage() {
     e.preventDefault();
     setError("");
 
-    if (!displayName.trim() || !email.trim() || !password) {
-      setError("All fields are required.");
+    if (!username.trim() || !password) {
+      setError("Username and password are required.");
       return;
     }
 
@@ -46,8 +45,8 @@ export function SetupPage() {
     setLoading(true);
     try {
       const res = await api.bootstrapInstance({
-        display_name: displayName.trim(),
-        email: email.trim(),
+        username: username.trim(),
+        display_name: username.trim(),
         password,
         access_mode: accessMode,
       });
@@ -116,32 +115,17 @@ export function SetupPage() {
           )}
 
           <div>
-            <label htmlFor="displayName" className="block text-sm font-medium text-text-secondary mb-1">
-              Display Name
+            <label htmlFor="username" className="block text-sm font-medium text-text-secondary mb-1">
+              Username
             </label>
             <input
-              id="displayName"
+              id="username"
               type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
-              placeholder="System Owner"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1">
-              Owner Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
-              placeholder="owner@example.com"
-              autoComplete="email"
+              placeholder="admin"
+              autoComplete="username"
               required
             />
           </div>

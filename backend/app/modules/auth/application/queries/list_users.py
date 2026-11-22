@@ -17,7 +17,8 @@ class ListUsersHandler(QueryHandler[ListUsersQuery]):
             return [
                 {
                     "user_id": str(u.user_id),
-                    "email": str(u.email),
+                    "username": u.username,
+                    "email": str(u.email) if u.email is not None else None,
                     "display_name": u.display_name,
                     "is_active": u.is_active,
                     "roles": [r.name for r in u.roles],

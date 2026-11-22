@@ -19,7 +19,8 @@ class GetCurrentUserHandler(QueryHandler[GetCurrentUserQuery]):
                 return None
             return {
                 "user_id": str(user.user_id),
-                "email": str(user.email),
+                "username": user.username,
+                "email": str(user.email) if user.email is not None else None,
                 "display_name": user.display_name,
                 "is_active": user.is_active,
                 "roles": [r.name for r in user.roles],

@@ -151,16 +151,28 @@ async def websocket_endpoint(
 
     token = token or ws.query_params.get("token", "")
     if not token:
-        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
-        return
+        from app.core.local_auth import resolve_local_auto_auth
+        from app.core.persistence.db import database
 
-    try:
-        claims = verify_ws_token(token)
-        user_id = claims["user_id"]
-        permissions = claims["permissions"]
-    except Exception as e:
-        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(e))
-        return
+        local_claims = None
+        if database._session_factory is not None:
+            client_host = ws.client.host if ws.client else None
+            async with database.session_factory() as db:
+                local_claims = await resolve_local_auto_auth(client_host, ws.headers, db)
+        if local_claims is None:
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
+            return
+        user_id = local_claims["user_id"]
+        permissions = set(local_claims.get("permissions", []))
+        token = "local_zero_login"
+    else:
+        try:
+            claims = verify_ws_token(token)
+            user_id = claims["user_id"]
+            permissions = claims["permissions"]
+        except Exception as e:
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(e))
+            return
 
     await ws.accept()
 

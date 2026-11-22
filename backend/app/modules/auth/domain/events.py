@@ -7,10 +7,23 @@ from app.core.event_bus import DomainEvent
 
 class UserCreatedEvent(DomainEvent):
     user_id: str
-    email: str
+    username: str = ""
+    email: str | None = None
 
-    def __init__(self, user_id: str, email: str, **data: Any) -> None:
-        super().__init__(user_id=user_id, email=email, **data)
+    def __init__(
+        self,
+        user_id: str,
+        username: str = "",
+        email: str | None = None,
+        **data: Any,
+    ) -> None:
+        resolved_username = username or (email or "")
+        super().__init__(
+            user_id=user_id,
+            username=resolved_username,
+            email=email,
+            **data,
+        )
 
 
 class UserLoggedInEvent(DomainEvent):

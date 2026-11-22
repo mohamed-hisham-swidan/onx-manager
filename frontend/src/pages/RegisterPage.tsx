@@ -21,8 +21,7 @@ export function RegisterPage() {
 
   const [inviteToken, setInviteToken] = useState(tokenFromUrl);
 
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -49,8 +48,6 @@ export function RegisterPage() {
   const displayError = error || verifyError;
 
   const verifiedEmail = verification?.valid ? verification.email ?? "" : "";
-  const emailValue = verifiedEmail ? verifiedEmail : email;
-  const emailLocked = Boolean(verifiedEmail);
 
   const handleClickVerify = () => {
     setError("");
@@ -69,8 +66,9 @@ export function RegisterPage() {
     e.preventDefault();
     setError("");
 
-    if (!displayName || !emailValue || !password) {
-      setError("All fields are required");
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername || !password) {
+      setError("Username and password are required");
       return;
     }
     if (password.length < 8) {
@@ -88,15 +86,20 @@ export function RegisterPage() {
         // Token invitation registration
         const res = await api.acceptInvite({
           token: inviteToken.trim(),
-          email: emailValue,
+          username: trimmedUsername,
+          display_name: trimmedUsername,
           password,
-          display_name: displayName,
+          ...(verifiedEmail ? { email: verifiedEmail } : {}),
         });
         login(res.access_token, res.refresh_token, res.expires_in);
         navigate("/");
       } else {
         // Standard LOCAL registration
-        await api.createUser({ email: emailValue, password, display_name: displayName });
+        await api.createUser({
+          username: trimmedUsername,
+          display_name: trimmedUsername,
+          password,
+        });
         navigate("/login?registered=1");
       }
     } catch (err: unknown) {
@@ -177,47 +180,37 @@ export function RegisterPage() {
           {(!isInviteOnlyLocked || tokenVerified) && (
             <>
               {tokenVerified && (
-                <div className="px-3 py-1.5 text-xs text-status-success bg-status-success/10 rounded-lg border border-status-success/20 flex items-center justify-between">
-                  <span>Invitation verified!</span>
-                  <button
-                    type="button"
-                    onClick={handleChangeToken}
-                    className="text-xs text-text-muted hover:underline"
-                  >
-                    Change
-                  </button>
+                <div className="px-3 py-1.5 text-xs text-status-success bg-status-success/10 rounded-lg border border-status-success/20 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span>Invitation verified!</span>
+                    <button
+                      type="button"
+                      onClick={handleChangeToken}
+                      className="text-xs text-text-muted hover:underline"
+                    >
+                      Change
+                    </button>
+                  </div>
+                  {verifiedEmail && (
+                    <p>
+                      Restricted to: <strong>{verifiedEmail}</strong>
+                    </p>
+                  )}
                 </div>
               )}
 
               <div>
-                <label htmlFor="displayName" className="block text-sm font-medium text-text-secondary mb-1">
-                  Display name
+                <label htmlFor="username" className="block text-sm font-medium text-text-secondary mb-1">
+                  Username
                 </label>
                 <input
-                  id="displayName"
+                  id="username"
                   type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                  placeholder="Your name"
-                  autoComplete="name"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={emailValue}
-                  onChange={(e) => !emailLocked && setEmail(e.target.value)}
-                  disabled={emailLocked}
-                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary disabled:opacity-75 disabled:bg-surface-elevated"
-                  placeholder="you@example.com"
-                  autoComplete="email"
+                  placeholder="username"
+                  autoComplete="username"
                   required
                 />
               </div>

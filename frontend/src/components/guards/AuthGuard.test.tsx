@@ -6,6 +6,7 @@ import { AuthGuard } from "./AuthGuard";
 let mockIsAuthenticated = true;
 let mockRefreshToken: string | null = null;
 let mockRefreshAuth = vi.fn(async () => true);
+let mockIsLocalZeroLogin = false;
 
 vi.mock("@/stores/authStore", () => ({
   useAuthStore: vi.fn((selector: (s: { isAuthenticated: boolean; refreshToken: string | null; refreshAuth: () => Promise<boolean> }) => unknown) =>
@@ -15,6 +16,12 @@ vi.mock("@/stores/authStore", () => ({
       refreshAuth: mockRefreshAuth,
     }),
   ),
+}));
+
+vi.mock("@/hooks/useDeploymentProfile", () => ({
+  useDeploymentProfile: () => ({
+    isLocalZeroLogin: mockIsLocalZeroLogin,
+  }),
 }));
 
 function renderWithRouter(initialRoute = "/") {
@@ -34,6 +41,7 @@ describe("AuthGuard", () => {
   beforeEach(() => {
     mockIsAuthenticated = true;
     mockRefreshToken = null;
+    mockIsLocalZeroLogin = false;
     mockRefreshAuth = vi.fn(async () => true);
   });
 
@@ -80,5 +88,14 @@ describe("AuthGuard", () => {
     expect(mockRefreshAuth).toHaveBeenCalledTimes(1);
     expect(await screen.findByTestId("login-page")).toBeInTheDocument();
     expect(screen.queryByTestId("protected-page")).not.toBeInTheDocument();
+  });
+
+  it("renders protected route without JWT when local_zero_login is active", () => {
+    mockIsAuthenticated = false;
+    mockRefreshToken = null;
+    mockIsLocalZeroLogin = true;
+    renderWithRouter("/");
+    expect(screen.getByTestId("protected-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("login-page")).not.toBeInTheDocument();
   });
 });

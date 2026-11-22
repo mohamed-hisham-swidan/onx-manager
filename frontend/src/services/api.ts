@@ -28,6 +28,7 @@ import type {
   ConvertToSimpleResponse,
   BootstrapRequest,
   BootstrapResponse,
+  ConfigureCredentialsRequest,
   CreateInviteRequest,
   CreateInviteResponse,
   VerifyInviteResponse,
@@ -370,10 +371,12 @@ export function createApiClient(
 
       const errMsg =
         (body?.error as string) ??
+        (body?.message as string) ??
         detailMsg ??
         "Request failed";
       const errCode =
         (body?.error_code as string) ??
+        (body?.code as string) ??
         ((body?.detail as Record<string, unknown>)?.error_code as string) ??
         (response.status === 422 ? "VALIDATION_ERROR" : "UNKNOWN");
       const errDetail = (body?.detail as Record<string, unknown> | unknown[] | string | null) ?? null;
@@ -1129,6 +1132,8 @@ export function createApiClient(
       request<SystemStatusResponse>("/api/v1/setup/status"),
     bootstrapInstance: (body: BootstrapRequest) =>
       request<BootstrapResponse>("/api/v1/setup/bootstrap", { method: "POST", body }),
+    configureCredentials: (body: ConfigureCredentialsRequest) =>
+      request<BootstrapResponse>("/api/v1/setup/credentials", { method: "POST", body }),
     updateAccessMode: (body: { access_mode: string }) =>
       request<SystemStatusResponse>("/api/v1/setup/access-mode", { method: "PUT", body }),
     listInvites: () =>

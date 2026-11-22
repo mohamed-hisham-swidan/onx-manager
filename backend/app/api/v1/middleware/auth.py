@@ -72,6 +72,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 )
 
         auth_header = request.headers.get("Authorization", "")
+        if not auth_header:
+            from app.core.local_auth import resolve_local_auto_auth
+            from app.core.persistence.db import database
+
+            if database._session_factory is not None:
+                client_host = request.client.host if request.client else None
+                async with database.session_factory() as db:
+                    claims = await resolve_local_auto_auth(client_host, request.headers, db)
+                if claims is not None:
+                    request.state.user_id = claims["user_id"]
+                    request.state.roles = claims["roles"]
+                    request.state.permissions = claims["permissions"]
+                    request.state.auth_mode = claims.get("auth_mode", "local_zero_login")
+                    return await call_next(request)
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "Missing or invalid Authorization header",
+                    "error_code": "AUTHENTICATION_ERROR",
+                },
+            )
+
         if not auth_header.startswith("Bearer "):
             return JSONResponse(
                 status_code=401,

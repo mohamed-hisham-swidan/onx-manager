@@ -11,8 +11,7 @@ export function InvitePage() {
   const login = useAuthStore((s) => s.login);
   const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
 
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -27,15 +26,15 @@ export function InvitePage() {
     retry: 1,
   });
 
-  const isBoundEmail = Boolean(inviteStatus?.valid && inviteStatus.email);
-  const effectiveEmail = isBoundEmail ? inviteStatus!.email! : email;
+  const boundEmail = inviteStatus?.valid && inviteStatus.email ? inviteStatus.email : "";
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitError("");
 
-    if (!displayName.trim() || !effectiveEmail.trim() || !password) {
-      setSubmitError("All fields are required.");
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername || !password) {
+      setSubmitError("Username and password are required.");
       return;
     }
 
@@ -53,9 +52,10 @@ export function InvitePage() {
     try {
       const res = await api.acceptInvite({
         token,
-        email: effectiveEmail.trim(),
+        username: trimmedUsername,
+        display_name: trimmedUsername,
         password,
-        display_name: displayName.trim(),
+        ...(boundEmail ? { email: boundEmail } : {}),
       });
 
       login(res.access_token, res.refresh_token, res.expires_in);
@@ -147,34 +147,17 @@ export function InvitePage() {
           </div>
 
           <div>
-            <label htmlFor="displayName" className="block text-sm font-medium text-text-secondary mb-1">
-              Display Name
+            <label htmlFor="username" className="block text-sm font-medium text-text-secondary mb-1">
+              Username
             </label>
             <input
-              id="displayName"
+              id="username"
               type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
-              placeholder="Your Name"
-              autoComplete="name"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1">
-              Email Address
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={effectiveEmail}
-              onChange={(e) => !isBoundEmail && setEmail(e.target.value)}
-              disabled={isBoundEmail}
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-75 disabled:bg-surface-muted"
-              placeholder="you@example.com"
-              autoComplete="email"
+              placeholder="username"
+              autoComplete="username"
               required
             />
           </div>

@@ -43,6 +43,14 @@ export function SystemStatusGuard() {
   }
 
   const isSetupRoute = location.pathname === "/setup";
+  const isLoginRoute = location.pathname === "/login";
+
+  if (status.auth_mode === "local_zero_login") {
+    if (isSetupRoute || isLoginRoute) {
+      return <Navigate to="/" replace />;
+    }
+    return <Outlet />;
+  }
 
   if (!status.initialized) {
     if (!isSetupRoute) {

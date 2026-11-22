@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { QueryClient, QueryClientContext, useQuery } from "@tanstack/react-query";
 import * as apiModule from "@/services/api";
 import { useUIStore } from "@/stores/uiStore";
-import type { DeploymentProfile, SystemStatusResponse } from "@/types";
+import type { AuthMode, DeploymentProfile, SystemStatusResponse } from "@/types";
 
 const noopQueryClient = new QueryClient({
   defaultOptions: { queries: { enabled: false, retry: false } },
@@ -44,6 +44,9 @@ export interface DeploymentProfileState {
   hasExplicitProfile: boolean;
   isLocal: boolean;
   isVps: boolean;
+  authMode: AuthMode;
+  passwordConfigured: boolean;
+  isLocalZeroLogin: boolean;
   showFullControls: boolean;
   showFullVpsControls: boolean;
   setShowFullVpsControls: (show: boolean) => void;
@@ -74,6 +77,9 @@ export function useDeploymentProfile(): DeploymentProfileState {
   const profile: DeploymentProfile = rawProfile === "local" ? "local" : "vps";
   const isLocal = profile === "local";
   const isVps = profile === "vps";
+  const authMode: AuthMode = data?.auth_mode === "local_zero_login" ? "local_zero_login" : "jwt";
+  const isLocalZeroLogin = authMode === "local_zero_login";
+  const passwordConfigured = data?.password_configured ?? !isLocalZeroLogin;
   const showFullControls = isVps || showFullVpsControls;
 
   return {
@@ -81,6 +87,9 @@ export function useDeploymentProfile(): DeploymentProfileState {
     hasExplicitProfile,
     isLocal,
     isVps,
+    authMode,
+    passwordConfigured,
+    isLocalZeroLogin,
     showFullControls,
     showFullVpsControls,
     setShowFullVpsControls,

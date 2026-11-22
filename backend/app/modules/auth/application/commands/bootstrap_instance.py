@@ -13,13 +13,14 @@ from app.modules.auth.infrastructure.jwt import create_access_token, create_refr
 from app.modules.auth.infrastructure.models import RefreshTokenModel
 from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository, SQLUserRepository
-from app.modules.shared.value_objects import EmailAddress, Permission, RoleId, UserId
+from app.modules.shared.value_objects import EmailAddress, Permission, RoleId, UserId, Username
 
 
 class BootstrapInstanceCommand(Command):
-    email: str
+    username: str | None = None
+    email: str | None = None
     password: str
-    display_name: str
+    display_name: str | None = None
     access_mode: str = "LOCAL"
 
 
@@ -33,6 +34,19 @@ class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
             raise InvalidValueError(
                 "password", "too short", "Password must be at least 8 characters"
             )
+
+        raw_username = (command.username or command.email or "").strip()
+        try:
+            username_vo = Username(raw_username)
+        except ValueError as e:
+            raise InvalidValueError("username", raw_username, str(e)) from e
+
+        email_vo: EmailAddress | None = None
+        if command.email and command.email.strip():
+            try:
+                email_vo = EmailAddress(command.email.strip())
+            except ValueError as e:
+                raise InvalidValueError("email", command.email, str(e)) from e
 
         mode_str = command.access_mode.upper()
         if mode_str not in ("LOCAL", "GLOBAL"):
@@ -48,8 +62,9 @@ class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
                 raise ConflictError("Instance is already initialized")
 
             user_repo = SQLUserRepository(uow.session)
-            existing = await user_repo.get_by_email(command.email)
-            if existing:
+            if await user_repo.get_by_username(str(username_vo)):
+                raise ConflictError("Username already registered")
+            if email_vo is not None and await user_repo.get_by_email(str(email_vo)):
                 raise ConflictError("Email already registered")
 
             owner_role = await user_repo.get_role_by_name("owner")
@@ -62,22 +77,19 @@ class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
                 )
                 await user_repo.save_role(owner_role)
 
-            try:
-                email_vo = EmailAddress(command.email)
-            except ValueError as e:
-                raise InvalidValueError("email", command.email, str(e))
-
+            resolved_display = (command.display_name or "").strip() or str(username_vo)
             user = User.create(
                 user_id=UserId(uuid.uuid4().hex),
+                username=str(username_vo),
                 email=email_vo,
                 password_hash=hash_password(command.password),
-                display_name=command.display_name,
+                display_name=resolved_display,
             )
             user.add_role(owner_role)
             await user_repo.save(user)
 
             target_mode = AccessMode.GLOBAL if mode_str == "GLOBAL" else AccessMode.LOCAL
-            state.mark_initialized(access_mode=target_mode)
+            state.mark_initialized(access_mode=target_mode, password_configured=True)
             await sys_repo.save(state)
 
             for event in user.collect_events():

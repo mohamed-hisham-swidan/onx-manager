@@ -66,11 +66,8 @@ describe("InvitePage", () => {
     renderInvitePage("valid_token_123");
 
     expect(await screen.findByText(/Invitation Verified!/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Display Name/i)).toBeInTheDocument();
-
-    const emailInput = screen.getByLabelText(/Email Address/i) as HTMLInputElement;
-    expect(emailInput.value).toBe("invited@example.com");
-    expect(emailInput.disabled).toBe(true);
+    expect(screen.getByLabelText(/Username/i)).toBeInTheDocument();
+    expect(screen.getByText("invited@example.com")).toBeInTheDocument();
   });
 
   it("3. Validates password mismatch and password length requirement", async () => {
@@ -82,15 +79,13 @@ describe("InvitePage", () => {
 
     renderInvitePage("valid_token_123");
 
-    const nameInput = await screen.findByLabelText(/Display Name/i);
-    const emailInput = screen.getByLabelText(/Email Address/i);
+    const usernameInput = await screen.findByLabelText(/Username/i);
     const passInput = screen.getByLabelText(/^Password$/i);
     const confirmInput = screen.getByLabelText(/Confirm Password/i);
     const submitBtn = screen.getByRole("button", { name: /Accept Invitation/i });
 
     // Test password mismatch
-    fireEvent.change(nameInput, { target: { value: "New User" } });
-    fireEvent.change(emailInput, { target: { value: "user@example.com" } });
+    fireEvent.change(usernameInput, { target: { value: "newuser" } });
     fireEvent.change(passInput, { target: { value: "password123" } });
     fireEvent.change(confirmInput, { target: { value: "mismatch123" } });
     fireEvent.click(submitBtn);
@@ -115,12 +110,12 @@ describe("InvitePage", () => {
 
     renderInvitePage("valid_token_123");
 
-    const nameInput = await screen.findByLabelText(/Display Name/i);
+    const usernameInput = await screen.findByLabelText(/Username/i);
     const passInput = screen.getByLabelText(/^Password$/i);
     const confirmInput = screen.getByLabelText(/Confirm Password/i);
     const submitBtn = screen.getByRole("button", { name: /Accept Invitation/i });
 
-    fireEvent.change(nameInput, { target: { value: "Invited User" } });
+    fireEvent.change(usernameInput, { target: { value: "inviteduser" } });
     fireEvent.change(passInput, { target: { value: "password123" } });
     fireEvent.change(confirmInput, { target: { value: "password123" } });
     fireEvent.click(submitBtn);
@@ -128,9 +123,10 @@ describe("InvitePage", () => {
     await waitFor(() => {
       expect(mockAcceptInvite).toHaveBeenCalledWith({
         token: "valid_token_123",
+        username: "inviteduser",
+        display_name: "inviteduser",
         email: "invited@example.com",
         password: "password123",
-        display_name: "Invited User",
       });
       expect(mockLogin).toHaveBeenCalledWith("acc_token_999", "ref_token_999", 900);
       expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();

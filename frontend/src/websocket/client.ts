@@ -82,14 +82,16 @@ export class WSClient {
     }
 
     const token = this._getToken();
-    if (!token) {
+    if (!token && !this._config.allowAnonymous) {
       this._setState(CS.DISCONNECTED);
       return;
     }
 
     this._setState(CS.CONNECTING);
 
-    const url = `${this._config.url}?token=${encodeURIComponent(token)}`;
+    const url = token
+      ? `${this._config.url}?token=${encodeURIComponent(token)}`
+      : this._config.url;
     this._ws = new WebSocket(url);
     this._ws.binaryType = "arraybuffer";
 

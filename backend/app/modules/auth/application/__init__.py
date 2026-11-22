@@ -6,6 +6,10 @@ from app.modules.auth.application.commands.bootstrap_instance import (
     BootstrapInstanceCommand,
     BootstrapInstanceHandler,
 )
+from app.modules.auth.application.commands.configure_credentials import (
+    ConfigureCredentialsCommand,
+    ConfigureCredentialsHandler,
+)
 from app.modules.auth.application.commands.create_api_key import (
     CreateApiKeyCommand,
     CreateApiKeyHandler,
@@ -69,6 +73,8 @@ __all__ = [
     "DeleteUserHandler",
     "BootstrapInstanceCommand",
     "BootstrapInstanceHandler",
+    "ConfigureCredentialsCommand",
+    "ConfigureCredentialsHandler",
     "CreateInviteCommand",
     "CreateInviteHandler",
     "AcceptInviteCommand",

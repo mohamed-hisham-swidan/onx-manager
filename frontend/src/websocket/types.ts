@@ -118,6 +118,7 @@ export enum ConnectionState {
 export interface WSConnectionConfig {
   url: string;
   token: string | (() => string | null);
+  allowAnonymous?: boolean;
   autoReconnect?: boolean;
   maxRetries?: number;
   baseDelay?: number;

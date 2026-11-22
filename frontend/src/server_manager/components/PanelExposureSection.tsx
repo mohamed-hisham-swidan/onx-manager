@@ -4,8 +4,10 @@ import { PlayitClaimCard } from "@/server_manager/components/PlayitClaimCard";
 import { useClipboard } from "@/hooks/useClipboard";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
+import { ConfigureCredentialsModal } from "@/components/auth/ConfigureCredentialsModal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/Skeleton";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import type { PanelExposureMethodType, PanelExposureResponse } from "@/types";
@@ -17,7 +19,13 @@ function isValidFQDN(val: string): boolean {
   return clean.length >= 4 && clean.length <= 253 && FQDN_REGEX.test(clean);
 }
 
+function isPasswordRequiredError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  return (err as { code?: unknown }).code === "PASSWORD_REQUIRED_FOR_EXPOSURE";
+}
+
 export function PanelExposureSection() {
+  const { isLocalZeroLogin } = useDeploymentProfile();
   // Form State
   const [draftMethod, setDraftMethod] = useState<PanelExposureMethodType>("none");
   const [cloudflareToken, setCloudflareToken] = useState("");
@@ -29,6 +37,8 @@ export function PanelExposureSection() {
   const [isGeneratingClaim, setIsGeneratingClaim] = useState(false);
   const [isResettingAgent, setIsResettingAgent] = useState(false);
   const [claimData, setClaimData] = useState<import("@/types").ClaimResponse | null>(null);
+  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void> | void) | null>(null);
 
   const {
     panel,
@@ -74,7 +84,7 @@ export function PanelExposureSection() {
     }, 50);
   };
 
-  const handleGenerateClaim = async () => {
+  const executeGenerateClaim = async () => {
     try {
       setIsGeneratingClaim(true);
       const res = await api.generateClaim();
@@ -82,11 +92,25 @@ export function PanelExposureSection() {
       await refetch();
       toast("success", "Claim Link Generated", "Authorize with playit.gg to complete setup.");
     } catch (err: unknown) {
+      if (isPasswordRequiredError(err)) {
+        setPendingAction(() => () => executeGenerateClaim());
+        setIsCredentialsModalOpen(true);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Failed to generate claim link";
       toast("error", "Claim Generation Failed", msg);
     } finally {
       setIsGeneratingClaim(false);
     }
+  };
+
+  const handleGenerateClaim = async () => {
+    if (isLocalZeroLogin) {
+      setPendingAction(() => () => executeGenerateClaim());
+      setIsCredentialsModalOpen(true);
+      return;
+    }
+    await executeGenerateClaim();
   };
 
   const handleResetAgent = async () => {
@@ -103,7 +127,7 @@ export function PanelExposureSection() {
     }
   };
 
-  const handleSaveConfiguration = () => {
+  const executeSaveConfiguration = () => {
     if (draftMethod === "none") {
       updateExposure({
         method: "none",
@@ -111,6 +135,13 @@ export function PanelExposureSection() {
       });
       return;
     }
+
+    const handleGateError = (err: unknown) => {
+      if (isPasswordRequiredError(err)) {
+        setPendingAction(() => () => executeSaveConfiguration());
+        setIsCredentialsModalOpen(true);
+      }
+    };
 
     if (draftMethod === "cloudflare_tunnel") {
       if (!isValidFQDN(hostname)) return;
@@ -127,6 +158,7 @@ export function PanelExposureSection() {
             setIsRotatingToken(false);
             setTimeout(() => activeAddressRef.current?.focus(), 100);
           },
+          onError: handleGateError,
         },
       );
       return;
@@ -142,6 +174,7 @@ export function PanelExposureSection() {
           onSuccess: () => {
             setTimeout(() => activeAddressRef.current?.focus(), 100);
           },
+          onError: handleGateError,
         },
       );
       return;
@@ -158,10 +191,21 @@ export function PanelExposureSection() {
           onSuccess: () => {
             setTimeout(() => activeAddressRef.current?.focus(), 100);
           },
+          onError: handleGateError,
         },
       );
       return;
     }
+  };
+
+  const handleSaveConfiguration = () => {
+    if (draftMethod !== "none" && isLocalZeroLogin) {
+      if (draftMethod === "cloudflare_tunnel" && !isValidFQDN(hostname)) return;
+      setPendingAction(() => () => executeSaveConfiguration());
+      setIsCredentialsModalOpen(true);
+      return;
+    }
+    executeSaveConfiguration();
   };
 
   const handleConfirmDisable = () => {
@@ -216,6 +260,34 @@ export function PanelExposureSection() {
           <StatusBadge status={panel?.status || "DISABLED"} />
         </div>
       </div>
+
+      {/* Passwordless Local Mode Gate Banner */}
+      {isLocalZeroLogin && (
+        <div
+          data-testid="passwordless-panel-exposure-banner"
+          role="alert"
+          className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="space-y-1">
+            <h4 className="text-xs font-semibold text-status-warning uppercase tracking-wider">
+              Password Required for Panel Exposure
+            </h4>
+            <p className="text-xs text-text-secondary">
+              Set an administrator username and password before publishing the panel to the internet.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingAction(null);
+              setIsCredentialsModalOpen(true);
+            }}
+            className="shrink-0 px-3.5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors cursor-pointer"
+          >
+            Set Username &amp; Password
+          </button>
+        </div>
+      )}
 
       {/* Security Advisory Banner (LOCAL Mode Unencrypted Port Forwarding) */}
       {panel?.security_advisory && (
@@ -678,6 +750,21 @@ export function PanelExposureSection() {
           </div>
         </div>
       </Modal>
+
+      <ConfigureCredentialsModal
+        open={isCredentialsModalOpen}
+        onClose={() => {
+          setIsCredentialsModalOpen(false);
+          setPendingAction(null);
+        }}
+        onSuccess={async () => {
+          const action = pendingAction;
+          setPendingAction(null);
+          if (action) {
+            await action();
+          }
+        }}
+      />
     </div>
   );
 }

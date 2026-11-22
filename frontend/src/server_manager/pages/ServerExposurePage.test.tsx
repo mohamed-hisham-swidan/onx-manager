@@ -30,6 +30,8 @@ const mockGenerateClaim = vi.fn();
 const mockResetAgent = vi.fn();
 const mockStopAllExposures = vi.fn();
 const mockRemoveCredentials = vi.fn();
+const mockGetSetupStatus = vi.fn();
+const mockConfigureCredentials = vi.fn();
 
 const mockToast = vi.fn();
 const mockCopy = vi.fn();
@@ -37,6 +39,8 @@ const mockCopy = vi.fn();
 vi.mock("@/services/api", () => {
   const client = {
     getMe: () => mockGetMe(),
+    getSetupStatus: () => mockGetSetupStatus(),
+    configureCredentials: (body: unknown) => mockConfigureCredentials(body),
     getServer: (id: string) => mockGetServer(id),
     getServerExposure: (id: string) => mockGetServerExposure(id),
     setServerExposure: (id: string, body: unknown) => mockSetServerExposure(id, body),
@@ -192,6 +196,13 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
     mockGetServerExposure.mockResolvedValue({ ...defaultExposureResponse });
     mockGetAgentStatus.mockResolvedValue({ ...defaultAgentResponse });
     mockListServerPorts.mockResolvedValue([]);
+    mockGetSetupStatus.mockResolvedValue({
+      initialized: true,
+      access_mode: "GLOBAL",
+      deployment_profile: "vps",
+      password_configured: true,
+      auth_mode: "jwt",
+    });
   });
 
   it("T-75-01: renders_not_exposed_default_state_cleanly", async () => {
@@ -1074,6 +1085,122 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
       await waitFor(() => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       });
+    });
+  });
+
+  describe("Phase 2 — Exposure Password-Gate Modal in Passwordless Local Mode", () => {
+    it("shows passwordless local security notice, gates enabling exposure behind username+password setup, and retries exposure after saving credentials", async () => {
+      mockGetSetupStatus.mockResolvedValue({
+        initialized: true,
+        access_mode: "LOCAL",
+        deployment_profile: "local",
+        password_configured: false,
+        auth_mode: "local_zero_login",
+      });
+      mockGetAgentStatus.mockResolvedValue({
+        ...defaultAgentResponse,
+        claimed: true,
+      });
+      mockConfigureCredentials.mockImplementation(async () => {
+        mockGetSetupStatus.mockResolvedValue({
+          initialized: true,
+          access_mode: "LOCAL",
+          deployment_profile: "local",
+          password_configured: true,
+          auth_mode: "jwt",
+        });
+        return {
+          access_token: "new-jwt-token",
+          refresh_token: "new-refresh-token",
+          token_type: "bearer",
+          expires_in: 3600,
+          user_id: "user-1",
+          username: "localowner",
+          email: null,
+          display_name: "localowner",
+          roles: ["owner"],
+        };
+      });
+      mockSetServerExposure.mockResolvedValueOnce({
+        ...defaultExposureResponse,
+        method: "playit",
+        desired_state: "ENABLED",
+        aggregate_status: "STARTING",
+      });
+
+      renderServerExposurePage();
+
+      // Security gate notice renders for passwordless local mode
+      expect(
+        await screen.findByText("Security Setup Required for Public Exposure")
+      ).toBeInTheDocument();
+
+      // Attempt to enable playit.gg exposure
+      fireEvent.click(screen.getByRole("button", { name: /playit\.gg/i }));
+      const enablePlayitBtn = await screen.findByRole("button", {
+        name: /Save & Apply playit\.gg Exposure/i,
+      });
+      fireEvent.click(enablePlayitBtn);
+
+      // Should open ConfigureCredentialsModal instead of immediately calling setServerExposure
+      expect(mockSetServerExposure).not.toHaveBeenCalled();
+      expect(
+        await screen.findByRole("heading", { name: "Set Administrator Username & Password" })
+      ).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/^Username$/i), {
+        target: { value: "localowner" },
+      });
+      fireEvent.change(screen.getByLabelText(/^Password$/i), {
+        target: { value: "StrongPass123!" },
+      });
+      fireEvent.change(screen.getByLabelText(/Confirm Password/i), {
+        target: { value: "StrongPass123!" },
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /Save Credentials & Continue/i }));
+
+      await waitFor(() => {
+        expect(mockConfigureCredentials).toHaveBeenCalledWith({
+          username: "localowner",
+          display_name: "localowner",
+          password: "StrongPass123!",
+        });
+      });
+
+      await waitFor(() => {
+        expect(mockSetServerExposure).toHaveBeenCalledWith("srv-123", {
+          method: "playit",
+          desired_state: "ENABLED",
+        });
+      });
+    });
+
+    it("opens ConfigureCredentialsModal when backend rejects exposure with PASSWORD_REQUIRED_FOR_EXPOSURE", async () => {
+      mockGetAgentStatus.mockResolvedValue({
+        ...defaultAgentResponse,
+        claimed: true,
+      });
+      const gateError = Object.assign(new Error("Set credentials first"), {
+        code: "PASSWORD_REQUIRED_FOR_EXPOSURE",
+        status: 403,
+      });
+      mockSetServerExposure.mockRejectedValueOnce(gateError);
+
+      renderServerExposurePage();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /playit\.gg/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /playit\.gg/i }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /Save & Apply playit\.gg Exposure/i })
+      );
+
+      expect(
+        await screen.findByRole("heading", { name: "Set Administrator Username & Password" })
+      ).toBeInTheDocument();
     });
   });
 });

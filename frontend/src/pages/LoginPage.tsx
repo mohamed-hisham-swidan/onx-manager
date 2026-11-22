@@ -7,7 +7,7 @@ import { VoxelBanner } from "@/components/brand/VoxelBanner";
 
 export function LoginPage() {
   const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -19,14 +19,14 @@ export function LoginPage() {
     e.preventDefault();
     setError("");
 
-    if (!email || !password) {
-      setError("Email and password are required");
+    if (!username.trim() || !password) {
+      setError("Username and password are required");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await api.login({ email, password });
+      const res = await api.login({ username: username.trim(), password });
       login(res.access_token, res.refresh_token, res.expires_in);
       navigate("/");
     } catch (err: unknown) {
@@ -69,17 +69,17 @@ export function LoginPage() {
           )}
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1">
-              Email
+            <label htmlFor="username" className="block text-sm font-medium text-text-secondary mb-1">
+              Username
             </label>
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="h-11 w-full px-3.5 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
-              placeholder="you@example.com"
-              autoComplete="email"
+              placeholder="admin"
+              autoComplete="username"
             />
           </div>
 

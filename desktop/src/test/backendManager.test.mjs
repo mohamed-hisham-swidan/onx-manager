@@ -37,11 +37,13 @@ test("probePanelEndpoint validates live ONX status and reports offline errors", 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
-          initialized: false,
+          initialized: true,
           access_mode: "LOCAL",
-          user_count: 0,
+          user_count: 1,
           version: "0.1.0",
-          deployment_profile: "vps",
+          deployment_profile: "local",
+          password_configured: false,
+          auth_mode: "local_zero_login",
         }),
       );
       return;
@@ -57,8 +59,10 @@ test("probePanelEndpoint validates live ONX status and reports offline errors", 
     const okResult = await probePanelEndpoint(`http://127.0.0.1:${port}`);
     assert.equal(okResult.ok, true);
     assert.equal(okResult.version, "0.1.0");
-    assert.equal(okResult.deploymentProfile, "vps");
-    assert.equal(okResult.initialized, false);
+    assert.equal(okResult.deploymentProfile, "local");
+    assert.equal(okResult.initialized, true);
+    assert.equal(okResult.authMode, "local_zero_login");
+    assert.equal(okResult.passwordConfigured, false);
 
     const failResult = await probePanelEndpoint("http://127.0.0.1:1");
     assert.equal(failResult.ok, false);

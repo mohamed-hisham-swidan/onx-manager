@@ -43,8 +43,8 @@ describe("SetupPage", () => {
 
   it("1. Renders setup wizard form with all fields from backend contract", () => {
     renderSetupPage();
-    expect(screen.getByLabelText(/Display Name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Owner Email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Username/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Owner Email/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Confirm Password/i)).toBeInTheDocument();
     expect(screen.getByText(/Local Mode/i)).toBeInTheDocument();
@@ -54,8 +54,7 @@ describe("SetupPage", () => {
   it("2 & 3. Validates password confirmation mismatch", async () => {
     renderSetupPage();
 
-    fireEvent.change(screen.getByLabelText(/Display Name/i), { target: { value: "Owner Name" } });
-    fireEvent.change(screen.getByLabelText(/Owner Email/i), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "ownername" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: "mismatch321" } });
 
@@ -68,8 +67,7 @@ describe("SetupPage", () => {
   it("4. Validates password length requirement (< 8 chars)", async () => {
     renderSetupPage();
 
-    fireEvent.change(screen.getByLabelText(/Display Name/i), { target: { value: "Owner Name" } });
-    fireEvent.change(screen.getByLabelText(/Owner Email/i), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "ownername" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "short" } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: "short" } });
 
@@ -92,8 +90,7 @@ describe("SetupPage", () => {
 
     renderSetupPage();
 
-    fireEvent.change(screen.getByLabelText(/Display Name/i), { target: { value: "Owner Admin" } });
-    fireEvent.change(screen.getByLabelText(/Owner Email/i), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "owneradmin" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: "password123" } });
 
@@ -101,8 +98,8 @@ describe("SetupPage", () => {
 
     await waitFor(() => {
       expect(mockBootstrapInstance).toHaveBeenCalledWith({
-        display_name: "Owner Admin",
-        email: "owner@example.com",
+        username: "owneradmin",
+        display_name: "owneradmin",
         password: "password123",
         access_mode: "LOCAL",
       });
@@ -116,8 +113,7 @@ describe("SetupPage", () => {
 
     renderSetupPage();
 
-    fireEvent.change(screen.getByLabelText(/Display Name/i), { target: { value: "Owner Admin" } });
-    fireEvent.change(screen.getByLabelText(/Owner Email/i), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "owneradmin" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: "password123" } });
 
@@ -131,8 +127,7 @@ describe("SetupPage", () => {
 
     renderSetupPage();
 
-    fireEvent.change(screen.getByLabelText(/Display Name/i), { target: { value: "Owner Admin" } });
-    fireEvent.change(screen.getByLabelText(/Owner Email/i), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "owneradmin" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: "password123" } });
 

@@ -18,7 +18,8 @@ from app.modules.auth.infrastructure.repository import SQLUserRepository
 
 
 class LoginCommand(Command):
-    email: str
+    username: str = ""
+    email: str | None = None
     password: str
     ip_address: str = ""
 
@@ -29,13 +30,19 @@ class LoginHandler(CommandHandler[LoginCommand]):
         self._perm_evaluator = PermissionEvaluator()
 
     async def handle(self, command: LoginCommand) -> CommandResult:
+        identifier = (command.username or command.email or "").strip()
+        if not identifier:
+            raise InvalidCredentialsError()
+
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLUserRepository(uow.session)
-            user = await repo.get_by_email(command.email)
+            user = await repo.get_by_identifier(identifier)
             if user is None:
                 raise InvalidCredentialsError()
             if not user.is_active:
                 raise AuthenticationError("Account is deactivated")
+            if not user.password_hash or user.password_hash.startswith("!"):
+                raise InvalidCredentialsError()
             if not verify_password(command.password, user.password_hash):
                 raise InvalidCredentialsError()
 
@@ -85,6 +92,7 @@ class LoginHandler(CommandHandler[LoginCommand]):
                 "token_type": "bearer",
                 "expires_in": 900,
                 "user_id": str(user.user_id),
+                "username": user.username,
                 "display_name": user.display_name,
                 "roles": [r.name for r in user.roles],
                 "permissions": user_perms,

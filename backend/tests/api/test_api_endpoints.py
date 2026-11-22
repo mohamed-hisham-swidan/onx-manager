@@ -309,6 +309,22 @@ class TestAuth:
         assert data["access_token"]
         assert data["token_type"] == "bearer"
 
+    async def test_create_user_and_login_username_only(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/v1/users",
+            json={"username": "username_only", "password": "password123"},
+        )
+        assert resp.status_code == 201
+        data_user = resp.json()
+        assert data_user["username"] == "username_only"
+        assert data_user["email"] is None
+
+        resp = await client.post(
+            "/api/v1/auth/login", json={"username": "username_only", "password": "password123"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["access_token"]
+
     async def test_login_invalid_credentials(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/v1/auth/login", json={"email": "nonexistent@test.com", "password": "wrong"}
@@ -316,14 +332,16 @@ class TestAuth:
         assert resp.status_code == 401
 
     async def test_login_missing_fields(self, client: AsyncClient) -> None:
-        resp = await client.post("/api/v1/auth/login", json={"email": "", "password": ""})
+        resp = await client.post("/api/v1/auth/login", json={"username": "", "password": ""})
         assert resp.status_code == 422
 
-    async def test_login_invalid_email_format(self, client: AsyncClient) -> None:
+    async def test_login_non_email_username_rejected_with_401_if_missing(
+        self, client: AsyncClient
+    ) -> None:
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "not-an-email", "password": "password"}
+            "/api/v1/auth/login", json={"username": "not-an-email", "password": "password"}
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     async def test_refresh_token(self, client: AsyncClient, created_user: dict) -> None:
         login_resp = await client.post(

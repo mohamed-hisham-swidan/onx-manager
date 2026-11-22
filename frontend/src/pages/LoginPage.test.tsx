@@ -52,7 +52,8 @@ describe("LoginPage", () => {
     renderPage();
     expect(screen.getByText("onx-manager")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
@@ -63,15 +64,15 @@ describe("LoginPage", () => {
     expect(heading.className).toContain("text-2xl");
     expect(screen.getByText("Sign in to manage your Minecraft servers.")).toBeInTheDocument();
 
-    const emailInput = screen.getByLabelText("Email");
+    const usernameInput = screen.getByLabelText("Username");
     const passwordInput = screen.getByLabelText("Password");
     const submitBtn = screen.getByRole("button", { name: "Sign in" });
 
-    expect(emailInput.className).toContain("h-11");
+    expect(usernameInput.className).toContain("h-11");
     expect(passwordInput.className).toContain("h-11");
     expect(submitBtn.className).toContain("h-11");
 
-    const form = emailInput.closest("form");
+    const form = usernameInput.closest("form");
     expect(form?.className).toContain("p-8");
     const cardWrapper = form?.parentElement;
     expect(cardWrapper?.className).toContain("max-w-md");
@@ -81,18 +82,18 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(screen.getByText("Email and password are required")).toBeInTheDocument();
+    expect(screen.getByText("Username and password are required")).toBeInTheDocument();
   });
 
   it("calls api.login on valid submit and navigates to /", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByLabelText("Email"), "a@b.com");
+    await user.type(screen.getByLabelText("Username"), "admin");
     await user.type(screen.getByLabelText("Password"), "secret");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(mockApiLogin).toHaveBeenCalledWith({ email: "a@b.com", password: "secret" });
+    expect(mockApiLogin).toHaveBeenCalledWith({ username: "admin", password: "secret" });
     expect(mockLogin).toHaveBeenCalledWith("tok1", "rtok1", 3600);
     expect(mockNavigate).toHaveBeenCalledWith("/");
   });
@@ -103,7 +104,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByLabelText("Email"), "a@b.com");
+    await user.type(screen.getByLabelText("Username"), "admin");
     await user.type(screen.getByLabelText("Password"), "wrong");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -117,7 +118,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByLabelText("Email"), "a@b.com");
+    await user.type(screen.getByLabelText("Username"), "admin");
     await user.type(screen.getByLabelText("Password"), "secret");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 

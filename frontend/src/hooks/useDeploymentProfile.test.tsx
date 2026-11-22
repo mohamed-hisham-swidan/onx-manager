@@ -212,15 +212,14 @@ describe("Deployment Profile UX adaptation (local vs vps)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Network access options/i }));
     expect(await screen.findByText("Global Mode")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Display Name/i), { target: { value: "Player One" } });
-    fireEvent.change(screen.getByLabelText(/Owner Email/i), { target: { value: "p1@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "playerone" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: /Complete Setup/i }));
 
     await waitFor(() => {
       expect(mockBootstrapInstance).toHaveBeenCalledWith(
-        expect.objectContaining({ access_mode: "LOCAL" }),
+        expect.objectContaining({ username: "playerone", access_mode: "LOCAL" }),
       );
     });
   });

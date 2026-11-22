@@ -38,8 +38,14 @@ async def login(
     request: Request = None,
 ) -> LoginResponse:
     client_ip = request.client.host if request and request.client else ""
+    identifier = (body.username or body.email or "").strip()
     result = await command_bus.send(
-        LoginCommand(email=body.email, password=body.password, ip_address=client_ip)
+        LoginCommand(
+            username=identifier,
+            email=body.email,
+            password=body.password,
+            ip_address=client_ip,
+        )
     )
     data = check_command_result(result)
     return LoginResponse(

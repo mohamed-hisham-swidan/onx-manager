@@ -73,9 +73,19 @@ async def get_event_bus() -> EventBus:
 
 
 async def get_current_user(
+    request: Request = None,
     db: AsyncSession = Depends(get_db),  # noqa: B008
     authorization: str = Header(default=""),
 ) -> dict:
+    if not authorization:
+        if request is not None:
+            from app.core.local_auth import resolve_local_auto_auth
+
+            client_host = request.client.host if request.client else None
+            local_claims = await resolve_local_auto_auth(client_host, request.headers, db)
+            if local_claims is not None:
+                return local_claims
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     token = authorization.removeprefix("Bearer ")

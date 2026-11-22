@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.deps import get_command_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
@@ -53,9 +53,16 @@ class VerifyInviteResponse(BaseResponse):
 
 class AcceptInviteRequest(BaseModel):
     token: str
-    email: str
+    username: str | None = None
+    email: str | None = None
     password: str = Field(min_length=8)
-    display_name: str
+    display_name: str | None = None
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> AcceptInviteRequest:
+        if not (self.username or self.email or "").strip():
+            raise ValueError("username is required")
+        return self
 
 
 class AcceptInviteResponse(BaseResponse):
@@ -140,6 +147,7 @@ async def accept_invite(
     result = await command_bus.send(
         AcceptInviteCommand(
             token=body.token,
+            username=body.username,
             email=body.email,
             password=body.password,
             display_name=body.display_name,

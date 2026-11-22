@@ -8,13 +8,14 @@ from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import hash_password
 from app.modules.auth.domain.aggregate import User
 from app.modules.auth.infrastructure.repository import SQLUserRepository
-from app.modules.shared.value_objects import EmailAddress, UserId
+from app.modules.shared.value_objects import EmailAddress, UserId, Username
 
 
 class CreateUserCommand(Command):
-    email: str
+    username: str | None = None
+    email: str | None = None
     password: str
-    display_name: str
+    display_name: str | None = None
 
 
 class CreateUserHandler(CommandHandler[CreateUserCommand]):
@@ -29,22 +30,33 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
                 "password", "too short", "Password must be at least 8 characters"
             )
 
+        raw_username = (command.username or command.email or "").strip()
+        try:
+            username_vo = Username(raw_username)
+        except ValueError as e:
+            raise InvalidValueError("username", raw_username, str(e)) from e
+
+        email_vo: EmailAddress | None = None
+        if command.email and command.email.strip():
+            try:
+                email_vo = EmailAddress(command.email.strip())
+            except ValueError as e:
+                raise InvalidValueError("email", command.email, str(e)) from e
+
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLUserRepository(uow.session)
-            existing = await repo.get_by_email(command.email)
-            if existing:
+            if await repo.get_by_username(str(username_vo)):
+                raise ConflictError("Username already registered")
+            if email_vo is not None and await repo.get_by_email(str(email_vo)):
                 raise ConflictError("Email already registered")
 
-            try:
-                email_vo = EmailAddress(command.email)
-            except ValueError as e:
-                raise InvalidValueError("email", command.email, str(e))
-
+            resolved_display = (command.display_name or "").strip() or str(username_vo)
             user = User.create(
                 user_id=UserId(uuid.uuid4().hex),
+                username=str(username_vo),
                 email=email_vo,
                 password_hash=hash_password(command.password),
-                display_name=command.display_name,
+                display_name=resolved_display,
             )
 
             viewer_role = await repo.get_role_by_name("viewer")
@@ -71,7 +83,8 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
             success=True,
             data={
                 "user_id": str(user.user_id),
-                "email": str(user.email),
+                "username": user.username,
+                "email": str(user.email) if user.email is not None else None,
                 "display_name": user.display_name,
                 "is_active": user.is_active,
                 "roles": [r.name for r in user.roles],

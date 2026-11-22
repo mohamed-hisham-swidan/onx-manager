@@ -116,4 +116,22 @@ describe("SystemStatusGuard", () => {
     fireEvent.click(screen.getByRole("button", { name: /retry connection/i }));
     expect(await screen.findByTestId("setup-page")).toBeInTheDocument();
   });
+
+  it("8. LOCAL_ZERO_LOGIN redirects /login and /setup directly to dashboard /", async () => {
+    mockGetSetupStatus.mockResolvedValue({
+      initialized: true,
+      access_mode: "LOCAL",
+      user_count: 1,
+      version: "0.1.0",
+      deployment_profile: "local",
+      password_configured: false,
+      auth_mode: "local_zero_login",
+    });
+
+    renderWithRouter("/login");
+    expect(await screen.findByTestId("home-page")).toBeInTheDocument();
+
+    renderWithRouter("/setup");
+    expect(await screen.findAllByTestId("home-page")).not.toHaveLength(0);
+  });
 });

@@ -170,8 +170,9 @@ export interface InstallModrinthPluginResponse {
 }
 
 export interface LoginRequest {
-  email: string;
+  username: string;
   password: string;
+  email?: string;
 }
 
 export interface LoginResponse {
@@ -203,7 +204,8 @@ export interface ApiKeyResponse {
 
 export interface UserResponse {
   user_id: string;
-  email: string;
+  username?: string;
+  email: string | null;
   display_name: string;
   is_active: boolean;
   roles: string[];
@@ -212,12 +214,14 @@ export interface UserResponse {
 }
 
 export interface CreateUserRequest {
-  email: string;
+  username: string;
   password: string;
-  display_name: string;
+  display_name?: string;
+  email?: string | null;
 }
 
 export interface UpdateUserRequest {
+  username?: string | null;
   email?: string | null;
   display_name?: string | null;
   is_active?: boolean | null;
@@ -286,6 +290,7 @@ export interface SettingsUpdateResponse {
 }
 
 export type DeploymentProfile = "local" | "vps";
+export type AuthMode = "local_zero_login" | "jwt";
 
 export interface SystemStatusResponse {
   initialized: boolean;
@@ -294,19 +299,30 @@ export interface SystemStatusResponse {
   version: string;
   advanced_mode_enabled?: boolean;
   deployment_profile?: DeploymentProfile;
+  password_configured?: boolean;
+  auth_mode?: AuthMode;
 }
 
 export interface BootstrapRequest {
-  email: string;
+  username: string;
   password: string;
-  display_name: string;
+  display_name?: string;
+  email?: string | null;
   access_mode: "LOCAL" | "GLOBAL";
+}
+
+export interface ConfigureCredentialsRequest {
+  username: string;
+  password: string;
+  display_name?: string;
+  email?: string | null;
 }
 
 export interface BootstrapResponse {
   success: boolean;
   message: string;
   user_id: string;
+  username?: string;
   access_token: string;
   refresh_token: string;
   token_type: string;
@@ -315,7 +331,8 @@ export interface BootstrapResponse {
 
 export interface CurrentUserResponse {
   user_id: string;
-  email: string;
+  username?: string;
+  email: string | null;
   display_name: string;
   is_active: boolean;
   roles: string[];
@@ -354,9 +371,10 @@ export interface VerifyInviteResponse {
 
 export interface AcceptInviteRequest {
   token: string;
-  email: string;
+  username: string;
   password: string;
-  display_name: string;
+  display_name?: string;
+  email?: string | null;
 }
 
 export interface AcceptInviteResponse {

@@ -57,8 +57,8 @@ describe("RegisterPage", () => {
 
     renderRegisterPage();
 
-    expect(await screen.findByLabelText(/Display name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Email/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Username/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Email/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Create account/i })).toBeInTheDocument();
   });
 
@@ -69,14 +69,13 @@ describe("RegisterPage", () => {
       user_count: 1,
       version: "0.1.0",
     });
-    mockCreateUser.mockResolvedValueOnce({ user_id: "u-2", email: "user@test.com" });
+    mockCreateUser.mockResolvedValueOnce({ user_id: "u-2", username: "localuser", email: null });
 
     renderRegisterPage();
 
-    await screen.findByLabelText(/Display name/i);
+    await screen.findByLabelText(/Username/i);
 
-    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: "Local User" } });
-    fireEvent.change(screen.getByLabelText(/Email/i), { target: { value: "user@test.com" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "localuser" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm password/i), { target: { value: "password123" } });
 
@@ -84,8 +83,8 @@ describe("RegisterPage", () => {
 
     await waitFor(() => {
       expect(mockCreateUser).toHaveBeenCalledWith({
-        display_name: "Local User",
-        email: "user@test.com",
+        username: "localuser",
+        display_name: "localuser",
         password: "password123",
       });
       expect(screen.getByTestId("login-page")).toBeInTheDocument();
@@ -103,7 +102,7 @@ describe("RegisterPage", () => {
     renderRegisterPage();
 
     expect(await screen.findByText(/This instance uses invitation-only registration/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Display name/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Username/i)).not.toBeInTheDocument();
   });
 
   it("verifies and accepts invitation token from URL parameter", async () => {
@@ -129,9 +128,9 @@ describe("RegisterPage", () => {
     renderRegisterPage("/register?token=valid_token_123");
 
     expect(await screen.findByText(/Invitation verified!/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Email/i)).toHaveValue("invited@test.com");
+    expect(screen.getByText("invited@test.com")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: "Invited User" } });
+    fireEvent.change(screen.getByLabelText(/Username/i), { target: { value: "inviteduser" } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText(/Confirm password/i), { target: { value: "password123" } });
 
@@ -140,9 +139,10 @@ describe("RegisterPage", () => {
     await waitFor(() => {
       expect(mockAcceptInvite).toHaveBeenCalledWith({
         token: "valid_token_123",
+        username: "inviteduser",
+        display_name: "inviteduser",
         email: "invited@test.com",
         password: "password123",
-        display_name: "Invited User",
       });
       expect(mockLogin).toHaveBeenCalledWith("acc_tok", "ref_tok", 900);
       expect(screen.getByTestId("home-page")).toBeInTheDocument();

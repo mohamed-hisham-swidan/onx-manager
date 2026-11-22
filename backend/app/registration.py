@@ -21,6 +21,8 @@ from app.modules.auth.application import (
     AcceptInviteHandler,
     BootstrapInstanceCommand,
     BootstrapInstanceHandler,
+    ConfigureCredentialsCommand,
+    ConfigureCredentialsHandler,
     CreateApiKeyCommand,
     CreateApiKeyHandler,
     CreateInviteCommand,
@@ -525,6 +527,7 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(UpdateUserCommand, UpdateUserHandler(event_bus))
     command_bus.register(DeleteUserCommand, DeleteUserHandler(event_bus))
     command_bus.register(BootstrapInstanceCommand, BootstrapInstanceHandler(event_bus))
+    command_bus.register(ConfigureCredentialsCommand, ConfigureCredentialsHandler(event_bus))
     command_bus.register(CreateInviteCommand, CreateInviteHandler(event_bus))
     command_bus.register(AcceptInviteCommand, AcceptInviteHandler(event_bus))
     command_bus.register(RevokeInviteCommand, RevokeInviteHandler(event_bus))

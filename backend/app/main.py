@@ -107,6 +107,15 @@ async def lifespan(_app: FastAPI):
 
     async with database.session_factory() as session:
         try:
+            from app.core.local_auth import ensure_local_admin_provisioned
+
+            if await ensure_local_admin_provisioned(session, settings):
+                await session.commit()
+                logger.info("Local zero-login admin account provisioned for loopback local mode")
+        except Exception:
+            logger.exception("Local zero-login startup provisioning failed")
+
+        try:
             migration_report = await migrate_all_local_servers_to_docker(session)
             if migration_report.migrated_count:
                 logger.info(

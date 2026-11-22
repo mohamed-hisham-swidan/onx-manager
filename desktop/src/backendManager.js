@@ -108,6 +108,8 @@ async function probePanelEndpoint(rawUrl, timeoutMs = 8000) {
         version: statusRes.data.version || null,
         initialized: statusRes.data.initialized,
         deploymentProfile: statusRes.data.deployment_profile || "vps",
+        authMode: statusRes.data.auth_mode || "jwt",
+        passwordConfigured: Boolean(statusRes.data.password_configured),
         error: null,
       };
     }
@@ -119,6 +121,8 @@ async function probePanelEndpoint(rawUrl, timeoutMs = 8000) {
         version: healthRes.data.version || null,
         initialized: null,
         deploymentProfile: healthRes.data.deployment_profile || "vps",
+        authMode: null,
+        passwordConfigured: null,
         error: null,
       };
     }
@@ -128,6 +132,8 @@ async function probePanelEndpoint(rawUrl, timeoutMs = 8000) {
       version: null,
       initialized: null,
       deploymentProfile: null,
+      authMode: null,
+      passwordConfigured: null,
       error: `Panel responded with HTTP ${statusRes.status || healthRes.status || "error"}.`,
     };
   } catch (err) {
@@ -137,6 +143,8 @@ async function probePanelEndpoint(rawUrl, timeoutMs = 8000) {
       version: null,
       initialized: null,
       deploymentProfile: null,
+      authMode: null,
+      passwordConfigured: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }

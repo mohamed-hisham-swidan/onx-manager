@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.api.v1.schemas.common import BaseResponse
 
@@ -10,19 +10,32 @@ EMAIL_COMPILED: re.Pattern[str] = re.compile(EMAIL_PATTERN)
 
 
 class CreateUserRequest(BaseModel):
-    email: str
+    username: str | None = None
+    email: str | None = None
     password: str = Field(..., min_length=8)
-    display_name: str = Field(..., min_length=1, max_length=128)
+    display_name: str | None = Field(default=None, max_length=128)
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: str) -> str:
-        if not EMAIL_COMPILED.match(v):
+    def validate_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        if not EMAIL_COMPILED.match(cleaned):
             raise ValueError(f"Invalid email address: {v!r}")
-        return v
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> "CreateUserRequest":
+        if not (self.username or self.email or "").strip():
+            raise ValueError("username is required")
+        return self
 
 
 class UpdateUserRequest(BaseModel):
+    username: str | None = None
     email: str | None = None
     display_name: str | None = None
     is_active: bool | None = None
@@ -30,14 +43,15 @@ class UpdateUserRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def validate_email(cls, v: str | None) -> str | None:
-        if v is not None and not EMAIL_COMPILED.match(v):
+        if v is not None and v.strip() != "" and not EMAIL_COMPILED.match(v.strip()):
             raise ValueError(f"Invalid email address: {v!r}")
         return v
 
 
 class UserResponse(BaseResponse):
     user_id: str
-    email: str
+    username: str = ""
+    email: str | None = None
     display_name: str
     is_active: bool
     roles: list[str] = []

@@ -13,6 +13,7 @@ interface UseWebSocketOptions {
   onStateSync?: (events: Array<Record<string, unknown>>) => void;
   onConsole?: (serverId: string, lines: string[]) => void;
   autoConnect?: boolean;
+  allowAnonymous?: boolean;
 }
 
 /**
@@ -72,7 +73,7 @@ export function useConsoleStream(
   }, [serverId, onLines]);
 }
 
-export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, onConsole, autoConnect = true }: UseWebSocketOptions) {
+export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, onConsole, autoConnect = true, allowAnonymous = false }: UseWebSocketOptions) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const setConnectionState = useWSStore((s) => s.setConnectionState);
   const setChannelState = useWSStore((s) => s.setChannelState);
@@ -83,7 +84,7 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, onConso
   const handlerRef = useRef<WSHandler | null>(null);
 
   useEffect(() => {
-    if (!autoConnect || !isAuthenticated) return;
+    if (!autoConnect || (!isAuthenticated && !allowAnonymous)) return;
 
     const handler = new WSHandler({
       onCacheUpdate,
@@ -97,7 +98,7 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, onConso
     handlerRef.current = handler;
 
     const client = new WSClient(
-      { url, token: () => useAuthStore.getState().accessToken, autoReconnect: true },
+      { url, token: () => useAuthStore.getState().accessToken, allowAnonymous, autoReconnect: true },
       {
         onStateChange: (state) => {
           setConnectionState(state);
@@ -138,7 +139,7 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, onConso
       // across a token refresh / reconnect).
       useWSStore.setState({ channelStates: {}, unattributedRejection: false });
     };
-  }, [url, isAuthenticated, autoConnect, onCacheUpdate, onEvent, onStateSync, onConsole, setConnectionState, setChannelState, removeChannelState, setUnattributedRejection]);
+  }, [url, isAuthenticated, autoConnect, allowAnonymous, onCacheUpdate, onEvent, onStateSync, onConsole, setConnectionState, setChannelState, removeChannelState, setUnattributedRejection]);
 
   const subscribe = useCallback((channels: string[]) => {
     clientRef.current?.subscribe(channels);

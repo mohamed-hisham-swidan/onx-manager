@@ -20,6 +20,7 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import InvalidValueError, NotFoundError, ValidationError
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
+from app.core.local_auth import require_password_configured_for_exposure
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.auth.domain.aggregate import AccessMode
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
@@ -243,6 +244,11 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             raise WarningNotAcknowledgedError()
 
         async with UnitOfWork(self._event_bus) as uow:
+            if desired == DesiredState.ENABLED:
+                await require_password_configured_for_exposure(
+                    uow.session, action=f"server_exposure:{method.value}"
+                )
+
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
             agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             server_repo = SQLServerRepository(uow.session)
@@ -587,6 +593,10 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
         post_commit: list[Callable[[], Awaitable[None]]] = []
 
         async with UnitOfWork(self._event_bus) as uow:
+            await require_password_configured_for_exposure(
+                uow.session, action="server_exposure:enable"
+            )
+
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
             agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             server_repo = SQLServerRepository(uow.session)
@@ -1271,6 +1281,10 @@ class GenerateClaimHandler(CommandHandler[GenerateClaimCommand]):
 
     async def handle(self, command: GenerateClaimCommand) -> CommandResult:
         async with UnitOfWork(self._event_bus) as uow:
+            await require_password_configured_for_exposure(
+                uow.session, action="exposure_agent_claim"
+            )
+
             repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             agent = await repo.get()
 
@@ -1411,6 +1425,11 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         post_commit: list[callable] = []
 
         async with UnitOfWork(self._event_bus) as uow:
+            if desired == DesiredState.ENABLED and method != PanelExposureMethod.NONE:
+                await require_password_configured_for_exposure(
+                    uow.session, action=f"panel_exposure:{method.value}"
+                )
+
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
             state_repo = SQLSystemStateRepository(uow.session)
             panel = await repo.get()

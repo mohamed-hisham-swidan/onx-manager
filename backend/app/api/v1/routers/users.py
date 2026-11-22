@@ -44,11 +44,19 @@ async def create_user(
     if status_data.get("access_mode") == "GLOBAL":
         raise HTTPException(
             status_code=403,
-            detail="Public self-registration is disabled in GLOBAL access mode. Use an invitation token to register.",
+            detail=(
+                "Public self-registration is disabled in GLOBAL access mode. "
+                "Use an invitation token to register."
+            ),
         )
 
     result = await command_bus.send(
-        CreateUserCommand(email=body.email, password=body.password, display_name=body.display_name)
+        CreateUserCommand(
+            username=body.username,
+            email=body.email,
+            password=body.password,
+            display_name=body.display_name,
+        )
     )
     data = check_command_result(result)
     return UserResponse(**data)
@@ -76,6 +84,7 @@ async def update_user(
     result = await command_bus.send(
         UpdateUserCommand(
             user_id=user_id,
+            username=body.username,
             email=body.email,
             display_name=body.display_name,
             is_active=body.is_active,

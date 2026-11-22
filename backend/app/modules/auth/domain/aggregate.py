@@ -130,20 +130,32 @@ class User(AggregateRoot):
     def __init__(
         self,
         user_id: UserId,
-        email: EmailAddress,
-        password_hash: str,
-        display_name: str,
+        email: EmailAddress | None = None,
+        password_hash: str = "",
+        display_name: str = "",
         roles: list[Role] | None = None,
         api_keys: list[ApiKey] | None = None,
         is_active: bool = True,
         created_at: datetime | None = None,
         last_login_at: datetime | None = None,
+        username: str | None = None,
     ) -> None:
         super().__init__()
+        resolved_username = (
+            username if username is not None else (str(email) if email is not None else "")
+        ).strip()
+        if not resolved_username:
+            raise ValueError("username or email is required")
+        resolved_display_name = (
+            display_name.strip()
+            if display_name and display_name.strip()
+            else resolved_username
+        )
         self._user_id = user_id
+        self._username = resolved_username
         self._email = email
         self._password_hash = password_hash
-        self._display_name = display_name
+        self._display_name = resolved_display_name
         self._roles = roles or []
         self._api_keys = api_keys or []
         self._is_active = is_active
@@ -155,7 +167,11 @@ class User(AggregateRoot):
         return self._user_id
 
     @property
-    def email(self) -> EmailAddress:
+    def username(self) -> str:
+        return self._username
+
+    @property
+    def email(self) -> EmailAddress | None:
         return self._email
 
     @property
@@ -188,15 +204,28 @@ class User(AggregateRoot):
 
     @classmethod
     def create(
-        cls, user_id: UserId, email: EmailAddress, password_hash: str, display_name: str
+        cls,
+        user_id: UserId,
+        email: EmailAddress | None = None,
+        password_hash: str = "",
+        display_name: str = "",
+        *,
+        username: str | None = None,
     ) -> User:
         user = cls(
             user_id=user_id,
             email=email,
             password_hash=password_hash,
             display_name=display_name,
+            username=username,
         )
-        user._add_event(UserCreatedEvent(user_id=str(user_id), email=str(email)))
+        user._add_event(
+            UserCreatedEvent(
+                user_id=str(user_id),
+                username=user.username,
+                email=str(email) if email is not None else None,
+            )
+        )
         return user
 
     def add_role(self, role: Role) -> None:
@@ -209,8 +238,17 @@ class User(AggregateRoot):
     def has_permission(self, resource: str, action: str) -> bool:
         return any(role.has_permission(resource, action) for role in self._roles)
 
-    def set_email(self, email: EmailAddress) -> None:
+    def set_username(self, username: str) -> None:
+        cleaned = username.strip()
+        if not cleaned:
+            raise ValueError("username cannot be empty")
+        self._username = cleaned
+
+    def set_email(self, email: EmailAddress | None) -> None:
         self._email = email
+
+    def set_password_hash(self, password_hash: str) -> None:
+        self._password_hash = password_hash
 
     def set_display_name(self, display_name: str) -> None:
         self._display_name = display_name
@@ -260,6 +298,7 @@ class SystemState(AggregateRoot):
         id: str = "default",
         initialized: bool = False,
         access_mode: AccessMode | str = AccessMode.LOCAL,
+        password_configured: bool | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
@@ -268,6 +307,9 @@ class SystemState(AggregateRoot):
         self._initialized = initialized
         self._access_mode = (
             access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+        )
+        self._password_configured = (
+            bool(initialized) if password_configured is None else bool(password_configured)
         )
         self._created_at = created_at or datetime.now(UTC)
         self._updated_at = updated_at or datetime.now(UTC)
@@ -285,6 +327,10 @@ class SystemState(AggregateRoot):
         return self._access_mode
 
     @property
+    def password_configured(self) -> bool:
+        return self._password_configured
+
+    @property
     def created_at(self) -> datetime:
         return self._created_at
 
@@ -292,12 +338,23 @@ class SystemState(AggregateRoot):
     def updated_at(self) -> datetime:
         return self._updated_at
 
-    def mark_initialized(self, access_mode: AccessMode | str | None = None) -> None:
+    def mark_initialized(
+        self,
+        access_mode: AccessMode | str | None = None,
+        *,
+        password_configured: bool = True,
+    ) -> None:
         self._initialized = True
+        self._password_configured = bool(password_configured)
         if access_mode:
             self._access_mode = (
                 access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
             )
+        self._updated_at = datetime.now(UTC)
+
+    def mark_password_configured(self) -> None:
+        self._initialized = True
+        self._password_configured = True
         self._updated_at = datetime.now(UTC)
 
     def set_access_mode(self, access_mode: AccessMode | str) -> None:

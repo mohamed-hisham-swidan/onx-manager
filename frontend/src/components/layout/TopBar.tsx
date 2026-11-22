@@ -8,6 +8,7 @@ import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { ConnectionState } from "@/websocket/types";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { ConfigureCredentialsModal } from "@/components/auth/ConfigureCredentialsModal";
 import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import {
   SKIN_PRESETS,
@@ -54,12 +55,15 @@ export function TopBar() {
     profile,
     hasExplicitProfile,
     isLocal,
+    isLocalZeroLogin,
     showFullVpsControls,
     toggleShowFullVpsControls,
   } = useDeploymentProfile();
+  const hasSessionAccess = isAuthenticated || isLocalZeroLogin;
 
   const [showWsDiagnostics, setShowWsDiagnostics] = useState(false);
   const [showThemeStudio, setShowThemeStudio] = useState(false);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
 
   const activeOpList = Object.values(operations).filter(
     (op) => op.status === "RUNNING" || op.status === "PREPARING" || op.status === "QUEUED"
@@ -107,7 +111,7 @@ export function TopBar() {
   return (
     <header className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center justify-between border-b border-border-subtle bg-surface-card px-4 text-text-primary shadow-2xs">
       <div className="flex items-center gap-3">
-        {isAuthenticated && (
+        {hasSessionAccess && (
           <button
             onClick={handleToggleSidebar}
             className="rounded-lg p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-border-focus cursor-pointer"
@@ -128,7 +132,7 @@ export function TopBar() {
         )}
       </div>
 
-      {isAuthenticated && (
+      {hasSessionAccess && (
         <div className="flex items-center gap-2">
           {/* Operations Drawer Trigger */}
           <button
@@ -451,14 +455,31 @@ export function TopBar() {
             <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
           </button>
 
-          {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-status-danger-bg hover:text-status-danger cursor-pointer"
-          >
-            Logout
-          </button>
+          {/* Logout / Set Password */}
+          {isLocalZeroLogin && !isAuthenticated ? (
+            <button
+              type="button"
+              onClick={() => setShowCredentialsModal(true)}
+              className="rounded-lg border border-border-default bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+            >
+              Set Password
+            </button>
+          ) : (
+            <button
+              onClick={handleLogout}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-status-danger-bg hover:text-status-danger cursor-pointer"
+            >
+              Logout
+            </button>
+          )}
         </div>
+      )}
+      {showCredentialsModal && (
+        <ConfigureCredentialsModal
+          open={showCredentialsModal}
+          onClose={() => setShowCredentialsModal(false)}
+          reason="Configure an administrator username and password to secure this local instance."
+        />
       )}
     </header>
   );

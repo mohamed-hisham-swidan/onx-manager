@@ -1605,3 +1605,27 @@ class ModpackFormatError(ValidationError):
         )
         self.code = "MODPACK_FORMAT_INVALID"
         self.http_status = 422
+
+
+class PasswordRequiredForExposureError(MCSError):
+    """External exposure and non-loopback binding require configured credentials."""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = {
+            "reason": "passwordless_local_mode",
+            "action": "configure_credentials",
+            **(details or {}),
+        }
+        super().__init__(
+            message
+            or "An administrator username and password must be configured before enabling "
+            "external tunnels or binding to a non-loopback address.",
+            code="PASSWORD_REQUIRED_FOR_EXPOSURE",
+            http_status=403,
+            details=merged,
+        )

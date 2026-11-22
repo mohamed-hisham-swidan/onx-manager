@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,13 +35,35 @@ class SQLUserRepository:
             raise NotFoundError(f"User '{user_id}' not found")
         return await self._model_to_domain_user(model)
 
-    async def get_by_email(self, email: str) -> User | None:
-        stmt = select(UserModel).where(UserModel.email == email)
+    async def get_by_username(self, username: str) -> User | None:
+        cleaned = username.strip()
+        if not cleaned:
+            return None
+        stmt = select(UserModel).where(func.lower(UserModel.username) == cleaned.lower())
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:
             return None
         return await self._model_to_domain_user(model)
+
+    async def get_by_email(self, email: str | None) -> User | None:
+        if not email or not email.strip():
+            return None
+        stmt = select(UserModel).where(func.lower(UserModel.email) == email.strip().lower())
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return await self._model_to_domain_user(model)
+
+    async def get_by_identifier(self, identifier: str) -> User | None:
+        cleaned = identifier.strip()
+        if not cleaned:
+            return None
+        user = await self.get_by_username(cleaned)
+        if user is not None:
+            return user
+        return await self.get_by_email(cleaned)
 
     async def list(self) -> list[User]:
         stmt = select(UserModel).order_by(UserModel.display_name)
@@ -60,10 +82,12 @@ class SQLUserRepository:
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         user_role_ids = {str(r.role_id) for r in user.roles}
+        email_val = str(user.email) if user.email is not None else None
         if model is None:
             model = UserModel(
                 id=str(user.user_id),
-                email=str(user.email),
+                username=user.username,
+                email=email_val,
                 password_hash=user.password_hash,
                 display_name=user.display_name,
                 is_active=user.is_active,
@@ -73,7 +97,8 @@ class SQLUserRepository:
             self._session.add(model)
             existing_role_ids = set()
         else:
-            model.email = str(user.email)
+            model.username = user.username
+            model.email = email_val
             model.password_hash = user.password_hash
             model.display_name = user.display_name
             model.is_active = user.is_active
@@ -157,7 +182,8 @@ class SQLUserRepository:
 
         return User(
             user_id=UserId(model.id),
-            email=EmailAddress(model.email),
+            username=model.username,
+            email=EmailAddress(model.email) if model.email else None,
             password_hash=model.password_hash,
             display_name=model.display_name,
             roles=roles,
@@ -207,7 +233,12 @@ class SQLSystemStateRepository:
     async def get(self, id: str = "default") -> SystemState:
         model = await self._session.get(SystemStateModel, id)
         if model is None:
-            return SystemState(id=id, initialized=False, access_mode=AccessMode.LOCAL)
+            return SystemState(
+                id=id,
+                initialized=False,
+                access_mode=AccessMode.LOCAL,
+                password_configured=False,
+            )
         return self._model_to_domain(model)
 
     async def get_with_lock(self, id: str = "default") -> SystemState:
@@ -215,7 +246,12 @@ class SQLSystemStateRepository:
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:
-            return SystemState(id=id, initialized=False, access_mode=AccessMode.LOCAL)
+            return SystemState(
+                id=id,
+                initialized=False,
+                access_mode=AccessMode.LOCAL,
+                password_configured=False,
+            )
         return self._model_to_domain(model)
 
     async def save(self, system_state: SystemState) -> None:
@@ -230,6 +266,7 @@ class SQLSystemStateRepository:
             if isinstance(system_state.access_mode, AccessMode)
             else system_state.access_mode
         )
+        model.password_configured = bool(system_state.password_configured)
         await self._session.flush()
 
     def _model_to_domain(self, model: SystemStateModel) -> SystemState:
@@ -237,6 +274,7 @@ class SQLSystemStateRepository:
             id=model.id,
             initialized=model.initialized,
             access_mode=model.access_mode,
+            password_configured=bool(model.password_configured),
             created_at=model.created_at,
             updated_at=model.updated_at,
         )

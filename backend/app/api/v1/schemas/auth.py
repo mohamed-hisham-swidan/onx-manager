@@ -1,13 +1,20 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.v1.schemas.common import BaseResponse
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    username: str | None = None
+    email: str | None = None
     password: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> "LoginRequest":
+        if not (self.username or self.email or "").strip():
+            raise ValueError("username is required")
+        return self
 
 
 class LoginResponse(BaseResponse):

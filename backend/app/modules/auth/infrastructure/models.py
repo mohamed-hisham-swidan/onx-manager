@@ -6,11 +6,23 @@ from sqlalchemy.orm import relationship
 from app.core.persistence.base import Base, TimestampMixin
 
 
+def _default_username(context) -> str:
+    params = context.get_current_parameters() or {}
+    for key in ("email", "display_name", "id"):
+        raw = params.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()[:128]
+    return "user"
+
+
 class UserModel(Base, TimestampMixin):
     __tablename__ = "users"
 
     id = Column(String(36), primary_key=True)
-    email = Column(String(255), nullable=False, unique=True)
+    username = Column(
+        String(128), nullable=False, unique=True, index=True, default=_default_username
+    )
+    email = Column(String(255), nullable=True, unique=True)
     password_hash = Column(String(512), nullable=False)
     display_name = Column(String(128), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
@@ -79,6 +91,7 @@ class SystemStateModel(Base, TimestampMixin):
     id = Column(String(36), primary_key=True, default="default")
     initialized = Column(Boolean, nullable=False, default=False)
     access_mode = Column(String(32), nullable=False, default="LOCAL")
+    password_configured = Column(Boolean, nullable=False, default=True)
 
 
 class InvitationModel(Base, TimestampMixin):

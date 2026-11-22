@@ -8,7 +8,12 @@ from app.api.v1.schemas.modpacks_upgrades import (
     CurseForgeIntegrationKeySetRequest,
     CurseForgeIntegrationStatusResponse,
 )
-from app.core.config import AppSettings
+from app.core.config import AppSettings, ConfigFactory
+from app.core.exceptions import PasswordRequiredForExposureError
+from app.core.local_auth import (
+    is_loopback_bind_host,
+    require_password_configured_for_exposure,
+)
 from app.core.persistence.db import database
 from app.core.settings_store import (
     RESTART_REQUIRED_FIELDS,
@@ -59,6 +64,22 @@ async def update_settings(
     body: dict[str, Any] = Body(...),
     _current_user: dict = Depends(require_permission("settings:write")),
 ) -> dict:
+    if "panel_bind_host" in body:
+        new_host = str(body["panel_bind_host"]).strip()
+        if not is_loopback_bind_host(new_host):
+            if ConfigFactory.global_settings().deployment_profile == "local":
+                if database._session_factory is None:
+                    raise PasswordRequiredForExposureError(
+                        details={
+                            "reason": "passwordless_local_mode",
+                            "action": "panel_bind_host",
+                        }
+                    )
+                async with database.session_factory() as session:
+                    await require_password_configured_for_exposure(
+                        session, action="panel_bind_host"
+                    )
+
     live, restart_fields = update_settings_store(body)
 
     # If metrics collection interval was updated, dynamically reload the scheduler & batcher

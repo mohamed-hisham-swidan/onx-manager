@@ -17,14 +17,15 @@ from app.modules.auth.infrastructure.repository import SQLInvitationRepository, 
 from app.modules.server.infrastructure.repository import (
     SQLServerMembershipRepository,
 )
-from app.modules.shared.value_objects import EmailAddress, Permission, RoleId, UserId
+from app.modules.shared.value_objects import EmailAddress, Permission, RoleId, UserId, Username
 
 
 class AcceptInviteCommand(Command):
     token: str
-    email: str
+    username: str | None = None
+    email: str | None = None
     password: str
-    display_name: str
+    display_name: str | None = None
 
 
 class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
@@ -38,6 +39,20 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
                 "password", "too short", "Password must be at least 8 characters"
             )
 
+        raw_username = (command.username or command.email or "").strip()
+        try:
+            username_vo = Username(raw_username)
+        except ValueError as e:
+            raise InvalidValueError("username", raw_username, str(e)) from e
+
+        raw_email = command.email.strip() if command.email and command.email.strip() else None
+        email_vo: EmailAddress | None = None
+        if raw_email is not None:
+            try:
+                email_vo = EmailAddress(raw_email)
+            except ValueError as e:
+                raise InvalidValueError("email", raw_email, str(e)) from e
+
         token_hash = hashlib.sha256(command.token.encode("utf-8")).hexdigest()
 
         async with UnitOfWork(self._event_bus) as uow:
@@ -48,10 +63,14 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
                     "token", command.token, "Invalid, expired, or revoked invitation token"
                 )
 
-            if invitation.email and invitation.email.lower() != command.email.lower():
-                raise InvalidValueError(
-                    "email", command.email, "Invitation email does not match token destination"
-                )
+            if invitation.email:
+                effective_email = raw_email or ""
+                if effective_email.lower() != invitation.email.lower():
+                    raise InvalidValueError(
+                        "email",
+                        command.email,
+                        "Invitation email does not match token destination",
+                    )
 
             consumed = await invite_repo.atomic_consume(invitation.invitation_id)
             if not consumed:
@@ -60,14 +79,10 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
                 )
 
             user_repo = SQLUserRepository(uow.session)
-            existing = await user_repo.get_by_email(command.email)
-            if existing:
+            if await user_repo.get_by_username(str(username_vo)):
+                raise ConflictError("Username already registered")
+            if email_vo is not None and await user_repo.get_by_email(str(email_vo)):
                 raise ConflictError("Email already registered")
-
-            try:
-                email_vo = EmailAddress(command.email)
-            except ValueError as e:
-                raise InvalidValueError("email", command.email, str(e))
 
             role_name = invitation.global_role or "member"
             assigned_role = await user_repo.get_role_by_name(role_name)
@@ -83,11 +98,13 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
                 )
                 await user_repo.save_role(assigned_role)
 
+            resolved_display = (command.display_name or "").strip() or str(username_vo)
             user = User.create(
                 user_id=UserId(uuid.uuid4().hex),
+                username=str(username_vo),
                 email=email_vo,
                 password_hash=hash_password(command.password),
-                display_name=command.display_name,
+                display_name=resolved_display,
             )
             user.add_role(assigned_role)
             await user_repo.save(user)

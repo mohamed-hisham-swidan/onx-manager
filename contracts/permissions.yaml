@@ -309,6 +309,7 @@ route_permissions:
   "DELETE /api/v1/servers/{server_id}/ports/{port_id}": {permission: "server.{id}.exposure", status: enforced, note: "204 idempotent; deletes registered companion port and removes associated exposure target"}
 
   "POST /api/v1/setup/bootstrap": {permission: null, status: not-applicable-public, note: "single-use first-run wizard; rejects with 409/400 once instance initialized"}
+  "POST /api/v1/setup/credentials": {permission: "owner", status: enforced, note: "Owner-only via require_owner(); upgrades passwordless local-admin to explicit username + password credentials"}
   "PUT /api/v1/setup/access-mode": {permission: "owner", status: enforced, note: "Owner-only via require_owner() — admin:full alone is NOT sufficient; requires owner role or global.* claim"}
 
   # invites
