@@ -93,7 +93,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | — `.ts` | 81 | 13,843 | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | 835 | `find frontend/src -name '*.css'` |
 | **TOTAL (backend + frontend source)** | **1,171** | **301,861** | — |
-| Docs | 137 files | 36,668 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| Docs | 64 `.md` files | 14,314 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 

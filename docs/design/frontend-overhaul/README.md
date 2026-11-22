@@ -49,11 +49,7 @@ docs/design/frontend-overhaul/
 ├── TEMPLATES.md                 # 7 Standard page templates & layout guidelines
 ├── PRIMITIVES.md                # 18 Shared UI primitives API & accessibility
 ├── BRAND.md                     # Logo lockup, typography, voxel art, legal disclaimers
-├── MINECRAFT-FLAVOR-GUARDRAILS.md# IP boundaries & abstract voxel guidelines
-├── CHANGELOG.md                 # Chronological log of overhaul batches (B0 to B9)
-├── FINDINGS-LEDGER.md          # Comprehensive ledger of all 33 findings and resolution evidence
-├── DECISIONS-NEEDED.md          # Architectural decisions & deferred items
-└── BACKEND-DEPENDENT.md         # UI features pending backend API capabilities
+└── MINECRAFT-FLAVOR-GUARDRAILS.md# IP boundaries & abstract voxel guidelines
 ```
 
 ---
@@ -85,5 +81,3 @@ Every aspect of the design system is guarded by tests:
 - To build a new page or understand page structures: See [TEMPLATES.md](./TEMPLATES.md).
 - To use or extend shared components: See [PRIMITIVES.md](./PRIMITIVES.md).
 - To review brand rules and legal requirements: See [BRAND.md](./BRAND.md) and [MINECRAFT-FLAVOR-GUARDRAILS.md](./MINECRAFT-FLAVOR-GUARDRAILS.md).
-- To inspect execution history and commits: See [CHANGELOG.md](./CHANGELOG.md).
-- To inspect audit findings, review items, and resolution evidence: See [FINDINGS-LEDGER.md](./FINDINGS-LEDGER.md).

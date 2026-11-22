@@ -1,15 +1,17 @@
 # Contributing
 
-Thanks for your interest in contributing to ONX Manager! This guide covers the development workflow, code conventions, and quality expectations.
+Thanks for your interest in contributing to ONX Manager! This guide covers the development workflow, code conventions, governance basics, and quality gates.
+
+<!-- TODO(HUMAN): Customize PR review SLA, branch naming preferences, and community discussion links -->
 
 ---
 
 ## Getting Started
 
-1. Fork the repository and clone your fork
-2. Run `./scripts/bootstrap` to set up the environment (venv, deps, migrations)
-3. Start the dev environment: `python launcher.py`
-4. Read [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) before making changes
+1. Fork the repository and clone your fork.
+2. Run `./scripts/bootstrap` to set up the environment (venv, dependencies, migrations), or follow [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+3. Start the dev environment via `python launcher.py` (or `./start.sh` / `start.bat`).
+4. Read [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) and [docs/reference/dependency-graph.md](docs/reference/dependency-graph.md) before making cross-module changes.
 
 ---
 
@@ -19,31 +21,28 @@ Thanks for your interest in contributing to ONX Manager! This guide covers the d
 
 | Requirement | Standard |
 |---|---|
-| Runtime | Python 3.12 (exact for the launcher; `requires-python = ">=3.12"`) |
-| Linter | `ruff` — no new violations beyond baseline (`./scripts/check-ruff-baseline`) |
-| Type checker | `pyright` — type hints everywhere (`./scripts/typecheck`) |
-| Testing | `pytest` — TDD preferred, coverage ≥ 90% for new code |
-| Logging | `structlog` — never use `print()` in production code |
+| Runtime | Python 3.12 (`requires-python = ">=3.12"`, launcher pins 3.12) |
+| Linter | `ruff` (`0.16.0`) — zero new violations beyond baseline (`./scripts/check-ruff-baseline`) |
+| Type checker | `pyright` — advisory locally (`./scripts/typecheck`) |
+| Testing | `pytest` (`pytest-asyncio`) — write regression tests for fixes and new behavior |
+| Logging | `structlog` / `logging` — never use `print()` in production code |
 | Error handling | Catch specific exception types — never bare `try/except` |
-| Function size | Single responsibility, ≤ 40 lines per function |
-| Configuration | Use `ConfigFactory` — never hardcode secrets, URLs, or config values |
+| Configuration | Use `ConfigFactory` / `AppSettings` (`ONX_*`) — never hardcode secrets or URLs |
 
 ### TypeScript
 
 | Requirement | Standard |
 |---|---|
-| Linter | `eslint` — zero warnings (`npm run lint` in `frontend/`) |
-| Formatter | `prettier` |
-| TypeScript | strict mode enabled |
-| Testing | `vitest` |
+| Linter | `eslint` — zero errors or warnings (`npm run lint` in `frontend/`) |
+| TypeScript | strict mode (`npm run typecheck`) |
+| Design Tokens | Use semantic CSS tokens and `components/ui/` primitives (see [docs/design/frontend-overhaul/README.md](docs/design/frontend-overhaul/README.md)) |
+| Testing | `vitest` + Testing Library |
 
 ### General
 
-- No TODOs in production code — implement or remove
 - No dead code, commented-out code, or debug prints
-- Follow conventions of the neighboring files
-- Use existing shared types and utilities before creating new ones
-- Type hints everywhere (Python) / strict types (TypeScript)
+- Respect hexagonal module boundaries (domain must never import infrastructure or API)
+- Follow conventions of neighboring files and reuse existing shared utilities
 
 ---
 
@@ -51,7 +50,7 @@ Thanks for your interest in contributing to ONX Manager! This guide covers the d
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 feat: add server backup scheduling
 fix: correct token expiration check
 docs: update API reference for rate limiting
@@ -66,6 +65,16 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `style`, `ci`
 
 ---
 
+## Governance & Decision Process
+
+- **Routine fixes & small features**: Open a pull request against `master` with tests and passing quality gates.
+- **Significant architectural or contract changes**: Open an issue first to discuss design trade-offs. Accepted architectural decisions are documented as ADRs under [`docs/decisions/`](docs/decisions/README.md).
+- **Versioning**: Public releases follow SemVer 2.0.0 ([`docs/VERSIONING.md`](docs/VERSIONING.md)).
+
+<!-- TODO(HUMAN): Clarify maintainer approval requirements and whether external PRs should target `master` or a staging branch -->
+
+---
+
 ## Quality Gates
 
 Before submitting a PR, verify all of the following:
@@ -73,30 +82,20 @@ Before submitting a PR, verify all of the following:
 | Gate | Command | Requirement |
 |---|---|---|
 | Version Propagation | `python3 scripts/check-version-propagation` | All versions match `0.1.0` |
-| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000023` |
+| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000031` |
 | Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
-| Route/Permission Contract | `python3 scripts/check-route-contract` | 155 / 155 routes match `contracts/permissions.yaml` |
+| Route/Permission Contract | `python3 scripts/check-route-contract` | 211 / 211 routes match `contracts/permissions.yaml` |
 | PowerShell UTF-8 BOM | `python3 scripts/check-ps1-bom` | All `.ps1` scripts have valid UTF-8 BOM |
 | Stray DB Check | `python3 scripts/check-stray-db` | No stray SQLite `.db` files at repo root or backend root |
-| Backend Tests | `cd backend && pytest` | All 3,636 passed (6 skipped, 0 failed, 3,642 collected; verified 2026-11-09 sequential run) |
-| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test` | Typecheck, lint & tests passing (1,178 tests across 130 files; verified 2026-11-09) |
+| Backend Tests | `cd backend && pytest` | All tests passing (5,322 collected across 318 `test_*.py` files) |
+| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test && npm run build` | Typecheck, lint, tests (1,302 across 135 files), and build passing |
 
 ### PR Checklist
 
-- [ ] All tests pass
-- [ ] Backend lint within baseline / frontend lint zero errors
-- [ ] No type errors introduced
-- [ ] Coverage ≥ 90% for new code
-- [ ] No TODOs left in source code
-- [ ] No dead code, commented-out code, or debug prints
-
----
-
-## Architecture Overview
-
-The project follows a **modular monolith with hexagonal architecture**. Before changing any module, read its domain layer (`domain/aggregate.py`, `domain/events.py`) to understand its contracts.
-
-See [Architecture Overview](docs/architecture/ARCHITECTURE.md) for the full picture.
+- [ ] Relevant backend/frontend tests added and passing
+- [ ] All 6 repo CI quality gates pass
+- [ ] Frontend `typecheck`, `lint`, `test`, and `build` pass cleanly
+- [ ] Documentation updated if API routes, env vars, or architecture changed
 
 ---
 
@@ -105,4 +104,4 @@ See [Architecture Overview](docs/architecture/ARCHITECTURE.md) for the full pict
 - Check [Getting Started](docs/getting-started.md) for environment setup
 - Check [Development Guide](docs/DEVELOPMENT.md) for common workflows
 - Review our [Code of Conduct](CODE_OF_CONDUCT.md) and [Security Policy](SECURITY.md)
-- Open an issue or reach out directly
+<!-- TODO(HUMAN): Add link to GitHub Discussions / Discord / issue templates if enabled -->

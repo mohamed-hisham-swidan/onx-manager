@@ -62,6 +62,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the project maintainers responsible for enforcement via the GitHub
 repository's private security advisory channel or by contacting the repository
 owner directly on GitHub (`@mohamed-hisham-swidan`).
+<!-- TODO(HUMAN): Add dedicated Code of Conduct contact email address -->
 All complaints will be reviewed and investigated promptly and fairly.
 
 All project maintainers are obligated to respect the privacy and security of the

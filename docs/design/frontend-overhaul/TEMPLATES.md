@@ -160,5 +160,5 @@ Provide a unified, accessible structural scaffolding for all views across `AppSh
    - On close: dismisses on `Escape` key press or backdrop click, restores body scroll, and returns focus to the opener element.
    - On desktop (`lg:w-56`, `>= 1024px`): drawer is persistently docked; does not trigger body scroll locks or register `Escape` key dismissal.
 4. **Overlay Note**:
-   - The 28 non-primitive modal overlays across 21 files (cataloged in `DECISIONS-NEEDED.md` Entry 9) remain planned for consolidation in batch F5 and still lack body scroll lock.
+   - Non-primitive overlays have since been consolidated to `Modal` / `ConfirmDialog` (verified by `overlayRatchet.test.ts`).
 
