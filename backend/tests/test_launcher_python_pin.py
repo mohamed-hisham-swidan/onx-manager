@@ -260,7 +260,7 @@ def test_auto_install_windows_none_prints_stop_text():
         expected_stop = (
             "Python 3.12.x was not found or could not be installed. "
             "onx-manager requires exactly Python 3.12; 3.13/3.14 are not supported. "
-            "Install Python 3.12 from python.org, then re-run start.bat."
+            "Install Python 3.12 from python.org (or run install.ps1)."
         )
         assert expected_stop == WINDOWS_PYTHON_STOP_TEXT
         assert any(expected_stop in err for err in logged_errors)

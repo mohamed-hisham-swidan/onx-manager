@@ -115,5 +115,5 @@ def test_start_ps1_reprobes_after_install():
 def test_start_ps1_has_stop_message():
     text = _read_start_ps1_text()
     assert "Python 3.12.x was not found or could not be installed" in text
-    assert "re-run start.bat" in text
+    assert "scripts\\start.ps1" in text
     assert "throw" in text

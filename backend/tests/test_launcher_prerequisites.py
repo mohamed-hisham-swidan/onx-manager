@@ -298,13 +298,13 @@ def test_pid_manager_get_descendants_psutil_error_falls_back():
         assert pids == []
 
 
-def test_start_bat_delegates_to_powershell():
-    """start.bat must delegate directly to start.ps1."""
-    start_bat_path = REPO_ROOT / "start.bat"
-    assert start_bat_path.exists(), "start.bat must exist at repo root"
-    content = start_bat_path.read_text(encoding="utf-8")
-
-    # Must delegate to start.ps1 via powershell.exe
-    assert "powershell.exe" in content
-    assert "start.ps1" in content
+def test_install_ps1_exists_with_bom_and_python_312_pin():
+    """install.ps1 must exist at repo root with UTF-8 BOM and Python 3.12 uv provisioning."""
+    install_ps1_path = REPO_ROOT / "install.ps1"
+    assert install_ps1_path.exists(), "install.ps1 must exist at repo root"
+    raw = install_ps1_path.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf"), "install.ps1 must start with UTF-8 BOM"
+    content = raw.decode("utf-8-sig")
+    assert "uv python install 3.12" in content
+    assert "ONX_DEPLOYMENT_PROFILE" in content
 

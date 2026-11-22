@@ -1,4 +1,4 @@
-"""Tests verifying Python 3.12 pinning contract in start.sh and scripts/bootstrap."""
+"""Tests verifying Python 3.12 pinning and CLI/BOM contracts across installers and bootstrap."""
 
 from __future__ import annotations
 
@@ -11,25 +11,16 @@ from pathlib import Path
 
 import pytest
 
-# Ensure repository root is on sys.path when pytest runs from backend/ directory
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-START_SH = REPO_ROOT / "start.sh"
+INSTALL_SH = REPO_ROOT / "install.sh"
+INSTALL_PS1 = REPO_ROOT / "install.ps1"
 BOOTSTRAP_SH = REPO_ROOT / "scripts" / "bootstrap"
 
 PROBE_STRING = "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)"
 DELETION_TOKENS = ("rm -rf", "rm -r", "rmdir", "shutil", "Remove-Item")
-PYTHON_INSTALLER_TOKENS = (
-    "apt-get install",
-    "dnf install",
-    "pacman -S",
-    "brew install",
-    "uv python install",
-)
-VALID_312_TOKENS = ("python3.12", "python@3.12", "install 3.12")
-NODE_TOKENS = ("nodejs", "npm", "node@")
 STOP_LINE_PREFIXES = (
     "Python 3.12.x is required",
     "Install Python 3.12 with one of",
@@ -43,12 +34,10 @@ _SKIP_NON_BASH = pytest.mark.skipif(
 
 
 def _read_text(path: Path) -> str:
-    """Read text from file and normalize CRLF to LF."""
     return path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
 def _normalize_stop_line(line: str) -> str:
-    """Normalize a stop message echo line across scripts."""
     s = line.strip()
     if s.endswith(">&2"):
         s = s[:-3].strip()
@@ -59,116 +48,12 @@ def _normalize_stop_line(line: str) -> str:
 
 
 def _extract_stop_lines(text: str) -> list[str]:
-    """Extract and normalize matching STOP text echo lines."""
     lines: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("echo") and any(p in stripped for p in STOP_LINE_PREFIXES):
             lines.append(_normalize_stop_line(stripped))
     return lines
-
-
-# ==============================================================================
-# Helper / Validator Functions (usable directly or for mutation checks)
-# ==============================================================================
-
-
-def check_start_sh_exists_and_has_exact_probe(text: str | None = None) -> None:
-    if text is None:
-        assert START_SH.is_file(), f"{START_SH} does not exist"
-        text = _read_text(START_SH)
-    assert PROBE_STRING in text, f"Exact probe string not found in start.sh: {PROBE_STRING}"
-
-
-def check_start_sh_has_no_313_or_312plus_or_gte(text: str | None = None) -> None:
-    if text is None:
-        text = _read_text(START_SH)
-    assert "python3.13" not in text, "Found forbidden 'python3.13' in start.sh"
-    assert "3.12+" not in text, "Found forbidden '3.12+' in start.sh"
-    assert ">= (3" not in text, "Found loose '>= (3' probe in start.sh"
-
-
-def check_start_sh_never_deletes(text: str | None = None) -> None:
-    if text is None:
-        text = _read_text(START_SH)
-    for token in DELETION_TOKENS:
-        assert token not in text, f"start.sh must not contain deletion token: {token}"
-
-
-def check_start_sh_python_installs_are_versioned(text: str | None = None) -> None:
-    if text is None:
-        text = _read_text(START_SH)
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        # Node.js install lines are excluded (they contain nodejs, npm, or node@)
-        if any(node_tok in stripped for node_tok in NODE_TOKENS):
-            continue
-        if "install" in stripped and any(tok in stripped for tok in PYTHON_INSTALLER_TOKENS):
-            assert any(ver in stripped for ver in VALID_312_TOKENS), (
-                f"Line installs python without exact 3.12 pin: {line}"
-            )
-        if "pacman" in stripped:
-            assert "python" not in stripped.lower(), f"pacman line mentions python: {line}"
-
-
-def check_start_sh_installer_order(text: str | None = None) -> None:
-    if text is None:
-        text = _read_text(START_SH)
-    idx_uv = text.find("uv python install")
-    idx_apt = text.find("apt-get install")
-    idx_dnf = text.find("dnf install")
-    idx_brew = text.find("brew install python@3.12")
-    assert idx_uv != -1, "uv python install not found"
-    assert idx_apt != -1, "apt-get install not found"
-    assert idx_dnf != -1, "dnf install not found"
-    assert idx_brew != -1, "brew install python@3.12 not found"
-    assert idx_uv < idx_apt < idx_dnf < idx_brew, (
-        f"Installer order inverted: uv={idx_uv}, apt={idx_apt}, dnf={idx_dnf}, brew={idx_brew}"
-    )
-
-
-def check_start_sh_brew_branch_guarded_by_nonempty_prefix(text: str | None = None) -> None:
-    if text is None:
-        text = _read_text(START_SH)
-    idx_brew = text.find("brew --prefix")
-    assert idx_brew != -1, "brew --prefix not found"
-    idx_guard = text.find('[ -n "$prefix" ]', idx_brew)
-    assert idx_guard != -1, 'brew branch not guarded by [ -n "$prefix" ]'
-
-
-def check_scripts_bootstrap_matches_start_sh_contract(
-    boot_text: str | None = None,
-    start_text: str | None = None,
-) -> None:
-    if boot_text is None:
-        assert BOOTSTRAP_SH.is_file(), f"{BOOTSTRAP_SH} does not exist"
-        boot_text = _read_text(BOOTSTRAP_SH)
-    if start_text is None:
-        start_text = _read_text(START_SH)
-
-    if sys.platform != "win32":
-        assert os.access(BOOTSTRAP_SH, os.X_OK), "scripts/bootstrap is not executable"
-
-    assert PROBE_STRING in boot_text, "Exact probe string not in scripts/bootstrap"
-    assert PROBE_STRING in start_text, "Exact probe string not in start.sh"
-
-    assert not re.search(r"(?<![\$\w])python3\s+-m\s+venv", boot_text), (
-        "scripts/bootstrap must not contain bare 'python3 -m venv'"
-    )
-
-    for token in DELETION_TOKENS:
-        assert token not in boot_text, f"scripts/bootstrap must not contain {token}"
-
-    assert "-L .venv/bin/python" in boot_text, (
-        "scripts/bootstrap must check dangling symlink via -L .venv/bin/python"
-    )
-
-    start_stop = _extract_stop_lines(start_text)
-    boot_stop = _extract_stop_lines(boot_text)
-    assert len(start_stop) == 3, f"Expected 3 STOP lines in start.sh, found {len(start_stop)}"
-    assert start_stop == boot_stop, f"STOP lines differ: {start_stop} != {boot_stop}"
 
 
 def extract_bootstrap_check_script(boot_text: str | None = None) -> str:
@@ -191,7 +76,6 @@ def extract_bootstrap_check_script(boot_text: str | None = None) -> str:
 
 
 def create_stub(dir_path: Path, name: str, exit_code: int = 0) -> Path:
-    """Create a minimal executable shell stub that exits with the given code."""
     dir_path.mkdir(parents=True, exist_ok=True)
     stub = dir_path / name
     stub.write_text(f"#!/bin/sh\nexit {exit_code}\n", encoding="utf-8")
@@ -200,7 +84,6 @@ def create_stub(dir_path: Path, name: str, exit_code: int = 0) -> Path:
 
 
 def snapshot_tree(root: Path) -> dict[str, tuple[int, int, str | None, bytes | None]]:
-    """Capture (size, mtime_ns, symlink_target, file_bytes) for every item in tree."""
     tree: dict[str, tuple[int, int, str | None, bytes | None]] = {}
     if not root.exists():
         return tree
@@ -219,7 +102,6 @@ def run_bootstrap_block(
     stub_bin: Path,
     boot_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Execute the extracted bootstrap resolver block in a hermetic environment."""
     bash_path = shutil.which("bash")
     if bash_path is None:
         pytest.skip("bash executable not found")
@@ -235,44 +117,57 @@ def run_bootstrap_block(
     )
 
 
-# ==============================================================================
-# Static Tests (1 to 8)
-# ==============================================================================
+def test_install_sh_exists_and_pins_python_312() -> None:
+    assert INSTALL_SH.is_file(), f"{INSTALL_SH} does not exist"
+    text = _read_text(INSTALL_SH)
+    assert PROBE_STRING in text
+    assert "3.12+" not in text
+    assert "python3.13" not in text
+    for token in DELETION_TOKENS:
+        assert token not in text, f"install.sh must not contain {token}"
+    assert "uv python install 3.12" in text
+    assert "ONX_DEPLOYMENT_PROFILE" in text
 
 
-def test_start_sh_exists_and_has_exact_probe() -> None:
-    check_start_sh_exists_and_has_exact_probe()
+def test_install_ps1_exists_with_bom_and_pins_python_312() -> None:
+    assert INSTALL_PS1.is_file(), f"{INSTALL_PS1} does not exist"
+    raw = INSTALL_PS1.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf"), "install.ps1 must have UTF-8 BOM"
+    text = raw.decode("utf-8-sig")
+    assert "sys.version_info[:2] == (3,12)" in text
+    assert "3.12+" not in text
+    assert "3.13" not in text
+    assert "uv python install 3.12" in text
+    assert "ONX_DEPLOYMENT_PROFILE" in text
 
 
-def test_start_sh_has_no_313_or_312plus_or_gte() -> None:
-    check_start_sh_has_no_313_or_312plus_or_gte()
+def test_scripts_bootstrap_matches_install_sh_contract() -> None:
+    assert BOOTSTRAP_SH.is_file()
+    boot_text = _read_text(BOOTSTRAP_SH)
+    install_text = _read_text(INSTALL_SH)
 
+    if sys.platform != "win32":
+        assert os.access(BOOTSTRAP_SH, os.X_OK), "scripts/bootstrap is not executable"
+        assert os.access(INSTALL_SH, os.X_OK), "install.sh is not executable"
 
-def test_start_sh_never_deletes() -> None:
-    check_start_sh_never_deletes()
+    assert PROBE_STRING in boot_text
+    assert PROBE_STRING in install_text
+    assert not re.search(r"(?<![\$\w])python3\s+-m\s+venv", boot_text)
+    for token in DELETION_TOKENS:
+        assert token not in boot_text
+    assert "-L .venv/bin/python" in boot_text
 
-
-def test_start_sh_python_installs_are_versioned() -> None:
-    check_start_sh_python_installs_are_versioned()
-
-
-def test_start_sh_installer_order() -> None:
-    check_start_sh_installer_order()
-
-
-def test_start_sh_brew_branch_guarded_by_nonempty_prefix() -> None:
-    check_start_sh_brew_branch_guarded_by_nonempty_prefix()
-
-
-def test_scripts_bootstrap_matches_start_sh_contract() -> None:
-    check_scripts_bootstrap_matches_start_sh_contract()
+    install_stop = _extract_stop_lines(install_text)
+    boot_stop = _extract_stop_lines(boot_text)
+    assert len(install_stop) == 3
+    assert install_stop == boot_stop
 
 
 @_SKIP_NON_BASH
 def test_shell_scripts_pass_bash_n() -> None:
     bash_path = shutil.which("bash")
     assert bash_path is not None
-    for script_path in (START_SH, BOOTSTRAP_SH):
+    for script_path in (INSTALL_SH, BOOTSTRAP_SH):
         res = subprocess.run(
             [bash_path, "-n", str(script_path)],
             capture_output=True,
@@ -282,9 +177,64 @@ def test_shell_scripts_pass_bash_n() -> None:
         assert res.returncode == 0, f"bash -n failed on {script_path}: {res.stderr}"
 
 
-# ==============================================================================
-# Behavioral Tests (9 to 14)
-# ==============================================================================
+@_SKIP_NON_BASH
+def test_install_sh_help_and_dry_run_modes(tmp_path: Path) -> None:
+    bash_path = shutil.which("bash")
+    assert bash_path is not None
+
+    help_res = subprocess.run(
+        [bash_path, str(INSTALL_SH), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert help_res.returncode == 0
+    for flag in ("--mode", "--dir", "--port", "--yes", "--dry-run", "--uninstall"):
+        assert flag in help_res.stdout
+
+    vps_res = subprocess.run(
+        [
+            bash_path,
+            str(INSTALL_SH),
+            "--dry-run",
+            "--mode=vps",
+            f"--dir={tmp_path / 'vps'}",
+            "--port=8080",
+            "--yes",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert vps_res.returncode == 0, vps_res.stderr
+    assert "ONX_DEPLOYMENT_PROFILE=vps" in vps_res.stdout
+    assert "systemd" in vps_res.stdout
+
+    local_res = subprocess.run(
+        [
+            bash_path,
+            str(INSTALL_SH),
+            "--dry-run",
+            "--mode=local",
+            f"--dir={tmp_path / 'local'}",
+            "--port=8081",
+            "--yes",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert local_res.returncode == 0, local_res.stderr
+    assert "ONX_DEPLOYMENT_PROFILE=local" in local_res.stdout
+    assert ".desktop" in local_res.stdout
+
+    uninstall_res = subprocess.run(
+        [bash_path, str(INSTALL_SH), "--uninstall", "--dry-run"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert uninstall_res.returncode == 0, uninstall_res.stderr
 
 
 @_SKIP_NON_BASH
