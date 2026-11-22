@@ -16,8 +16,6 @@ from typing import Any
 
 from app.core.allowlist import (
     classify,
-    open_safe_path_fd,
-    resolve_safe_disk_path,
     validate_canonical_relpath,
 )
 from app.core.host_state import validate_server_segment
@@ -27,7 +25,11 @@ from app.modules.backup.infrastructure.envelope_crypto import (
     EnvelopeBackupCipher,
     load_or_create_master_kek,
 )
-from app.modules.backup.infrastructure.tier1_snapshot import validate_tier1_complete_marker
+from app.modules.backup.infrastructure.tier1_snapshot import (
+    open_safe_read_handle,
+    resolve_safe_child_path,
+    validate_tier1_complete_marker,
+)
 from app.modules.storage.base import StorageBackend
 from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 from app.modules.versioning.infrastructure.directory_swap import (
@@ -105,7 +107,7 @@ def _validate_and_extract_tar(tar_file: Path, extract_dir: Path, *, is_gzip: boo
                 if raw_name.startswith("/") or "\\" in raw_name or "\x00" in raw_name:
                     raise TwoTierRestoreError(f"Archive contains unsafe path: {member.name!r}")
                 norm = validate_canonical_relpath(raw_name)
-                dest = Path(resolve_safe_disk_path(str(extract_dir), norm))
+                dest = resolve_safe_child_path(extract_dir, norm)
                 if member.isdir():
                     dest.mkdir(parents=True, exist_ok=True)
                 elif member.isfile():
@@ -151,7 +153,7 @@ def _build_staged_live_tree(
             if norm == "onx-jars.lock.json" or cls_name in ("E", "C", "B"):
                 # Replaced by snapshot/archive triad below
                 continue
-            dst = Path(resolve_safe_disk_path(str(staging_tree), norm))
+            dst = resolve_safe_child_path(staging_tree, norm)
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
 
@@ -172,10 +174,9 @@ def _build_staged_live_tree(
                     continue
                 rel_in_bucket = fpath.relative_to(bucket_dir).as_posix()
                 norm_rel = validate_canonical_relpath(rel_in_bucket)
-                fd = open_safe_path_fd(str(bucket_dir), norm_rel)
-                dst = Path(resolve_safe_disk_path(str(staging_tree), norm_rel))
+                dst = resolve_safe_child_path(staging_tree, norm_rel)
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                with os.fdopen(fd, "rb", closefd=True) as s_fh, dst.open("wb") as d_fh:
+                with open_safe_read_handle(bucket_dir, norm_rel) as s_fh, dst.open("wb") as d_fh:
                     shutil.copyfileobj(s_fh, d_fh, length=65536)
                 restored_count += 1
 
@@ -351,7 +352,7 @@ async def restore_tier2_archive(
                 digest = str(entry.get("sha256") or "")
                 if not digest:
                     raise TwoTierRestoreError("Invalid CAS blob entry in manifest.json")
-                blob_file = Path(resolve_safe_disk_path(str(extract_dir), f"cas_blobs/{digest}"))
+                blob_file = resolve_safe_child_path(extract_dir, f"cas_blobs/{digest}")
                 if not blob_file.is_file():
                     raise TwoTierRestoreError(f"Missing bundled CAS blob {digest} in archive")
                 blob_bytes = blob_file.read_bytes()

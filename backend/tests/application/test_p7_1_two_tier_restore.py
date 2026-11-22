@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +19,11 @@ from app.modules.backup.infrastructure.tier2_archive import create_tier2_archive
 from app.modules.storage.local import LocalStorage
 from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 from app.modules.versioning.infrastructure.vault_crypto import MasterKek
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="ArtifactCas requires POSIX",
+)
 
 
 def _seed_server(server_dir: Path, cas: ArtifactCas) -> str:

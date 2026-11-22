@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -14,9 +13,20 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
-from app.core.allowlist import classify, open_safe_path_fd, validate_canonical_relpath
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+
+from app.core.allowlist import (
+    SymlinkEscapeError,
+    classify,
+    open_safe_path_fd,
+    resolve_safe_disk_path,
+    validate_canonical_relpath,
+)
 from app.core.exceptions import InsufficientStorageError, ValidationError
 from app.core.host_state import validate_server_segment
 from app.core.platform_lock import FileLock
@@ -72,7 +82,7 @@ def _fsync_dir(path: Path) -> None:
 
 def _try_reflink_file(src: Path, dst: Path) -> bool:
     """Attempt Linux Btrfs/XFS FICLONE copy; return False if unsupported."""
-    if os.name != "posix":
+    if os.name != "posix" or fcntl is None:
         return False
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -86,8 +96,48 @@ def _try_reflink_file(src: Path, dst: Path) -> bool:
         return False
 
 
+def resolve_safe_child_path(
+    root_dir: Path,
+    relpath: str,
+    *,
+    allow_create_parents: bool = False,
+) -> Path:
+    """Resolve ``relpath`` safely under ``root_dir`` (dir_fd on POSIX; symlink check on Windows)."""
+    norm = validate_canonical_relpath(relpath)
+    if os.name == "posix":
+        return Path(
+            resolve_safe_disk_path(str(root_dir), norm, allow_create_parents=allow_create_parents)
+        )
+    if root_dir.is_symlink():
+        raise SymlinkEscapeError(f"Root itself is a symlink: {root_dir!r}")
+    root_real = os.path.realpath(root_dir)
+    curr = root_dir
+    for seg in norm.split("/"):
+        curr = curr / seg
+        if curr.is_symlink():
+            raise SymlinkEscapeError(f"Symlink component rejected: {seg!r}")
+    target_real = os.path.realpath(root_dir / norm)
+    if target_real == root_real or os.path.commonpath([root_real, target_real]) != root_real:
+        raise SymlinkEscapeError(f"Path escapes root after resolution: {norm!r}")
+    if allow_create_parents:
+        safe_target = root_dir.joinpath(*norm.split("/"))
+        safe_target.parent.mkdir(parents=True, exist_ok=True)
+        return safe_target
+    return root_dir.joinpath(*norm.split("/"))
+
+
+def open_safe_read_handle(root_dir: Path, relpath: str) -> BinaryIO:
+    """Open ``relpath`` under ``root_dir`` for reading (``open_safe_path_fd`` on POSIX)."""
+    norm = validate_canonical_relpath(relpath)
+    if os.name == "posix":
+        fd = open_safe_path_fd(str(root_dir), norm)
+        return os.fdopen(fd, "rb", closefd=True)
+    safe_path = resolve_safe_child_path(root_dir, norm)
+    return safe_path.open("rb")
+
+
 def _copy_file_safe(src_root: Path, relpath: str, dst_file: Path, *, allow_reflink: bool) -> bool:
-    """Safely open source via ``open_safe_path_fd`` and copy into ``dst_file``.
+    """Safely open source via ``open_safe_read_handle`` and copy into ``dst_file``.
 
     Returns True if FICLONE reflink succeeded.
     """
@@ -96,9 +146,8 @@ def _copy_file_safe(src_root: Path, relpath: str, dst_file: Path, *, allow_refli
     if allow_reflink and _try_reflink_file(src_file, dst_file):
         return True
 
-    fd = open_safe_path_fd(str(src_root), relpath)
     try:
-        with os.fdopen(fd, "rb", closefd=True) as s_fh, dst_file.open("wb") as d_fh:
+        with open_safe_read_handle(src_root, relpath) as s_fh, dst_file.open("wb") as d_fh:
             shutil.copyfileobj(s_fh, d_fh, length=65536)
     except Exception:
         with contextlib.suppress(OSError):

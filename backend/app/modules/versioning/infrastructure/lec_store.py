@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import fcntl
 import hashlib
 import json
 import os
@@ -24,6 +23,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
 
 from sqlalchemy import select
 
@@ -112,6 +116,8 @@ def _sha256_bytes(data: bytes) -> str:
 
 
 def _fsync_dir(path: Path) -> None:
+    if os.name != "posix":
+        return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags)
     try:
@@ -341,11 +347,13 @@ class LecStore:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
             yield
         finally:
-            with contextlib.suppress(OSError):
-                fcntl.flock(fd, fcntl.LOCK_UN)
+            if fcntl is not None:
+                with contextlib.suppress(OSError):
+                    fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
     def _purge_builder_root(self, staging: Path, parts: LecKeyParts) -> None:
@@ -374,6 +382,8 @@ class LecStore:
                 _remove_tree(target)
 
     def _fsync_tree(self, entry: Path) -> None:
+        if os.name != "posix":
+            return
         for current, _dirs, files in os.walk(entry, topdown=False, followlinks=False):
             for name in files:
                 file_path = Path(current) / name
@@ -534,11 +544,13 @@ class LecStore:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
             yield
         finally:
-            with contextlib.suppress(OSError):
-                fcntl.flock(fd, fcntl.LOCK_UN)
+            if fcntl is not None:
+                with contextlib.suppress(OSError):
+                    fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
     def attach_to_target(self, lec_key: str, target_dir: str | Path) -> int:
@@ -611,12 +623,13 @@ class LecStore:
 
     @staticmethod
     def _copy_fd(source_fd: int, destination_fd: int, size: int) -> None:
-        try:
-            fcntl.ioctl(destination_fd, 0x40049409, source_fd)
-            if os.fstat(destination_fd).st_size == size:
-                return
-        except OSError:
-            pass
+        if fcntl is not None:
+            try:
+                fcntl.ioctl(destination_fd, 0x40049409, source_fd)
+                if os.fstat(destination_fd).st_size == size:
+                    return
+            except OSError:
+                pass
         with contextlib.suppress(OSError):
             os.ftruncate(destination_fd, 0)
         os.lseek(destination_fd, 0, os.SEEK_SET)

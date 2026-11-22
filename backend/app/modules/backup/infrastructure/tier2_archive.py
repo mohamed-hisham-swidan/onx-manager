@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from app.core.allowlist import classify, open_safe_path_fd, validate_canonical_relpath
+from app.core.allowlist import classify, validate_canonical_relpath
 from app.core.exceptions import ValidationError
 from app.core.host_state import validate_server_segment
 from app.modules.backup.infrastructure.envelope_crypto import (
@@ -25,7 +25,10 @@ from app.modules.backup.infrastructure.envelope_crypto import (
     load_or_create_master_kek,
     requires_archive_encryption,
 )
-from app.modules.backup.infrastructure.tier1_snapshot import CLASS_C_FILENAMES
+from app.modules.backup.infrastructure.tier1_snapshot import (
+    CLASS_C_FILENAMES,
+    open_safe_read_handle,
+)
 from app.modules.storage.base import StorageBackend
 from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 from app.modules.versioning.infrastructure.vault_crypto import MasterKek
@@ -228,8 +231,7 @@ async def create_tier2_archive(
 
         with tarfile.open(uncompressed_tar, tar_mode) as tf:
             for bucket, rel in entries:
-                fd = open_safe_path_fd(str(server_dir), rel)
-                with os.fdopen(fd, "rb", closefd=True) as src_fh:
+                with open_safe_read_handle(server_dir, rel) as src_fh:
                     data = src_fh.read()
                 arcname = f"triad/{bucket}/{rel}"
                 info = tarfile.TarInfo(name=arcname)
@@ -244,10 +246,9 @@ async def create_tier2_archive(
                         raise Tier2ArchiveError(
                             f"Missing user CAS blob '{digest}' during Tier-2 export"
                         )
-                    blob_fd = open_safe_path_fd(
-                        str(cas.root), f"sha256/{digest[:2]}/{digest}"
-                    )
-                    with os.fdopen(blob_fd, "rb", closefd=True) as blob_fh:
+                    with open_safe_read_handle(
+                        cas.root, f"sha256/{digest[:2]}/{digest}"
+                    ) as blob_fh:
                         blob_bytes = blob_fh.read()
                     arcname = f"cas_blobs/{digest}"
                     info = tarfile.TarInfo(name=arcname)

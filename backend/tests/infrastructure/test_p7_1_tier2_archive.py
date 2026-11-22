@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -16,6 +17,11 @@ from app.modules.backup.infrastructure.tier2_archive import (
 from app.modules.storage.local import LocalStorage
 from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 from app.modules.versioning.infrastructure.vault_crypto import MasterKek
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="ArtifactCas requires POSIX",
+)
 
 
 class FakeS3Storage(LocalStorage):

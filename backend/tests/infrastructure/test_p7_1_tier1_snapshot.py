@@ -133,3 +133,39 @@ async def test_tier1_space_check_and_incomplete_marker_discard(tmp_path: Path) -
     removed = discard_incomplete_snapshots(snaps_root / "srv-1")
     assert removed == ["incomplete-1"]
     assert not incomplete.exists()
+
+
+@pytest.mark.asyncio
+async def test_tier1_and_lec_store_import_without_fcntl_and_non_posix_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+    import importlib
+    import sys
+
+    real_import = builtins.__import__
+
+    def _no_fcntl_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "fcntl":
+            raise ImportError("No module named 'fcntl' (simulated Windows)")
+        return real_import(name, globals, locals, fromlist, level)
+
+    for mod_name in (
+        "app.modules.backup.infrastructure.tier1_snapshot",
+        "app.modules.versioning.infrastructure.lec_store",
+    ):
+        monkeypatch.delitem(sys.modules, mod_name, raising=False)
+    monkeypatch.delitem(sys.modules, "fcntl", raising=False)
+    monkeypatch.setattr(builtins, "__import__", _no_fcntl_import)
+
+    t1_mod = importlib.import_module("app.modules.backup.infrastructure.tier1_snapshot")
+    lec_mod = importlib.import_module("app.modules.versioning.infrastructure.lec_store")
+    assert t1_mod.fcntl is None
+    assert lec_mod.fcntl is None
+
+    root = tmp_path / "srv-nt"
+    (root / "world").mkdir(parents=True)
+    (root / "world" / "level.dat").write_bytes(b"nt-data")
+    monkeypatch.setattr(t1_mod.os, "name", "nt")
+    with t1_mod.open_safe_read_handle(root, "world/level.dat") as fh:
+        assert fh.read() == b"nt-data"

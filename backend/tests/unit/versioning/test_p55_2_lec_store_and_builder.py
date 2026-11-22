@@ -44,6 +44,11 @@ from app.modules.versioning.infrastructure.lec_store import (
 )
 from app.modules.versioning.infrastructure.models import LoaderEnvCacheEntryModel
 
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="LEC store/builder uses POSIX-only O_DIRECTORY dir-fd and ArtifactCas",
+)
+
 
 def _make_layout(tmp_path: Path) -> tuple[AppSettings, HostStateLayout]:
     settings = AppSettings(
