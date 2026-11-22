@@ -8,9 +8,10 @@ Welcome to the ONX Manager documentation (`v0.1.0`). Every active guide, archite
 
 | Document | Purpose |
 |---|---|
-| [Getting Started](getting-started.md) | 5-minute quickstart with the unified launcher or manual setup. |
-| [Deployment Guide](DEPLOYMENT.md) | Docker Compose deployment, DooD profile, environment variables, and DB migration floor. |
-| [Development Guide](DEVELOPMENT.md) | Local development workflow, preflight scripts, and troubleshooting. |
+| [Getting Started](getting-started.md) | 5-minute quickstart via Docker Compose, `install.sh` / `install.ps1`, Desktop app, or manual dev setup. |
+| [Deployment Guide](DEPLOYMENT.md) | Docker Compose deployment, DooD profile, bare-metal VPS `systemd`, `ONX_DEPLOYMENT_PROFILE` & DB migration floor. |
+| [Desktop App Wrapper](../desktop/README.md) | Thin Electron shell (`desktop/`) supporting Local auto-supervisor and Remote VPS/tunnel panels. |
+| [Development Guide](DEVELOPMENT.md) | Local development workflow, `launcher.py`, preflight scripts, and troubleshooting. |
 | [Testing Guide](testing.md) | Backend (`pytest`) & frontend (`vitest`) suites and the 6 CI quality gates. |
 | [REST & WebSocket API](API.md) | API reference across 19 router files (213 live routes) and `/ws` WebSocket protocols. |
 | [Versioning Policy](VERSIONING.md) | SemVer 2.0.0 rules, single source of truth (`0.1.0`), and fail-closed DB compatibility floor (`b1e2100000032`). |

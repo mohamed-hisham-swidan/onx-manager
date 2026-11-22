@@ -9,31 +9,31 @@
 
 ## Quick Start (Automated)
 
-The project includes unified launchers that handle virtual environments, dependencies, migrations, preflight process cleanup, and service supervision:
+Use the developer bootstrap script or `launcher.py` to manage virtual environments, dependencies, migrations, preflight process cleanup, and dual-process HMR services:
 
 ```bash
-# Windows
-start.bat
+# One-time setup (Linux / macOS)
+./scripts/bootstrap
 
-# Linux / macOS
-./start.sh
+# Start backend (:8000 --reload) + Vite frontend (:5173 HMR)
+python launcher.py --dev
+
+# Windows PowerShell developer helper
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
 ### Useful Launcher Options
 ```bash
-./start.sh --stop          # Stop all running services
-./start.sh --restart       # Clean restart
-./start.sh --status        # Show active processes and port allocation
-./start.sh --logs          # Show aggregated service logs
-./start.sh --self-test     # Validate prerequisites upfront
-./start.sh --ascii         # Force clean ASCII output mode
-./start.sh --swagger       # Open Swagger API documentation
+python launcher.py --backend-only   # Single-process mode (FastAPI serves built frontend/dist)
+python launcher.py --headless       # Run backend in background without spawning a terminal window
+python launcher.py --stop           # Stop all running services
+python launcher.py --restart        # Clean restart
+python launcher.py --status         # Show active processes and port allocation
+python launcher.py --logs           # Show aggregated service logs
+python launcher.py --self-test      # Validate prerequisites upfront
+python launcher.py --ascii          # Force clean ASCII output mode
+python launcher.py --swagger        # Open Swagger API documentation
 ```
-
-### Debug & Tracing Launchers
-For deep troubleshooting and process tracing:
-- Windows: `executors/start-debug.ps1` (PowerShell)
-- Unix: `executors/start-debug.sh`
 
 ## Manual Setup
 
@@ -192,7 +192,7 @@ See [Database docs](architecture/DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest tests/ -q          # All tests (3,642 collected: 3,636 passed, 6 skipped, 249 test files; verified 2026-11-09 sequential run)
+python -m pytest -q                 # Sequential full suite (5,296 passed, 7 skipped)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -224,11 +224,11 @@ from app.core.persistence.db import database
 ### Frontend
 
 ```bash
-cd frontend && npm test            # All frontend tests
+cd frontend && npm test            # All frontend tests (1,338 passed across 138 test files)
 cd frontend && npm run test:watch  # Watch mode
 ```
 
-1,178 frontend tests across 130 test files (verified 2026-11-09). Vitest with jsdom environment.
+1,338 frontend tests across 138 test files. Vitest with jsdom environment.
 
 ## Docker Development
 

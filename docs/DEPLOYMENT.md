@@ -1,266 +1,159 @@
-# Deployment Guide (Docker)
+# Deployment Guide
 
-## Prerequisites
+ONX Manager supports three primary deployment topologies:
+
+1. **Docker Compose (`docker-compose.yml`)** — Recommended for VPS & home servers
+2. **Docker-outside-of-Docker (`docker-compose.dood.yml`)** — Opt-in override when running ONX inside Docker while managing sibling Minecraft containers on the host daemon
+3. **Bare-Metal VPS (`./install.sh --mode=vps`)** — Single-process `systemd` service with FastAPI serving the built SPA directly
+
+---
+
+## Panel Deployment Profiles (`ONX_DEPLOYMENT_PROFILE`)
+
+`ONX_DEPLOYMENT_PROFILE` controls the panel UX surface (separate from per-server `ServerMode` `simple` vs `advanced`):
+
+| Value | Default In | Behavior |
+|---|---|---|
+| `vps` | Docker, `./install.sh --mode=vps` | Exposes the full server panel: networking topology, multi-user invitations/RBAC, API keys, full diagnostics, and Advanced GitOps workflows. |
+| `local` | `./install.sh --mode=local`, `install.ps1`, Desktop App | Streamlines onboarding (`/setup`), keeps core server controls, console, mods/plugins, and quick sharing (Playit.gg / Cloudflare Tunnel) front-and-center, and collapses VPS-only sections behind an opt-in toggle. |
+
+---
+
+## Option 1: Docker Compose (VPS)
+
+### Prerequisites
 
 - **Docker** ≥ 24.0 (with Compose plugin ≥ v2.24 supporting long `env_file` syntax)
-- **Git** (to clone the repo)
-
-Verify:
+- **Git**
 
 ```bash
-docker --version
-docker compose version
-```
-
-## Quick start
-
-```bash
-# 1. Clone the repo
 git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
-
-# 2. Set up environment
 cp .env.example .env
-# Edit .env to customize ports, database URL, or keys if desired
-
-# 3. Build and start
+# Edit .env if you want custom host ports (ONX_PANEL_PORT / ONX_API_PORT) or explicit keys
 docker compose up -d
+```
 
-# 4. Check status
+Verify health:
+
+```bash
 docker compose ps
 curl http://localhost:8000/health
 curl http://localhost:80/
 ```
 
-## Environment variables
+### Standard `docker-compose.yml` vs `docker-compose.dood.yml`
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ONX_DATABASE_URL` (or `MCS_DATABASE_URL`) | `sqlite+aiosqlite:////app/data/onx.db` | Database connection string inside container |
-| `ONX_DEBUG` | `false` | Enable debug mode |
-| `ONX_LOG_LEVEL` | `INFO` | Logging level |
-| `ONX_FORCE_ASCII` | `0` | Set `1` to force ASCII console output |
-| `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `/app/config/jwt_private_key.pem` inside the container (`onx-config` volume). |
-| `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`) | No | Path to a PEM file to load instead of the env/auto-generated key |
-| `ONX_MASTER_KEK` / `ONX_MASTER_KEK_FILE` | No* | 32-byte master KEK for AES-256-GCM Class-C snapshots, `${ONX_SECRET_*}` vault, and panel integration secrets (*required for Advanced mode) |
-| `ONX_HOST_STATE_DIR` / `ONX_HOST_STATE_HOST_DIR` | No | Host-state directory override (`0700` on POSIX) & container-visible host bind path |
-| `ONX_CURSEFORGE_API_KEY` | No | Optional CurseForge API key (can also be configured in encrypted panel settings) |
+| Feature | `docker-compose.yml` (Standard) | `docker-compose.yml` + `docker-compose.dood.yml` (DooD) |
+|---|---|---|
+| **Use Case** | Standard panel deployment | Containerized panel spawning sibling Minecraft & Branch Runtime containers on host Docker |
+| **Socket Access** | None (isolated) | Mounts `/var/run/docker.sock` (`user: root`) |
+| **Server Data Storage** | Named volume `onx-server-data` | Host bind mounts `${ONX_HOST_DATA_DIR:-./backend/data/servers}` & `${ONX_HOST_STATE_HOST_DIR:-./backend/data/host-state}` |
+| **Security Footprint** | Least-privilege non-root container | **Opt-in root-equivalent host Docker access** — see security caution below |
 
-## Persistent data
+---
 
-Docker Compose creates three named volumes:
+## Option 2: Bare-Metal VPS (`./install.sh --mode=vps`)
 
-| Volume | Mount point | Contents |
-|--------|-------------|----------|
-| `onx-db-data` | `/app/data/` | SQLite database (`onx.db`) |
-| `onx-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
-| `onx-config` | `/app/config/` | JWT signing key, backup encryption key, `settings.yaml` |
-
-Data survives container restarts and upgrades. To wipe everything (including the database and persistent keys):
+For Ubuntu/Debian/Fedora/Arch VPS hosts where you want zero container overhead for the panel itself and direct host Docker access for Minecraft servers:
 
 ```bash
-docker compose down -v
+curl -fsSL https://raw.githubusercontent.com/mohamed-hisham-swidan/onx-manager/master/install.sh | bash -s -- --mode=vps --yes
 ```
 
-## After first start — Owner bootstrap
+What this configures automatically:
+- Isolated **Python 3.12** virtual environment via `uv` (`backend/.venv`)
+- Compiled production SPA (`frontend/dist`) served directly by FastAPI on a single port (`ONX_STATIC_DIR`) — no Nginx or Node.js daemon needed
+- Auto-generated `0600` secrets in `backend/config/`: `jwt_private_key.pem`, `backup_encryption_key.bin`, and `master_kek.key`
+- Database schema migrated to head (`alembic upgrade head`)
+- Enabled `systemd` unit (`onx-manager.service`) + `onx` CLI (`onx start|stop|restart|status|logs|update`)
 
-A fresh deployment starts **uninitialized**; all protected API routes are
-blocked until an Owner is created. Two equivalent ways to bootstrap:
+Put Nginx, Caddy, or a Cloudflare Tunnel in front of port `8000` for HTTPS in production.
 
-**Via the UI (recommended):** open the frontend — the `/setup` wizard is shown
-automatically. Create the Owner account and choose the access mode.
+---
 
-**Via the API:**
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ONX_DEPLOYMENT_PROFILE` | `vps` | Panel UI profile (`vps` or `local`) |
+| `ONX_PANEL_PORT` / `ONX_API_PORT` | `80` / `8000` | Host port mappings used by `docker-compose.yml` |
+| `ONX_PANEL_BIND_HOST` / `ONX_PANEL_BIND_PORT` | `127.0.0.1` (`0.0.0.0` in Docker/VPS) / `8000` | Uvicorn bind address and port |
+| `ONX_STATIC_DIR` | *(auto-detects `frontend/dist`)* | Built SPA path for single-process serving (`off` disables static serving) |
+| `ONX_DATABASE_URL` | `sqlite+aiosqlite:///data/onx.db` (`/app/data/onx.db` in Docker) | SQLite or PostgreSQL (`postgresql+asyncpg://...`) URL |
+| `ONX_JWT_PRIVATE_KEY` / `ONX_JWT_PRIVATE_KEY_PATH` | *(auto-generated `0600`)* | RSA private key for JWT signing; auto-created on first boot if omitted |
+| `ONX_BACKUP_ENCRYPTION_KEY_PATH` | `config/backup_encryption_key.bin` *(auto-generated `0600`)* | 32-byte AES key for Tier-2 backup encryption |
+| `ONX_MASTER_KEK` / `ONX_MASTER_KEK_FILE` | *(auto-generated `0600` at `config/master_kek.key` on POSIX)* | 256-bit Master KEK for Class-C state snapshots and secret vault |
+| `ONX_HOST_DATA_DIR` / `ONX_HOST_STATE_HOST_DIR` | *(unset)* | Absolute host paths required for DooD sibling container volume mounts |
+| `ONX_CURSEFORGE_API_KEY` | *(unset)* | Optional CurseForge API key (can also be set in Settings UI) |
+| `ONX_DEBUG` / `ONX_LOG_LEVEL` | `false` / `INFO` | Debug flag and logging verbosity |
+
+> **Important Security Note on Auto-Generated Keys:** On first boot, ONX Manager generates `jwt_private_key.pem`, `backup_encryption_key.bin`, and (on POSIX) `master_kek.key` with strict `0600` permissions if not already configured. Always back up `onx-config` (Docker volume) or `backend/config/` — losing `backup_encryption_key.bin` or `master_kek.key` makes existing encrypted backups/snapshots unrecoverable.
+
+---
+
+## Persistent Volumes (Docker)
+
+| Volume | Mount Point | Contents |
+|---|---|---|
+| `onx-db-data` | `/app/data/` | SQLite database (`onx.db`) |
+| `onx-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
+| `onx-config` | `/app/config/` | `jwt_private_key.pem`, `backup_encryption_key.bin`, `master_kek.key`, `settings.yaml` |
 
 ```bash
-# 1. Confirm the instance is uninitialized
-curl http://localhost:8000/api/v1/setup/status
-# → {"initialized": false, "access_mode": "LOCAL", "user_count": 0, "version": "0.1.0"}
+# Common Docker Compose operations
+docker compose up -d
+docker compose down          # Stop while keeping volumes
+docker compose logs -f       # Tail logs
+docker compose build && docker compose up -d
+```
 
-# 2. Bootstrap (single-use — this must succeed exactly once)
+---
+
+## First-Boot Owner Bootstrap (`/setup`)
+
+Every fresh deployment starts **uninitialized** and automatically redirects browser visitors to `/setup`. You can bootstrap either in the browser GUI (recommended) or via API:
+
+```bash
+curl -s http://localhost:8000/api/v1/setup/status
+# {"initialized":false,"access_mode":"LOCAL","user_count":0,"version":"0.1.0","advanced_mode_enabled":true,"deployment_profile":"vps"}
+
 curl -X POST http://localhost:8000/api/v1/setup/bootstrap \
   -H "Content-Type: application/json" \
   -d '{
     "email": "owner@example.com",
-    "password": "a-long-password",
+    "password": "a-strong-password",
     "display_name": "Instance Owner",
     "access_mode": "GLOBAL"
   }'
 ```
 
-This creates the Owner (with the `owner` role and `admin:full`/`global.*`
-claims) and marks the instance initialized. After bootstrap:
+---
 
-- **`LOCAL`** mode keeps open self-registration available at `/register`.
-- **`GLOBAL`** mode disables self-registration (`403` on `POST /api/v1/users`),
-  so the Owner must create invitations (UI: **Settings → Invitations**, or
-  `POST /api/v1/invites` with a Bearer token carrying `user:write`) and share
-  the invite links (`/invite/<token>`) with users.
+## Database Migrations & Compatibility Floor
 
-If the app is redeployed on the same database volume, **do not** run bootstrap
-again — `POST /api/v1/setup/bootstrap` returns `409 Conflict` on a second
-attempt, and `PUT /api/v1/setup/access-mode` can be used later to flip
-`LOCAL` ↔ `GLOBAL`.
+**ONX Manager 0.1.0 requires Alembic revision `b1e2100000032`** (enforced fail-closed at startup via `app.core.persistence.db_revision`).
 
-## Common commands
-
-```bash
-# Start
-docker compose up -d
-
-# Stop (keep data)
-docker compose down
-
-# Stop and delete volumes (WARNING: destroys DB + server data)
-docker compose down -v
-
-# View logs
-docker compose logs -f
-docker compose logs backend -f
-docker compose logs frontend -f
-
-# Rebuild after code changes
-docker compose build
-docker compose up -d
-
-# Restart a single service
-docker compose restart backend
-```
-
-## Architecture
-
-```
-                        ┌─────────────┐
-                        │  nginx:80   │  ← frontend service
-                        │  (static)   │
-                        └──────┬──────┘
-                               │  /api/*  /ws  /health
-                               ▼
-                        ┌─────────────┐
-                        │  uvicorn    │  ← backend service
-                        │  :8000      │
-                        └──────┬──────┘
-                               │
-                    ┌──────────┴──────────┐
-                    │  onx-db-data        │
-                    │  onx-server-data    │  ← named volumes
-                    └─────────────────────┘
-```
-
-The frontend nginx serves the compiled Vite SPA and proxies API/WebSocket
-requests to the backend container. The backend runs the Alembic migration step
-in its container command and will not start against an incompatible schema
-(see below).
-
-## Database migrations & compatibility floor
-
-**ONX Manager 0.1.0 requires DB compatibility with Alembic revision
-`b1e2100000032`.** The version-conditional floor is declared once in
-`backend/app/core/persistence/db_revision.py`
-(`RELEASE_MINIMUM_DB_REVISION`); it is **never auto-applied** and **never read
-from the DB URL config**.
-
-Each deployment must follow this sequence:
+- Docker entrypoint and `./install.sh` run `alembic upgrade head` automatically.
+- For manual upgrades:
 
 ```bash
 cd backend
-
-# 1. Apply migrations (container entrypoint does this; you may run it explicitly)
 alembic upgrade head
-
-# 2. Verify the database reached the required revision
 alembic current
-#   → should show b1e2100000032 (or a compatible descendant for later releases)
-
-# 3. Start the application
-uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-- **Migrations are a deployment step, not a startup behavior.** The Docker image
-  runs `alembic upgrade head && uvicorn app.main:app`, but the application itself
-  performs **no** automatic migration.
-- **Startup fails closed.** On start the backend reads `alembic_version` from the
-  live database and aborts if the revision is missing, unknown, **behind
-  `b1e2100000032`**, or on an incompatible branch. The error names the current
-  revision, the required minimum, and the fix (`alembic upgrade head`) — without
-  exposing the database URL or credentials.
-- A fresh database migrated with `alembic upgrade head` starts normally; a
-  database left below the floor (e.g. the legacy secondary SQLite file
-  described in `docs/architecture/DATABASE.md`) is rejected with an actionable
-  error.
+---
 
-## Production considerations
-
-1. **Provide a persistent JWT private key** — set `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) in `.env`, or mount a PEM file and set `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`). Alternatively, ensure the `onx-config` volume is preserved across deployments so auto-generated keys in `/app/config/` remain intact. JWTs are only invalidated if the `onx-config` volume is removed or recreated.
-2. **Back up the volumes** regularly — especially `onx-db-data`, `onx-server-data`, and `onx-config`.
-3. **Resource limits** — Minecraft servers can use significant RAM. Consider adding `deploy.resources.limits` in `docker-compose.yml` if running on constrained hardware.
-
-## Local dev (non-Docker) alternative
-
-The project also supports a local development path:
+## Docker-outside-of-Docker (DooD) Details
 
 ```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -e ".[dev]"
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Use the Docker path for deployment and CI. Use the local path for
-active development (hot-reload, debugger access, test runner).
-
-## Docker-outside-of-Docker (DooD) Profile
-
-When running ONX Manager itself inside Docker, controlling host Minecraft containers
-requires the **Docker-outside-of-Docker (DooD)** opt-in override:
-
-```bash
+export ONX_HOST_DATA_DIR=$(pwd)/backend/data/servers
+export ONX_HOST_STATE_HOST_DIR=$(pwd)/backend/data/host-state
 docker compose -f docker-compose.yml -f docker-compose.dood.yml up -d
 ```
 
-### Security Considerations & Host Privilege Escalation Risk
-
 > [!CAUTION]
-> **Host Privilege Escalation Risk:** Mounting `/var/run/docker.sock` grants the
-> container root-equivalent access to the host Docker daemon. Any attacker or process
-> that compromises the backend container can execute arbitrary Docker commands on the host,
-> mount the host filesystem root (`-v /:/host`), and achieve complete host takeover.
->
-> - **Never** expose a DooD-enabled ONX Manager instance to untrusted networks without
->   authentication, TLS, and strict firewall rules.
-> - **Do not** use this override in untrusted multi-tenant environments.
-> - Native host deployment (running ONX Manager directly on the host) remains the
->   **Primary Supported Tier** and does not require mounting `/var/run/docker.sock`.
+> **Host Privilege Escalation Risk:** Mounting `/var/run/docker.sock` grants the backend container root-equivalent access to the host Docker daemon. Never expose a DooD instance directly to untrusted networks without TLS, strong auth, and strict firewall rules. For native VPS installations, `./install.sh --mode=vps` avoids Docker socket forwarding altogether.
 
-### Host Sibling Mounts & Path Translation (`ONX_HOST_DATA_DIR`)
-
-Because sibling Minecraft containers are created by the **host** Docker daemon, the host
-daemon resolves volume paths against the host's filesystem, not internal container paths.
-
-To ensure sibling containers mount server files correctly:
-1. `docker-compose.dood.yml` replaces the named volume with a host bind mount:
-   `${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers`
-2. Set the `ONX_HOST_DATA_DIR` environment variable to the absolute host directory where
-   servers are stored:
-   ```bash
-   export ONX_HOST_DATA_DIR=$(pwd)/backend/data/servers
-   ```
-3. `DockerProvider` translates internal `/app/data/servers/{server_id}` paths to
-   `${ONX_HOST_DATA_DIR}/{server_id}` when issuing `docker run -v` commands to the host daemon.
-
-### Windows & WSL2 Hosts
-
-On Windows hosts running Docker Desktop with the WSL2 backend:
-- The Docker daemon socket is available at `/var/run/docker.sock` inside WSL2 and is bridged
-  by Docker Desktop into Linux containers.
-- Sibling Minecraft containers run in Linux containers mode (itzg images require Linux).
-- Set `ONX_HOST_DATA_DIR` using forward slashes (e.g. `D:/onx-manager/data/servers` or
-  `/mnt/d/onx-manager/data/servers`).
-
+On Windows with Docker Desktop (WSL2 backend), ensure Linux containers mode is enabled and set `ONX_HOST_DATA_DIR` using forward slashes (e.g. `D:/onx-manager/data/servers` or `/mnt/d/onx-manager/data/servers`).

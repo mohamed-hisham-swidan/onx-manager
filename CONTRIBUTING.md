@@ -10,7 +10,7 @@ Thanks for your interest in contributing to ONX Manager! This guide covers the d
 
 1. Fork the repository and clone your fork.
 2. Run `./scripts/bootstrap` to set up the environment (venv, dependencies, migrations), or follow [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-3. Start the dev environment via `python launcher.py` (or `./start.sh` / `start.bat`).
+3. Start the dev environment via `python launcher.py --dev` (or run backend `uvicorn` + frontend `npm run dev` directly).
 4. Read [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) and [docs/reference/dependency-graph.md](docs/reference/dependency-graph.md) before making cross-module changes.
 
 ---

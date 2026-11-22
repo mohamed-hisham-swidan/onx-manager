@@ -1,103 +1,120 @@
 # Getting Started
 
-A 5-minute quickstart for running ONX Manager on your machine.
+Get ONX Manager up and running in under 5 minutes.
 
-## Prerequisites
+---
 
-- **Python** 3.12 (exact; 3.13/3.14 are not supported by the installer)
-- **Node.js** 18+ (Node.js 22 LTS recommended; portable 22 LTS auto-installed on Windows if missing)
-- **Git**
+## Choose Your Installation Path
 
-## Quick Start (Automated)
+### Option A: Docker Compose (VPS / Home Server)
 
-The unified launcher handles Python environment creation, dependency installation, portable Node.js setup, preflight cleanup, database migrations, and service supervision automatically:
-
-### Windows
-```cmd
-git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
-cd onx-manager
-start.bat
-```
-
-### Linux / macOS
 ```bash
 git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
-./start.sh
+cp .env.example .env
+docker compose up -d
+```
+
+Open `http://<your-server-ip>/` (or `http://localhost/`). If you want a containerized ONX Manager to orchestrate isolated sibling Minecraft containers via the host Docker daemon, see the DooD guide in [Deployment Guide](DEPLOYMENT.md).
+
+---
+
+### Option B: Standard Installer (`install.sh` / `install.ps1`)
+
+The standard installers provision an isolated **Python 3.12** runtime via `uv`, build the static frontend bundle (`frontend/dist`) so FastAPI serves both the UI and API from a single process, auto-generate `0600` cryptographic keys, and run Alembic migrations.
+
+**Linux / macOS (interactive VPS vs Local choice):**
+
+```bash
+./install.sh
+# Or non-interactively:
+./install.sh --mode=vps --port=8000 --yes      # Full server panel + systemd service + onx CLI
+./install.sh --mode=local --port=8000 --yes    # Personal machine + ~/.local/bin/onx + desktop icon
+```
+
+**Windows (PowerShell — Local Mode):**
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install.ps1
+```
+
+Once installed, launch or manage ONX Manager using:
+
+```bash
+onx open      # Start (if stopped) and open the browser UI
+onx status    # View status
+onx logs      # Tail service logs
+onx stop      # Stop cleanly
 ```
 
 ---
 
-## Manual Step-by-Step Setup
+### Option C: Desktop App (`desktop/`)
 
-If you prefer to start components individually:
-
-### 1. Backend
+Run ONX Manager as a native desktop window on **Windows** or **Linux** with a system tray icon and built-in switcher (`Ctrl+Shift+K`) between your **Local backend** and any **Remote VPS / friend's panel URL**:
 
 ```bash
-python3 -m venv backend/.venv
-source backend/.venv/bin/activate
-pip install -r backend/requirements.txt
-cd backend && alembic upgrade head && cd ..
-python -m uvicorn app.main:app --app-dir backend --reload --port 8000
+cd desktop
+npm install
+npm start
 ```
 
-The API is available at `http://localhost:8000`. Auto-generated docs at `http://localhost:8000/docs`.
+See [`desktop/README.md`](../desktop/README.md) for packaging instructions (`AppImage` / Windows `.exe`).
 
-## Start the Frontend
+---
 
-Open a second terminal:
+## Manual Developer Setup
+
+If you want hot-reloading backend + Vite dev servers:
+
+- **Python** 3.12 (exact)
+- **Node.js** 18+ (Node.js 22 LTS recommended)
+- **Git**
 
 ```bash
+./scripts/bootstrap
+python3 launcher.py --dev
+```
+
+Or manually in two terminals:
+
+```bash
+# Terminal 1 — Backend
+cd backend
+source .venv/bin/activate
+alembic upgrade head
+python -m uvicorn app.main:app --reload --port 8000
+
+# Terminal 2 — Frontend
 cd frontend
 npm run dev
 ```
 
-The frontend is available at `http://localhost:5173`. It proxies `/api` and `/ws` requests to the backend at `:8000`.
+Dev UI runs at `http://localhost:5173` (proxying `/api` and `/ws` to `:8000`).
 
-## Open the Browser
+---
 
-Navigate to `http://localhost:5173`.
+## First-Run GUI Onboarding (`/setup`)
 
-**First run:** a fresh instance starts **uninitialized**, so you'll be
-redirected to the `/setup` wizard (`SetupPage`). Create the **Owner** account
-and choose the access mode before you can log in. See "First Steps" below.
+A fresh instance starts **uninitialized** — no terminal registration step is needed:
 
-## First Steps
+1. Open the panel URL in your browser (or launch the Desktop App). You are automatically redirected to **`/setup`**.
+2. Create the **Owner** account (Display Name, Email, Password).
+3. Choose the **Access Mode** (or keep the default **`LOCAL`** in Local Desktop profile):
+   - **`LOCAL`**: Home-lab / LAN. Open registration stays available (`/register`).
+   - **`GLOBAL`**: Public VPS. Registration is invite-only via `/invite/:token` links created by the Owner under **Settings → Invitations**.
+4. **Create a server** — go to **Servers → Create Server**, pick software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Quilt, or Modpack), and click **Create**.
+5. **Start & share** — start the server from the dashboard, open the live console, or configure **Playit.gg** / **Cloudflare Tunnel** under **Network & Exposure**.
 
-1. **Create the Owner (first run only)** — on `/setup`, enter the Owner
-   email/password and choose the access mode:
-   - **`LOCAL`** (default) — home-lab/LAN. After bootstrap, open
-     self-registration stays available (`Register`), and the Owner can issue
-     invitations from **Settings → Invitations** (and flip the mode from
-     Settings → Access).
-   - **`GLOBAL`** — VPS/remote. Self-registration is disabled; new users must
-     register through an invitation link (`/invite/:token`).
-2. **Register an account** (LOCAL) or **accept an invitation** (GLOBAL) — the
-   Owner can also create additional users directly.
-3. **Create a server** — navigate to Servers → Create Server; choose a name, type (e.g. Vanilla), and version
-4. **Start the server** — click the play button on the server row; the server status will update in real-time via WebSocket
-5. **View the console** — click the server name to open the Blade Hosting-style detail page with live console output and metrics
-6. **Manage server files** — click Files in the server sidebar to view, edit, upload, or create server configuration files
-7. **Stop the server** — click the stop button; the server will shut down gracefully
+---
 
 ## What's Next
 
 | Topic | Document |
 |---|---|
-| Detailed setup & development loop | [Development Guide](DEVELOPMENT.md) |
+| Production deployment, DooD & `systemd` | [Deployment Guide](DEPLOYMENT.md) |
+| Local dev loop, preflight & debugging | [Development Guide](DEVELOPMENT.md) |
 | Architecture overview | [Architecture](architecture/ARCHITECTURE.md) |
 | REST API reference | [API Documentation](API.md) |
-| Frontend architecture | [Frontend](architecture/FRONTEND.md) |
-| Running tests | [Testing Guide](testing.md) |
-| Project roadmap | [Roadmap](roadmap/ROADMAP.md) |
-
-## Troubleshooting
-
-**Port already in use**: Run `scripts/preflight.sh` to kill stale processes.
-
-**Database locked**: Run `scripts/preflight.sh` — it detects and releases SQLite locks from orphaned processes.
-
-**WS connection fails**: Confirm the Vite proxy forwards `/ws` to `ws://localhost:8000`. In development, this is configured by default.
-
-**Token expires**: Access tokens last 15 minutes. The frontend refreshes automatically using the refresh token (7-day TTL).
+| Running tests & CI gates | [Testing Guide](testing.md) |
