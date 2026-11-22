@@ -142,7 +142,6 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
         has_runtime_handle = bool(
             server.runtime
             and server.runtime.external_id
-            and (provider_type != "local_windows" or server.runtime.pid is not None)
         )
 
         with shutdown_timeline(server_name, sid):

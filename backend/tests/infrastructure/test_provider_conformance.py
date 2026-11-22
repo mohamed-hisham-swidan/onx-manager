@@ -29,8 +29,6 @@ from app.modules.server.infrastructure.providers.cloud import (
     CloudProviderStub,
 )
 from app.modules.server.infrastructure.providers.docker import DockerProvider
-from app.modules.server.infrastructure.providers.local import LocalLinuxProvider
-from app.modules.server.infrastructure.providers.local_windows import LocalWindowsProvider
 from app.modules.server.infrastructure.providers.remote import SSHProvider
 
 CANONICAL_CAPABILITIES = frozenset({"process", "console", "exec"})
@@ -38,18 +36,12 @@ CANONICAL_CAPABILITIES = frozenset({"process", "console", "exec"})
 
 def create_mocked_provider(name: str) -> ServerProvider:
     """Create a provider instance suitable for mock contract testing."""
-    if name == "local_linux":
-        mock_fs = MagicMock()
-        mock_fs.exists.return_value = True
-        return LocalLinuxProvider(fs=mock_fs)
-    elif name == "local_windows":
-        return LocalWindowsProvider()
-    elif name == "docker":
+    if name == "docker":
         return DockerProvider()
     elif name == "cloud":
         return CloudProviderStub()
     elif name == "circuit_breaker":
-        mock_inner = LocalLinuxProvider(fs=MagicMock())
+        mock_inner = DockerProvider()
         return CircuitBreakerProviderWrapper(wrapped=mock_inner)
     elif name == "ssh":
         return SSHProvider(host="127.0.0.1", port=22, username="test-user")
@@ -57,8 +49,6 @@ def create_mocked_provider(name: str) -> ServerProvider:
 
 
 ALL_PROVIDER_NAMES = [
-    "local_linux",
-    "local_windows",
     "docker",
     "cloud",
     "circuit_breaker",
@@ -117,21 +107,12 @@ def _mock_provider_io(
         patch("os.kill", side_effect=_record_kill),
         patch.object(DockerProvider, "_docker_command", AsyncMock(side_effect=_fake_docker_cmd)),
         patch.object(DockerProvider, "_ensure_image", AsyncMock()),
-        patch.object(
-            LocalLinuxProvider,
-            "_run_command_with_output",
-            AsyncMock(return_value=(0, f"{dynamic_pid}\n")),
-        ),
-        patch.object(LocalLinuxProvider, "_verify_port_free", AsyncMock()),
-        patch.object(LocalLinuxProvider, "_is_pid_alive", AsyncMock(return_value=False)),
-        patch.object(LocalWindowsProvider, "_verify_port_free", AsyncMock()),
         patch.object(SSHProvider, "_get_connection", AsyncMock(return_value=mock_conn)),
         patch(
             "asyncio.create_subprocess_exec",
             AsyncMock(return_value=MagicMock(pid=dynamic_pid)),
         ),
         patch("asyncio.sleep", AsyncMock()),
-        patch("app.modules.server.infrastructure.providers.local.asyncio.sleep", AsyncMock()),
     ):
         yield
 
@@ -268,15 +249,13 @@ class TestProviderRuntimeExecutionContract:
             # CloudProvider explicitly raises NotImplementedError for unprovisioned VMs
             assert isinstance(provider, (CloudProvider, CloudProviderStub))
         except ProviderError:
-            # Platform-specific runtime failure (e.g. tmux unavailable for
-            # local_linux on win32) is acceptable; the contract under test is
+            # Platform-specific runtime failure is acceptable; the contract under test is
             # that the full kwarg signature is accepted without TypeError.
             pass
 
     @pytest.mark.asyncio
     async def test_destroy_graceful_completion(
         self,
-        request: pytest.FixtureRequest,
         provider: ServerProvider,
         standard_handle: ServerHandle,
     ) -> None:
@@ -287,11 +266,6 @@ class TestProviderRuntimeExecutionContract:
             assert isinstance(provider, (CloudProvider, CloudProviderStub))
         except ProviderError:
             pass  # Acceptable domain error under failure simulation
-
-        if provider.provider_type == "local":
-            expected_pid = getattr(request.node, "dynamic_pid", None)
-            recorded = getattr(request.node, "recorded_kills", [])
-            assert any(pid == expected_pid for pid, _ in recorded)
 
     @pytest.mark.asyncio
     async def test_status_returns_runtime_enum(
@@ -364,9 +338,9 @@ class TestDefaultProviderFactoryConformance:
     def test_default_factory_registrations(self) -> None:
         """Every provider in provider_factory must be a concrete ServerProvider."""
         types = provider_factory.list_types()
-        assert "local" in types
-        assert "local_windows" in types
         assert "docker" in types
+        assert "local" not in types
+        assert "local_windows" not in types
 
         for ptype in types:
             prov = provider_factory.get(ptype)

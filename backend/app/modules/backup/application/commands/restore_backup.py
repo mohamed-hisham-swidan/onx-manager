@@ -12,7 +12,10 @@ from app.core.exceptions import NotFoundError, ServerNotFoundError
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
-from app.modules.backup.application.restore_service import RestoreError, perform_safe_restore
+from app.modules.backup.application.restore_service import (
+    RestoreError,
+    dispatch_two_tier_restore,
+)
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.server.application.lifecycle_lock import ServerLifecycleLockTimeoutError
@@ -21,6 +24,19 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import BackupJobId
 
 logger = logging.getLogger(__name__)
+
+
+async def perform_safe_restore(
+    job: object,
+    server_dir: str,
+    base_world: str = "world",
+) -> list[str]:
+    """Dispatch restore through the two-tier path for the restore command.
+
+    Kept as a module-level seam so existing callers/tests can patch it without
+    reaching into ``restore_service``.
+    """
+    return await dispatch_two_tier_restore(job, server_dir, base_world=base_world)
 
 # Statuses in which the server process may still be up — restoring underneath a
 # live process would corrupt the world, so these are deferred instead.
@@ -178,7 +194,7 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
         try:
             try:
                 restored_items = await perform_safe_restore(
-                    backup_id,
+                    job,
                     server_dir,
                     base_world=base_world,
                 )

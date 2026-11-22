@@ -273,63 +273,7 @@ async def test_resolve_target_routing():
         mock_ctx.__aexit__.return_value = None
         return mock_ctx
 
-    # 2. Live server - local_windows -> file_tail
-    win_server = SimpleNamespace(
-        id="s-win",
-        provider="local_windows",
-        external_id="ext-win",
-        root_path="/srv/win_mc",
-        working_directory=".",
-    )
-    with patch.object(
-        type(database),
-        "session_factory",
-        new_callable=PropertyMock,
-        return_value=lambda: create_mock_db(win_server),
-    ):
-        target_name, mode, log_path = await manager._resolve_target("server:s-win:console")
-        assert target_name == "ext-win"
-        assert mode == "file_tail"
-        assert log_path == Path("/srv/win_mc/logs/latest.log")
-
-    # 3. Live server - local on Linux -> tmux
-    lin_server = SimpleNamespace(
-        id="s-lin",
-        provider="local",
-        external_id="ext-lin",
-        root_path="/srv/lin_mc",
-        working_directory=".",
-    )
-    with (
-        patch.object(
-            type(database),
-            "session_factory",
-            new_callable=PropertyMock,
-            return_value=lambda: create_mock_db(lin_server),
-        ),
-        patch("sys.platform", "linux"),
-    ):
-        target_name, mode, log_path = await manager._resolve_target("server:s-lin:console")
-        assert target_name == "ext-lin"
-        assert mode == "tmux"
-        assert log_path is None
-
-    # 4. Live server - local on win32 -> file_tail
-    with (
-        patch.object(
-            type(database),
-            "session_factory",
-            new_callable=PropertyMock,
-            return_value=lambda: create_mock_db(lin_server),
-        ),
-        patch("sys.platform", "win32"),
-    ):
-        target_name, mode, log_path = await manager._resolve_target("server:s-lin:console")
-        assert target_name == "ext-lin"
-        assert mode == "file_tail"
-        assert log_path == Path("/srv/lin_mc/logs/latest.log")
-
-    # 5. Live server - docker -> docker
+    # 2. Live server - docker -> docker
     doc_server = SimpleNamespace(
         id="s-doc",
         provider="docker",
@@ -559,45 +503,3 @@ async def test_docker_logs_producer_active_container_streaming_unchanged():
     assert not queue.empty()
     item = queue.get_nowait()
     assert item == "2026-09-29T12:00:00.000Z [INFO] Done (1.234s)! For help, type \"help\""
-
-
-@pytest.mark.asyncio
-async def test_tmux_poll_producer_invokes_create_subprocess_exec():
-    """Verify _tmux_poll_producer uses create_subprocess_exec without shell invocation."""
-    queue: asyncio.Queue[str] = asyncio.Queue()
-    manager = ConsoleStreamManager(broadcast_fn=AsyncMock())
-    manager._running = True
-
-    mock_proc = AsyncMock()
-    mock_proc.returncode = 0
-    mock_proc.communicate.return_value = (b"log line 1\nlog line 2\n", b"")
-
-    with (
-        patch(
-            "asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc
-        ) as mock_exec
-    ):
-        task = asyncio.create_task(
-            manager._tmux_poll_producer("session-abc", queue)
-        )
-        await asyncio.sleep(0.05)
-        manager._running = False
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-    mock_exec.assert_called_with(
-        "tmux",
-        "capture-pane",
-        "-t",
-        "session-abc",
-        "-p",
-        "-S",
-        "-50",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    assert not queue.empty()
-    assert queue.get_nowait() == "log line 1"
-    assert queue.get_nowait() == "log line 2"
-

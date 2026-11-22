@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, StrEnum
 
 from app.modules.backup.domain.events import (
     BackupCompletedEvent,
@@ -32,6 +32,20 @@ class BackupStatus(Enum):
     FAILED_TIMEOUT = "failed_timeout"
 
 
+class BackupTier(StrEnum):
+    TIER_1 = "tier_1"
+    TIER_2 = "tier_2"
+
+
+def parse_backup_tier(value: BackupTier | str) -> BackupTier:
+    if isinstance(value, BackupTier):
+        return value
+    try:
+        return BackupTier(str(value).strip().lower())
+    except ValueError as exc:
+        raise ValueError(f"Unsupported backup tier: {value!r}") from exc
+
+
 class BackupJob(AggregateRoot):
     def __init__(
         self,
@@ -46,6 +60,7 @@ class BackupJob(AggregateRoot):
         created_at: datetime | None = None,
         completed_at: datetime | None = None,
         pinned: bool = False,
+        tier: BackupTier | str = BackupTier.TIER_1,
     ) -> None:
         super().__init__()
         self._backup_id = backup_id
@@ -59,6 +74,7 @@ class BackupJob(AggregateRoot):
         self._created_at = created_at or datetime.now(UTC)
         self._completed_at = completed_at
         self._pinned = bool(pinned)
+        self._tier = parse_backup_tier(tier)
 
     @property
     def backup_id(self) -> BackupJobId:
@@ -104,6 +120,10 @@ class BackupJob(AggregateRoot):
     def pinned(self) -> bool:
         return self._pinned
 
+    @property
+    def tier(self) -> BackupTier:
+        return self._tier
+
     def pin(self) -> None:
         self._pinned = True
 
@@ -117,15 +137,56 @@ class BackupJob(AggregateRoot):
         server_id: ServerId,
         backup_type: BackupType = BackupType.FULL,
         pinned: bool = False,
+        tier: BackupTier | str = BackupTier.TIER_1,
     ) -> BackupJob:
+        resolved_tier = parse_backup_tier(tier)
         job = cls(
             backup_id=backup_id,
             server_id=server_id,
             backup_type=backup_type,
             pinned=pinned,
+            tier=resolved_tier,
         )
-        job._add_event(BackupStartedEvent(backup_id=str(backup_id), server_id=str(server_id)))
+        job._add_event(
+            BackupStartedEvent(
+                backup_id=str(backup_id),
+                server_id=str(server_id),
+                tier=resolved_tier.value,
+            )
+        )
         return job
+
+    @classmethod
+    def create_tier1(
+        cls,
+        backup_id: BackupJobId,
+        server_id: ServerId,
+        backup_type: BackupType = BackupType.FULL,
+        pinned: bool = False,
+    ) -> BackupJob:
+        return cls.create(
+            backup_id=backup_id,
+            server_id=server_id,
+            backup_type=backup_type,
+            pinned=pinned,
+            tier=BackupTier.TIER_1,
+        )
+
+    @classmethod
+    def create_tier2(
+        cls,
+        backup_id: BackupJobId,
+        server_id: ServerId,
+        backup_type: BackupType = BackupType.FULL,
+        pinned: bool = False,
+    ) -> BackupJob:
+        return cls.create(
+            backup_id=backup_id,
+            server_id=server_id,
+            backup_type=backup_type,
+            pinned=pinned,
+            tier=BackupTier.TIER_2,
+        )
 
     def mark_completed(self, size_bytes: int, checksum: str, storage_path: str = "") -> None:
         self._status = BackupStatus.COMPLETED
@@ -141,6 +202,7 @@ class BackupJob(AggregateRoot):
                 size_bytes=size_bytes,
                 checksum=checksum,
                 storage_path=storage_path,
+                tier=self._tier.value,
             ),
         )
 
@@ -153,6 +215,7 @@ class BackupJob(AggregateRoot):
                 backup_id=str(self._backup_id),
                 server_id=str(self._server_id),
                 reason=reason,
+                tier=self._tier.value,
             ),
         )
 
@@ -165,17 +228,26 @@ class BackupJob(AggregateRoot):
                 backup_id=str(self._backup_id),
                 server_id=str(self._server_id),
                 reason=reason,
+                tier=self._tier.value,
             ),
         )
 
     def mark_restored(self) -> None:
         self._add_event(
-            BackupRestoredEvent(backup_id=str(self._backup_id), server_id=str(self._server_id)),
+            BackupRestoredEvent(
+                backup_id=str(self._backup_id),
+                server_id=str(self._server_id),
+                tier=self._tier.value,
+            ),
         )
 
     def mark_deleted(self) -> None:
         self._add_event(
-            BackupDeletedEvent(backup_id=str(self._backup_id), server_id=str(self._server_id)),
+            BackupDeletedEvent(
+                backup_id=str(self._backup_id),
+                server_id=str(self._server_id),
+                tier=self._tier.value,
+            ),
         )
 
 

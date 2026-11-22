@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
-import sys
-from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -155,7 +152,6 @@ class ConsoleStreamManager:
         async with database.session_factory() as session:
             server = await session.get(ServerModel, target_id)
             if server:
-                provider = (server.provider or "docker").lower()
                 external_id = server.external_id or ""
 
                 server_dir: Path | None = None
@@ -169,19 +165,6 @@ class ConsoleStreamManager:
                     server_dir = Path(AppSettings().servers_data_dir).resolve() / target_id
 
                 log_path = server_dir / "logs" / "latest.log"
-
-                is_local = provider in ("local", "local_linux", "local_windows")
-                is_windows_local = provider == "local_windows" or (
-                    is_local and sys.platform == "win32"
-                )
-
-                if is_windows_local:
-                    return external_id, "file_tail", log_path
-
-                if is_local:
-                    if external_id:
-                        return external_id, "tmux", None
-                    return "", "file_tail", log_path
 
                 # Docker provider
                 if external_id:
@@ -212,16 +195,6 @@ class ConsoleStreamManager:
                 producer_task = asyncio.create_task(
                     self._docker_logs_producer(target_name, queue),
                     name=f"docker-producer-{channel}",
-                )
-            elif mode == "file_tail" and log_path is not None:
-                producer_task = asyncio.create_task(
-                    self._file_tail_producer(log_path, queue),
-                    name=f"file-tail-producer-{channel}",
-                )
-            elif mode == "tmux" and target_name:
-                producer_task = asyncio.create_task(
-                    self._tmux_poll_producer(target_name, queue),
-                    name=f"tmux-producer-{channel}",
                 )
             elif log_path is not None:
                 producer_task = asyncio.create_task(
@@ -344,38 +317,6 @@ class ConsoleStreamManager:
                 break
             await asyncio.sleep(backoff)
             backoff = min(10.0, backoff * 2)
-
-    async def _tmux_poll_producer(
-        self,
-        session_name: str,
-        queue: asyncio.Queue[str],
-    ) -> None:
-        seen_hashes: deque[str] = deque(maxlen=300)
-        while self._running:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "tmux",
-                    "capture-pane",
-                    "-t",
-                    session_name,
-                    "-p",
-                    "-S",
-                    "-50",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await proc.communicate()
-                if proc.returncode == 0 and stdout:
-                    for raw in stdout.decode("utf-8", errors="replace").splitlines():
-                        h = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-                        if h not in seen_hashes:
-                            seen_hashes.append(h)
-                            await self._enqueue_line(queue, raw)
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.debug("tmux poll producer for %s encountered: %s", session_name, exc)
-            await asyncio.sleep(0.25)
 
     async def _file_tail_producer(
         self,

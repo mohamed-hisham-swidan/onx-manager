@@ -143,3 +143,58 @@ class ForgeProvisionProgressEvent(DomainEvent):
             message=message,
             **data,
         )
+
+
+class ServerConvertedToAdvancedEvent(DomainEvent):
+    server_id: str
+    main_commit_sha: str = ""
+    backup_id: str = ""
+    class_c_snapshot_id: str = ""
+    actor_id: str | None = None
+    actor_type: str = "user"
+
+    def __init__(
+        self,
+        server_id: ServerId | str,
+        main_commit_sha: str = "",
+        backup_id: str = "",
+        class_c_snapshot_id: str = "",
+        actor_id: str | None = None,
+        actor_type: str = "user",
+        **data: Any,
+    ) -> None:
+        super().__init__(
+            server_id=str(server_id),
+            main_commit_sha=main_commit_sha,
+            backup_id=backup_id,
+            class_c_snapshot_id=class_c_snapshot_id,
+            actor_id=actor_id,
+            actor_type=actor_type,
+            **data,
+        )
+
+
+class ServerConvertedToSimpleEvent(DomainEvent):
+    server_id: str
+    new_server_id: str = ""
+    name: str = ""
+    actor_id: str | None = None
+    actor_type: str = "user"
+
+    def __init__(
+        self,
+        server_id: ServerId | str,
+        new_server_id: str = "",
+        name: str = "",
+        actor_id: str | None = None,
+        actor_type: str = "user",
+        **data: Any,
+    ) -> None:
+        super().__init__(
+            server_id=str(server_id),
+            new_server_id=new_server_id,
+            name=name,
+            actor_id=actor_id,
+            actor_type=actor_type,
+            **data,
+        )

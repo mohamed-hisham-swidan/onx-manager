@@ -19,7 +19,6 @@ from app.modules.server.domain.value_objects import JavaArguments
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.providers.docker import DockerProvider
-from app.modules.server.infrastructure.providers.local import LocalLinuxProvider
 from app.modules.versioning.domain.deployment import TestServerDeployment
 from app.modules.versioning.infrastructure.config_writer import (
     write_test_server_properties,
@@ -76,31 +75,6 @@ def test_command_request_rejects_cr_lf_nul() -> None:
     for bad_cmd in ("say hello\nstop", "help\r", "say test\0payload", "line1\r\nline2"):
         with pytest.raises(ValidationError):
             CommandRequest(command=bad_cmd)
-
-
-@pytest.mark.asyncio
-async def test_local_provider_uses_literal_send_keys_and_separate_enter() -> None:
-    provider = LocalLinuxProvider()
-    handle = ServerHandle(
-        provider="local",
-        server_id="srv-cmd-1",
-        external_id="onx-srv-cmd-1",
-    )
-
-    commands_executed: list[str] = []
-
-    async def mock_run(cmd: str) -> tuple[int, str]:
-        commands_executed.append(cmd)
-        return 0, ""
-
-    with patch.object(provider, "_run_command_with_output", side_effect=mock_run):
-        await provider.execute_command(handle, "-X")
-
-    assert len(commands_executed) == 2
-    # First must have -l --
-    assert "-l -- '-X'" in commands_executed[0]
-    # Second must be Enter
-    assert commands_executed[1].endswith("Enter")
 
 
 @pytest.mark.asyncio

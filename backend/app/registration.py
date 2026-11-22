@@ -456,6 +456,8 @@ def _register_event_handlers(event_bus: EventBus) -> None:
         "UpgradeConfirmedEvent",
         "UpgradeRolledBackEvent",
         "ServerP55SettingsUpdatedEvent",
+        "ServerConvertedToAdvancedEvent",
+        "ServerConvertedToSimpleEvent",
     ]
     for ev in activity_events:
         event_bus.subscribe(ev, activity_subscriber)

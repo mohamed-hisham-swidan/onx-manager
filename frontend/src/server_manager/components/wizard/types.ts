@@ -51,7 +51,7 @@ export const INITIAL_DATA: WizardData = {
   whitelist: false,
   viewDistance: 10,
   simulationDistance: 10,
-  provider: "",
+  provider: "docker",
 };
 
 export const RAM_PRESETS = [

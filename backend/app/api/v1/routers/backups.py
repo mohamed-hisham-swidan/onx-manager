@@ -32,10 +32,11 @@ __all__ = ["router"]
 @router.get("", response_model=list[BackupResponse])
 async def list_backups(
     server_id: str | None = Query(None),
+    tier: str | None = Query(None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(get_current_user),
 ) -> list[BackupResponse]:
-    q = ListBackupsQuery(server_id=server_id)
+    q = ListBackupsQuery(server_id=server_id, tier=tier)
     backups = await query_bus.ask(q)
     return [BackupResponse(**b.__dict__) for b in backups]
 
@@ -46,7 +47,13 @@ async def create_backup(
     command_bus: CommandBus = Depends(get_command_bus),
     _current_user: dict = Depends(require_permission("backup:create")),
 ) -> dict:
-    cmd = CreateBackupCommand(server_id=body.server_id, backup_type=body.backup_type)
+    cmd = CreateBackupCommand(
+        server_id=body.server_id,
+        backup_type=body.backup_type,
+        tier=body.tier,
+        archive_format=body.archive_format,
+        include_cas_jars=body.include_cas_jars,
+    )
     result = await command_bus.send(cmd)
     return check_command_result(result)
 

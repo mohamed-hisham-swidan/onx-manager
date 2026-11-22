@@ -1,6 +1,5 @@
 import datetime
 import logging
-import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -19,6 +18,7 @@ from app.api.v1.routers import (
     activity,
     auth,
     backups,
+    conversion,
     exposure,
     files,
     health,
@@ -55,6 +55,9 @@ from app.modules.server.application.reconciliation import reconcile_servers
 from app.modules.server.application.runtime_reconciliation import (
     reconcile_all_runtimes,
     reconcile_orphans,
+)
+from app.modules.server.application.services.docker_migration import (
+    migrate_all_local_servers_to_docker,
 )
 from app.modules.server.application.services.filesystem_reconciliation import (
     FilesystemReconciliationService,
@@ -98,29 +101,27 @@ async def lifespan(_app: FastAPI):
     await start_websocket_services()
 
     async with database.session_factory() as session:
-        if sys.platform == "win32":
-            try:
-                from sqlalchemy import select
-
-                from app.modules.server.domain.value_objects import default_provider_for_platform
-                from app.modules.server.infrastructure.models import ServerModel
-
-                target_provider = default_provider_for_platform()
-                stmt = select(ServerModel).where(ServerModel.provider == "local")
-                result = await session.execute(stmt)
-                servers_to_migrate = result.scalars().all()
-
-                if servers_to_migrate:
-                    for s in servers_to_migrate:
-                        s.provider = target_provider
-                    await session.commit()
-                    logger.info(
-                        "Migrated %d server(s) from provider='local' to '%s' for Windows host",
-                        len(servers_to_migrate),
-                        target_provider,
+        try:
+            migration_report = await migrate_all_local_servers_to_docker(session)
+            if migration_report.migrated_count:
+                logger.info(
+                    "Migrated %d local server(s) to Docker on startup",
+                    migration_report.migrated_count,
+                )
+            for record in migration_report.migrated:
+                for warning in record.warnings:
+                    logger.warning(
+                        "Local-to-Docker migration warning for %s: %s",
+                        record.server_id,
+                        warning,
                     )
-            except Exception as exc:
-                logger.warning("Windows provider migration failed: %s", exc)
+            if migration_report.errors:
+                logger.warning(
+                    "Local-to-Docker migration errors: %s",
+                    migration_report.errors,
+                )
+        except Exception:
+            logger.exception("Local-to-Docker migration failed")
 
         try:
             from app.core.host_state import ensure_host_state_layout
@@ -499,6 +500,7 @@ def create_app() -> FastAPI:
     app.include_router(servers.router)
     app.include_router(exposure.router)
     app.include_router(backups.router)
+    app.include_router(conversion.router)
     app.include_router(plugins.router)
     app.include_router(files.router)
     app.include_router(marketplace.router)

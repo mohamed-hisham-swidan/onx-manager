@@ -13,7 +13,7 @@ logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.services.identity_writ
 
 def build_server_identity_doc(
     uid: str,
-    provider: str = "local",
+    provider: str = "docker",
     created_at: str | None = None,
 ) -> dict:
     """Build the canonical identity document dictionary."""
@@ -31,8 +31,9 @@ def build_server_identity_doc(
 def write_server_identity(
     dir_path: str | Path,
     uid: str,
-    provider: str = "local",
+    provider: str = "docker",
     fs: FileSystem | None = None,
+    created_at: str | None = None,
 ) -> Path:
     """Atomically stamp .onx-manager/server.json with server_id and provider.
 
@@ -44,7 +45,7 @@ def write_server_identity(
     target_dir = Path(dir_path) / IDENTITY.identity_dir_new
     target_file = target_dir / IDENTITY.identity_file
 
-    doc = build_server_identity_doc(uid=uid, provider=provider)
+    doc = build_server_identity_doc(uid=uid, provider=provider, created_at=created_at)
     content = json.dumps(doc, indent=2).encode("utf-8")
 
     fs_impl.write_binary_atomic(str(target_file), content)

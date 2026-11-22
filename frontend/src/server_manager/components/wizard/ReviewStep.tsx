@@ -17,7 +17,7 @@ export function ReviewStep({ data, creating, onCreate, onBack }: ReviewStepProps
         {[
           ["Name", data.name],
           ["Mode", serverModeLabel(data.mode)],
-          ["Runtime Provider", data.provider === "docker" ? "Docker Container" : "Host Process"],
+          ["Runtime Provider", "Docker Container"],
           ["Software", data.serverType],
           ...(data.serverType === "forge"
             ? [

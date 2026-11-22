@@ -140,7 +140,6 @@ class TestForgeSupportedRange:
             name="forge-out-of-range",
             server_type="forge",
             minecraft_version=bad_mc,
-            provider="local",
             install_dir=str(tmp_path / "srv"),
         )
         with pytest.raises(UnsupportedForgeVersionError) as exc_info:

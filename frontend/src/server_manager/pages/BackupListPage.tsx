@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useBackupsList, useRestoreBackup, useVerifyBackup, useDeleteBackup } from "@/server_manager/hooks/useBackups";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -15,6 +16,12 @@ import type { BackupResponse } from "@/types";
 
 const STATUS_FILTERS = ["all", "completed", "failed", "failed_timeout", "pending", "running"];
 
+const TIER_FILTERS: Array<{ value: "all" | "tier_1" | "tier_2"; label: string }> = [
+  { value: "all", label: "All tiers" },
+  { value: "tier_1", label: "Tier 1: Snapshots" },
+  { value: "tier_2", label: "Tier 2: Archives" },
+];
+
 const STATUS_STYLES: Record<string, string> = {
   completed: "bg-status-success-bg text-status-success border border-status-success-border",
   failed: "bg-status-danger-bg text-status-danger border border-status-danger-border",
@@ -23,19 +30,34 @@ const STATUS_STYLES: Record<string, string> = {
   running: "bg-status-info-bg text-status-info border border-status-info-border animate-pulse",
 };
 
+const TIER_BADGE_STYLES: Record<string, string> = {
+  tier_1: "rounded-full px-2.5 py-0.5 text-xs font-semibold border bg-surface-muted text-text-secondary border border-border-subtle",
+  tier_2: "rounded-full px-2.5 py-0.5 text-xs font-semibold border bg-surface-elevated text-text-primary border border-border-default",
+};
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
 }
 
+function restoreDescription(backup: BackupResponse): string {
+  if (backup.tier === "tier_2") {
+    return "Restoring will decrypt and unpack this Tier-2 portable archive into staging, verify SHA-256 checksums, and restore server data. Ensure the server is stopped before restoring.";
+  }
+  return "Restoring will replace current server files with this Tier-1 operational snapshot through the crash-safe triad swap. Ensure the server is stopped before restoring.";
+}
+
 export function BackupListPage() {
+  const [searchParams] = useSearchParams();
   const { data: backups, isLoading, error } = useBackupsList();
   const { data: servers } = useServersList();
   const restoreBackup = useRestoreBackup();
   const verifyBackup = useVerifyBackup();
   const deleteBackup = useDeleteBackup();
   const [showCreate, setShowCreate] = useState(false);
-  const [serverFilter, setServerFilter] = useState("all");
+  const deepLinkedServerId = searchParams.get("server_id") ?? searchParams.get("server");
+  const [serverFilter, setServerFilter] = useState(deepLinkedServerId ?? "all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [tierFilter, setTierFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<BackupResponse | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupResponse | null>(null);
   const [verifyResult, setVerifyResult] = useState<Record<string, string>>({});
@@ -50,9 +72,10 @@ export function BackupListPage() {
     return (backups ?? []).filter((b) => {
       if (serverFilter !== "all" && b.server_id !== serverFilter) return false;
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
+      if (tierFilter !== "all" && b.tier !== tierFilter) return false;
       return true;
     });
-  }, [backups, serverFilter, statusFilter]);
+  }, [backups, serverFilter, statusFilter, tierFilter]);
 
   const stats = useMemo(() => {
     const total = backups?.length ?? 0;
@@ -67,7 +90,14 @@ export function BackupListPage() {
   function handleConfirmRestore() {
     if (!restoreTarget) return;
     restoreBackup.mutate(restoreTarget.backup_id, {
-      onSuccess: () => toast("success", "Restore started", "Restoring the backup now."),
+      onSuccess: (result) => {
+        const deferred = Boolean((result as Record<string, unknown> | null)?.deferred);
+        if (deferred) {
+          toast("info", "Restore Scheduled", "Server is active. Restore will execute once the server is stopped.");
+        } else {
+          toast("success", "Restore Started", "Restoring server data from backup.");
+        }
+      },
       onError: (err) => toast("error", "Restore failed", errorMessage(err)),
       onSettled: () => setRestoreTarget(null),
     });
@@ -125,7 +155,10 @@ export function BackupListPage() {
 
       {showCreate && (
         <div className="mb-6">
-          <CreateBackupDialog onDone={() => setShowCreate(false)} />
+          <CreateBackupDialog
+            onDone={() => setShowCreate(false)}
+            defaultServerId={serverFilter !== "all" ? serverFilter : undefined}
+          />
         </div>
       )}
 
@@ -178,13 +211,13 @@ export function BackupListPage() {
             </div>
 
             <div className="p-3.5 flex flex-col justify-center">
-              <span className="text-xs font-medium text-text-muted">Snapshot Engine</span>
+              <span className="text-xs font-medium text-text-muted">Storage engines</span>
               <div
                 className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-status-success cursor-help"
-                title="CoW / Archive ready - zero-copy reflink supported"
+                title="Dual-Engine Storage: Tier-1 Reflink / Tier-2 AEAD"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
-                <span>Instant copy available</span>
+                <span>Dual-Engine Storage: Tier-1 Reflink / Tier-2 AEAD</span>
               </div>
             </div>
           </div>
@@ -227,6 +260,24 @@ export function BackupListPage() {
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="sr-only" htmlFor="backup-tier-filter">
+                Filter by tier
+              </label>
+              <select
+                id="backup-tier-filter"
+                value={tierFilter}
+                onChange={(e) => setTierFilter(e.target.value)}
+                className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
+              >
+                {TIER_FILTERS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {filtered.length === 0 ? (
@@ -241,7 +292,7 @@ export function BackupListPage() {
                 <thead>
                   <tr className="border-b border-border-subtle bg-surface-muted/40 text-xs font-semibold uppercase tracking-wider text-text-secondary">
                     <th className="px-4 py-3 text-left">Server</th>
-                    <th className="hidden px-4 py-3 text-left sm:table-cell">Type</th>
+                    <th className="hidden px-4 py-3 text-left sm:table-cell">Tier & Type</th>
                     <th className="px-4 py-3 text-left">Status</th>
                     <th className="hidden px-4 py-3 text-left sm:table-cell">Size</th>
                     <th className="hidden px-4 py-3 text-left md:table-cell">Created</th>
@@ -262,8 +313,27 @@ export function BackupListPage() {
                           <HashBadge hash={b.backup_id} />
                         </div>
                       </td>
-                      <td className="hidden px-4 py-3 capitalize text-text-secondary sm:table-cell font-mono text-xs">
-                        {b.backup_type}
+                      <td className="hidden px-4 py-3 sm:table-cell">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={TIER_BADGE_STYLES[b.tier] ?? TIER_BADGE_STYLES.tier_1}
+                            title={`Tier: ${b.tier === "tier_1" ? "Tier-1 Snapshot" : "Tier-2 Archive"}`}
+                          >
+                            {b.tier === "tier_1" ? "Tier-1 Snapshot" : "Tier-2 Archive"}
+                          </span>
+                          {b.pinned && (
+                            <span
+                              className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border bg-surface-elevated text-text-muted border border-border-subtle"
+                              title="Pinned backup — exempt from automated retention pruning"
+                            >
+                              <Icon name="lock" size={10} className="mr-1.5" />
+                              Pinned
+                            </span>
+                          )}
+                          <span className="ml-2 text-text-secondary font-mono text-xs capitalize">
+                            {b.backup_type}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -348,7 +418,7 @@ export function BackupListPage() {
       <ConfirmDialog
         open={restoreTarget !== null}
         title="Restore backup?"
-        description="Restoring will overwrite current server files with data from this snapshot. Make sure the server is stopped before restoring."
+        description={restoreTarget ? restoreDescription(restoreTarget) : undefined}
         confirmLabel="Restore"
         cancelLabel="Cancel"
         variant="danger"
@@ -356,12 +426,12 @@ export function BackupListPage() {
         onCancel={() => setRestoreTarget(null)}
       />
 
-  <Modal open={vaultOpen} onClose={() => setVaultOpen(false)} title="Class-C Secret Vault">
-    <div className="space-y-2 text-sm text-text-muted">
-      <p>Class-C Secret Vault applies to Advanced-mode servers.</p>
-      <p>Select an Advanced server to manage Class-C snapshots, dynamic Class-C files, and secrets.</p>
-    </div>
-  </Modal>
+    <Modal open={vaultOpen} onClose={() => setVaultOpen(false)} title="Class-C Secret Vault">
+      <div className="space-y-2 text-sm text-text-muted">
+        <p>Class-C Secret Vault applies to Advanced-mode servers.</p>
+        <p>Select an Advanced server to manage Class-C snapshots, dynamic Class-C files, and secrets.</p>
+      </div>
+    </Modal>
     </div>
   );
 }

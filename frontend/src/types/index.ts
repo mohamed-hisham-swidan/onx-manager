@@ -8,11 +8,34 @@ export interface BackupResponse {
   error_message: string;
   created_at: string;
   completed_at: string | null;
+  tier: "tier_1" | "tier_2" | string;
+  pinned: boolean;
 }
 
 export interface CreateBackupRequest {
   server_id: string;
   backup_type?: string;
+  tier?: "tier_1" | "tier_2";
+  archive_format?: "tar.zst" | "tar.gz";
+  include_cas_jars?: boolean;
+}
+
+export interface ConvertToAdvancedResponse {
+  server_id: string;
+  mode: "advanced";
+  main_commit_sha: string;
+  backup_id: string;
+  cas_ingested: number;
+}
+
+export interface ConvertToSimpleRequest {
+  name: string;
+  port?: number;
+}
+
+export interface ConvertToSimpleResponse {
+  new_server_id: string;
+  name: string;
 }
 
 export interface VerifyBackupResponse {

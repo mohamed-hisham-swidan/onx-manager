@@ -333,7 +333,7 @@ def _inspect_hardening_compliance(
     expected_user: str,
     expected_network: str,
 ) -> tuple[bool, str]:
-    """Return whether a running container satisfies the P2-6b contract."""
+    """Return whether a running container satisfies the P2-6b / OD-v8.5-6 contract."""
     config = info.get("Config") or {}
     host = info.get("HostConfig") or {}
 
@@ -362,6 +362,25 @@ def _inspect_hardening_compliance(
         network_mode = "bridge"
     if network_mode != expected_network.lower():
         return False, f"network={network_mode or '<unset>'}"
+
+    if host.get("Privileged") is True:
+        return False, "privileged=true"
+
+    if host.get("ReadonlyRootfs") is True:
+        return False, "readonly-rootfs=true"
+
+    data_mounts = 0
+    for mount in info.get("Mounts") or []:
+        entry = mount if isinstance(mount, dict) else {}
+        destination = str(entry.get("Destination") or "")
+        source = str(entry.get("Source") or "")
+        if "docker.sock" in destination.lower() or "docker.sock" in source.lower():
+            return False, "docker.sock mount"
+        if destination != "/data":
+            return False, f"unexpected mount={destination or '<unset>'}"
+        data_mounts += 1
+    if data_mounts > 1:
+        return False, f"mount-count={data_mounts}"
 
     return True, "ok"
 
@@ -469,6 +488,8 @@ class DockerProvider(ServerProvider):
         port = int(cfg.get("port", 25565))
         memory_min = int(cfg.get("memory_min_mb", 1024))
         memory_max = int(cfg.get("memory_max_mb", 2048))
+        # cpu_cores=0 (default) leaves the container CPU-unconstrained; a positive
+        # value emits `--cpus <n>` and the matching ActiveProcessorCount JVM flag.
         cpu_cores = int(cfg.get("cpu_cores") or 0)
         cpu_affinity = cfg.get("cpu_affinity")
         if cpu_cores > 0 or cpu_affinity:

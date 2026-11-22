@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ProviderError
 from app.core.process_utils import (
     ProcessIdentityCheck,
     verify_process_identity,
@@ -19,9 +17,6 @@ from app.modules.server.domain.value_objects import (
     ServerProperties,
     ServerType,
 )
-from app.modules.server.infrastructure.providers.base import ServerHandle
-from app.modules.server.infrastructure.providers.local import LocalLinuxProvider
-from app.modules.server.infrastructure.providers.local_windows import LocalWindowsProvider
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 
@@ -35,45 +30,6 @@ def _create_test_server(server_id: str, port: int = 25565) -> Server:
         java_args=JavaArguments(),
         properties=ServerProperties(port=PortNumber(port)),
     )
-
-
-class TestWindowsProviderPidResolution:
-    @pytest.mark.asyncio
-    async def test_get_runtime_pid_from_metadata_when_external_id_non_numeric(self):
-        provider = LocalWindowsProvider()
-        handle = ServerHandle(
-            provider="local_windows",
-            server_id="srv-win-1",
-            external_id="onx-srv-win-1",
-            metadata={"pid": 12345, "start_time": 1700000000},
-        )
-        pid = await provider.get_runtime_pid(handle)
-        assert pid == 12345
-
-    @pytest.mark.asyncio
-    async def test_get_runtime_pid_falls_back_to_external_id_when_numeric(self):
-        provider = LocalWindowsProvider()
-        handle = ServerHandle(
-            provider="local_windows",
-            server_id="srv-win-2",
-            external_id="54321",
-            metadata={},
-        )
-        pid = await provider.get_runtime_pid(handle)
-        assert pid == 54321
-
-    @pytest.mark.asyncio
-    async def test_stop_raises_provider_error_when_pid_is_none(self):
-        provider = LocalWindowsProvider()
-        handle = ServerHandle(
-            provider="local_windows",
-            server_id="srv-win-no-pid",
-            external_id="onx-srv-win-no-pid",
-            metadata={"pid": None},
-        )
-        with pytest.raises(ProviderError) as exc_info:
-            await provider.stop(handle)
-        assert "missing runtime PID in handle" in str(exc_info.value)
 
 
 class TestVerifyProcessIdentity:
@@ -174,67 +130,6 @@ class TestVerifyProcessIdentity:
             )
             assert check.verified is True
             assert check.reason == "verified"
-
-
-class TestKillRefusalOnIdentityMismatch:
-    @pytest.mark.asyncio
-    async def test_windows_force_kill_refuses_when_identity_check_fails(self):
-        provider = LocalWindowsProvider()
-
-        with (
-            patch.object(sys, "platform", "win32"),
-            patch("psutil.pid_exists", return_value=True),
-            patch(
-                "app.modules.server.infrastructure.providers.local_windows.verify_process_identity",
-                return_value=ProcessIdentityCheck(
-                    verified=False,
-                    reason="create_time_mismatch",
-                    create_time=999999.0,
-                ),
-            ),
-            patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
-        ):
-            await provider._force_kill_process_tree(
-                12345,
-                expected_create_time=1000.0,
-                expected_server_dir="/data/servers/srv-1",
-            )
-            mock_exec.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_linux_stop_refuses_kill_when_identity_check_fails(self):
-        provider = LocalLinuxProvider()
-        handle = ServerHandle(
-            provider="local",
-            server_id="srv-linux-1",
-            external_id="onx-srv-linux-1",
-            metadata={"start_time": 1000, "server_dir": "/data/servers/srv-linux-1"},
-        )
-
-        with (
-            patch(
-                "app.modules.server.infrastructure.providers.local.LocalLinuxProvider._get_tmux_pid",
-                new_callable=AsyncMock,
-                return_value=54321,
-            ),
-            patch("psutil.pid_exists", return_value=True),
-            patch(
-                "app.modules.server.infrastructure.providers.local.verify_process_identity",
-                return_value=ProcessIdentityCheck(
-                    verified=False,
-                    reason="cmdline_mismatch",
-                    create_time=1000.0,
-                    cmdline=("postgres", "-D", "/var/lib/postgresql/data"),
-                ),
-            ),
-            patch("os.kill") as mock_os_kill,
-            patch(
-                "app.modules.server.infrastructure.providers.local.LocalLinuxProvider.execute_command",
-                new_callable=AsyncMock,
-            ),
-        ):
-            await provider.stop(handle, force=False)
-            mock_os_kill.assert_not_called()
 
 
 class TestPortOccupantIdentityRefusal:

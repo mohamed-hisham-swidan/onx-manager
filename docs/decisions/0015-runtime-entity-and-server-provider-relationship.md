@@ -1,8 +1,15 @@
 # ADR-0015: Runtime Domain Entity and ServerProvider Infrastructure Relationship
 
-**Status**: Accepted  
-**Date**: 2026-09-17  
-**Author**: Stage A Architecture Team  
+**Status**: Superseded by [SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md](../design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md) (OD-v8.6-1, Phase P6 Docker-only consolidation)
+**Date**: 2026-09-17
+**Author**: Stage A Architecture Team
+
+## Supersession Note
+
+Per `OD-v8.6-1` and `v7/v8 D-M`, Docker (`DockerProvider`) is the sole supported
+runtime on POSIX and Windows hosts. The retention of `LocalLinuxProvider` and
+`LocalWindowsProvider` in §2 is superseded. The `Runtime` domain entity and the
+`ServerProvider` capability delegation model remain in force for `DockerProvider`.
 
 ## Context
 

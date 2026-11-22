@@ -116,42 +116,18 @@ export function ConfigStep({
           <label className="block text-sm font-medium text-text-secondary mb-1">
             Runtime Provider
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <button
               type="button"
-              onClick={() => onChange({ provider: "" })}
-              className={`text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
-                !data.provider
-                  ? "border-accent-primary bg-accent-primary/15 shadow-xs"
-                  : "border-border-default hover:border-accent-primary bg-surface-card"
-              }`}
-              title="Runs natively on the host via tmux/Win32"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm text-text-primary">
-                  Host Process
-                </span>
-                <span className="text-[10px] bg-surface-hover text-text-secondary px-1.5 py-0.5 rounded font-medium">
-                  Default
-                </span>
-              </div>
-              <div className="text-xs text-text-muted mt-0.5">
-                Runs natively on the host via tmux / Win32
-              </div>
-            </button>
-
-            <button
-              type="button"
+              data-testid="docker-provider-card"
               disabled={dockerAvailable === false}
               onClick={() => onChange({ provider: "docker" })}
               className={`text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
                 dockerAvailable === false
                   ? "opacity-50 cursor-not-allowed border-border-subtle bg-surface-page/50"
-                  : data.provider === "docker"
-                    ? "border-accent-primary bg-accent-primary/15 shadow-xs"
-                    : "border-border-default hover:border-accent-primary bg-surface-card"
+                  : "border-accent-primary bg-accent-primary/15 shadow-xs"
               }`}
-              title="Runs isolated in a Docker container"
+              title="Runs isolated in a hardened Docker container"
             >
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-sm text-text-primary">
@@ -169,10 +145,19 @@ export function ConfigStep({
                 )}
               </div>
               <div className="text-xs text-text-muted mt-0.5">
-                Runs isolated in a Docker container
+                Runs isolated in a hardened Docker container
               </div>
             </button>
           </div>
+          {dockerAvailable === false && (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-status-warning/30 bg-status-warning-bg px-3 py-2 text-xs text-status-warning"
+            >
+              Docker is required to create and run servers. Start Docker and refresh
+              this page — local host-process servers are no longer supported.
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-4">

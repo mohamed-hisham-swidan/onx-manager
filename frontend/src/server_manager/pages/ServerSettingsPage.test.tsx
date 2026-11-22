@@ -64,6 +64,10 @@ vi.mock("@/server_manager/components/ServerSettingsSection", () => ({
   ServerSettingsSection: () => <div data-testid="settings-section">Settings Section Form</div>,
 }));
 
+vi.mock("@/server_manager/components/ServerModeConversionCard", () => ({
+  ServerModeConversionCard: () => <div data-testid="server-mode-conversion-card">Conversion Card</div>,
+}));
+
 function renderSettingsPage(serverId = "srv-settings-1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -148,5 +152,15 @@ describe("ServerSettingsPage", () => {
 
     expect(mockDeleteMutate).toHaveBeenCalledWith("srv-settings-1", expect.any(Object));
     expect(screen.getByTestId("servers-fleet")).toBeInTheDocument();
+  });
+
+  it("integrates ServerModeConversionCard above the danger zone", () => {
+    renderSettingsPage();
+    const card = screen.getByTestId("server-mode-conversion-card");
+    expect(card).toBeInTheDocument();
+    expect(card).toHaveTextContent("Conversion Card");
+    // Placement: below settings form/P55 card, above the danger zone
+    expect(screen.getByTestId("settings-section")).toBeInTheDocument();
+    expect(screen.getByTestId("server-danger-zone")).toBeInTheDocument();
   });
 });

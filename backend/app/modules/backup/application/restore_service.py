@@ -23,6 +23,7 @@ from app.services.backup_orchestrator import CONFIG_FILES
 if TYPE_CHECKING:
     from app.modules.storage.base import StorageBackend
     from app.modules.storage.encryption import BackupEncryption
+    from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 
 logger = logging.getLogger(__name__)
 
@@ -496,3 +497,63 @@ async def consume_pending_restore(
         await repo.delete_pending_restore(ServerId(server_id))
         await session.commit()
     return backup_id
+
+
+async def dispatch_two_tier_restore(
+    job: object,
+    server_dir: str,
+    *,
+    base_world: str = "world",
+    storage: StorageBackend | None = None,
+    cas: ArtifactCas | None = None,
+    kek_file_path: os.PathLike[str] | None = None,
+) -> list[str]:
+    """Dispatch restore for Tier-1 snapshots, Tier-2 archives, or legacy tarballs."""
+    from pathlib import Path
+
+    from app.modules.backup.application.two_tier_restore import (
+        TwoTierRestoreError,
+        restore_tier1_snapshot,
+        restore_tier2_archive,
+    )
+    from app.modules.backup.domain.aggregate import BackupTier
+
+    storage_path = str(getattr(job, "storage_path", "") or "")
+    raw_tier = getattr(job, "tier", BackupTier.TIER_1)
+    tier_val = raw_tier.value if hasattr(raw_tier, "value") else str(raw_tier)
+    backup_id = str(getattr(job, "backup_id", ""))
+    server_id = str(getattr(job, "server_id", ""))
+    server_path = Path(server_dir)
+    kek_path = Path(kek_file_path) if kek_file_path is not None else None
+
+    if tier_val == BackupTier.TIER_1.value and storage_path and Path(storage_path).is_dir():
+        try:
+            res = await restore_tier1_snapshot(
+                server_id=server_id,
+                server_dir=server_path,
+                snapshot_dir=Path(storage_path),
+                backup_id=backup_id,
+            )
+            return [f"tier_1:{res.restored_files}"]
+        except TwoTierRestoreError as exc:
+            raise RestoreError(str(exc)) from exc
+
+    if tier_val == BackupTier.TIER_2.value or storage_path.endswith(
+        (".tar.zst", ".tar.zst.enc", ".tar.gz.enc")
+    ):
+        try:
+            res = await restore_tier2_archive(
+                server_id=server_id,
+                server_dir=server_path,
+                storage_path=storage_path,
+                backup_id=backup_id,
+                storage=storage,
+                expected_checksum=str(getattr(job, "checksum", "") or "") or None,
+                kek_file_path=kek_path,
+                cas=cas,
+            )
+            return [f"tier_2:{res.restored_files}"]
+        except TwoTierRestoreError as exc:
+            raise RestoreError(str(exc)) from exc
+
+    return await perform_safe_restore(BackupJobId(backup_id), server_dir, base_world=base_world)

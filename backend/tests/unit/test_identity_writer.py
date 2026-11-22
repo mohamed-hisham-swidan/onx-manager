@@ -48,7 +48,7 @@ class TestIdentityWriter:
         doc = build_server_identity_doc(uid="test-uuid-123")
         assert doc["uid"] == "test-uuid-123"
         assert doc["server_id"] == "test-uuid-123"
-        assert doc["provider"] == "local"
+        assert doc["provider"] == "docker"
         assert doc["version"] == IDENTITY.identity_version
         assert doc["manager"] == IDENTITY.manager_field_new
         assert doc["schema_version"] == IDENTITY.schema_version
@@ -149,16 +149,37 @@ class TestCreateAndImportIdentityStamping:
             assert doc["provider"] == "docker"
 
     @pytest.mark.asyncio
-    async def test_create_server_stamps_identity_file_local(self, tmp_path: Path):
+    @pytest.mark.parametrize("blocked_provider", ["local", "local_linux", "local_windows"])
+    async def test_create_server_rejects_local_provider(
+        self, tmp_path: Path, blocked_provider: str
+    ):
         event_bus = EventBus()
         handler = CreateServerHandler(event_bus)
 
-        srv_dir = tmp_path / "srv-created-local"
+        srv_dir = tmp_path / f"srv-created-{blocked_provider}"
         cmd = CreateServerCommand(
-            name="new-local-srv",
+            name=f"new-{blocked_provider}-srv",
             server_type="vanilla",
             minecraft_version="1.20.4",
-            provider="local",
+            provider=blocked_provider,
+        )
+
+        res = await handler.handle(cmd)
+
+        assert res.success is False
+        assert res.error_code == "INVALID_PROVIDER"
+        assert not srv_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_create_server_default_stamps_identity_file_docker(self, tmp_path: Path):
+        event_bus = EventBus()
+        handler = CreateServerHandler(event_bus)
+
+        srv_dir = tmp_path / "srv-created-default"
+        cmd = CreateServerCommand(
+            name="new-default-srv",
+            server_type="vanilla",
+            minecraft_version="1.20.4",
         )
 
         with (
@@ -179,7 +200,7 @@ class TestCreateAndImportIdentityStamping:
             assert identity_file.exists()
             doc = json.loads(identity_file.read_text(encoding="utf-8"))
             assert doc["server_id"] == server_id
-            assert doc["provider"] == "local"
+            assert doc["provider"] == "docker"
 
     @pytest.mark.asyncio
     async def test_import_server_stamps_identity_and_removes_legacy_dir(self, tmp_path: Path):
@@ -230,4 +251,4 @@ class TestCreateAndImportIdentityStamping:
             assert identity_file.exists()
             doc = json.loads(identity_file.read_text(encoding="utf-8"))
             assert doc["server_id"] == server_id
-            assert doc["provider"] in ("local", "local_windows")
+            assert doc["provider"] == "docker"

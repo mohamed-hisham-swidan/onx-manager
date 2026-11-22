@@ -23,11 +23,11 @@ from app.modules.server.domain.value_objects import (
     LocationType,
     MemoryAllocation,
     PortNumber,
+    RuntimeInfo,
     ServerDeployment,
     ServerMode,
     ServerProperties,
     ServerType,
-    default_provider_for_platform,
 )
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -36,6 +36,8 @@ from app.modules.shared.value_objects import MinecraftVersion, ServerId
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.import_server")
 
 SERVERS_DATA_DIR: str = ""  # kept for backward compat with migrate_import_arch.py imports
+
+_BLOCKED_LOCAL_PROVIDERS = frozenset({"local", "local_linux", "local_windows"})
 
 
 class ImportServerCommand(Command):
@@ -61,6 +63,7 @@ class ImportServerCommand(Command):
     max_memory_mb: int = 2048
     group_id: str = "default"
     mode: str = "simple"
+    provider: str | None = None
 
 
 class ImportServerHandler(CommandHandler[ImportServerCommand]):
@@ -75,6 +78,20 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                 error_code="CONFLICT",
                 details={"mode": "advanced"},
             )
+
+        raw_provider = (command.provider or "").strip().lower()
+        if raw_provider in _BLOCKED_LOCAL_PROVIDERS or (
+            raw_provider and raw_provider != "docker"
+        ):
+            return CommandResult(
+                success=False,
+                error=(
+                    "Local runtime providers are deprecated and blocked; "
+                    "Docker is the only supported runtime"
+                ),
+                error_code="INVALID_PROVIDER",
+            )
+
         source = Path(command.source_path).expanduser().resolve()
         is_zip = source.is_file() and source.name.lower().endswith(".zip")
         if not source.is_dir() and not is_zip:
@@ -136,7 +153,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                     local_fs.delete_dir(str(legacy_identity_dir))
 
                 # Authoritatively stamp new server identity
-                provider_type = default_provider_for_platform()
+                provider_type = "docker"
                 write_server_identity(
                     dir_path=str(target),
                     uid=str(server_id),
@@ -147,7 +164,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                 detected_jar = _find_server_jar(str(target), local_fs) or "server.jar"
 
                 deployment = ServerDeployment(
-                    location_type=LocationType.LOCAL,
+                    location_type=LocationType.DOCKER,
                     location_uri=f"file://{target}",
                     root_path=str(target),
                     working_directory=".",
@@ -183,6 +200,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                     ),
                     group_id=command.group_id,
                     deployment=deployment,
+                    runtime=RuntimeInfo(provider="docker"),
                     owner_id=command.creator_id,
                     mode=ServerMode(command.mode),
                 )

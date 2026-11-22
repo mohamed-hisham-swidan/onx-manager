@@ -46,7 +46,6 @@ class TestCreateServerMode:
         cmd = CreateServerCommand(
             name="default-mode",
             minecraft_version="1.20.4",
-            provider="local",
         )
         with (
             patch(
@@ -70,7 +69,6 @@ class TestCreateServerMode:
         cmd = CreateServerCommand(
             name="advanced-disabled",
             minecraft_version="1.20.4",
-            provider="local",
             mode="advanced",
         )
         with (
@@ -108,7 +106,6 @@ class TestCreateServerMode:
         cmd = CreateServerCommand(
             name="advanced-mode",
             minecraft_version="1.20.4",
-            provider="local",
             mode="advanced",
         )
         with (
@@ -156,7 +153,6 @@ class TestCreateServerMode:
         cmd = CreateServerCommand(
             name="advanced-non-posix",
             minecraft_version="1.20.4",
-            provider="local",
             mode="advanced",
         )
         with (
