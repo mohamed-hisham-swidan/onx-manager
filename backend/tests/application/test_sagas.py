@@ -178,10 +178,12 @@ class TestDeploymentOrchestrator:
         from app.modules.server.infrastructure.providers import provider_factory
 
         orchestrator = DeploymentOrchestrator(provider_factory)
-        provider = orchestrator.get_provider("local")
+        provider = orchestrator.get_provider("docker")
 
         assert provider is not None
-        assert provider.provider_type == "local"
+        assert provider.provider_type == "docker"
+        with pytest.raises(ValueError):
+            orchestrator.get_provider("local")
 
 
 @pytest.mark.usefixtures("init_test_db")

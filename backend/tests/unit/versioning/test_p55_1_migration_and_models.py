@@ -163,8 +163,8 @@ def test_p55_migration_upgrade_columns_and_downgrade(tmp_path: Path) -> None:
 
     cfg = reconciler.get_alembic_config()
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD]
-    assert script.get_heads() == [RELEASE_MINIMUM_DB_REVISION] == [P55_REVISION]
+    assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD] == [RELEASE_MINIMUM_DB_REVISION]
+    assert script.get_revision(P55_REVISION) is not None
     assert script.get_revision(P55_REVISION).down_revision == PRIOR_HEAD
 
     tables = _tables(db_url)
