@@ -1,7 +1,7 @@
 # Domain Event Catalog
 
 **Status:** Living Reference (Synchronized with live codebase)  
-**Total Domain Events:** 61 event classes across 8 bounded contexts  
+**Total Domain Events:** 87 event classes across 9 bounded contexts  
 **Transport:** In-process asynchronous `EventBus` with subscriber handlers and WebSocket fan-out (`EventDispatcher`)
 
 ---
@@ -26,6 +26,7 @@ Location: `backend/app/modules/server/domain/events.py`
 | `ServerStartingEvent` | `server.starting` | `server_id` | Emitted when the server transition to STARTING is recorded. |
 | `ServerStartedEvent` | `server.started` | `server_id`, `pid`, `port` | Emitted when process startup is verified alive by supervisor. |
 | `ServerStoppingEvent` | `server.stopping` | `server_id`, `reason` | Emitted when a stop signal is issued. |
+| `ServerStopUnknownEvent` | `server.stop_unknown` | `server_id`, `reason` | Emitted when stop outcome cannot be confirmed (`stop_confirmed=False`). |
 | `ServerStoppedEvent` | `server.stopped` | `server_id` | Emitted when process exit is confirmed. |
 | `ServerCrashedEvent` | `server.crashed` | `server_id`, `exit_code`, `reason` | Emitted when an unexpected process death or crash is detected. |
 | `ServerConfigChangedEvent` | `server.config_changed` | `server_id`, `changes` | Emitted when server properties or launch configurations are modified. |
@@ -86,6 +87,7 @@ Location: `backend/app/modules/auth/domain/events.py`
 | `UserLoggedInEvent` | `auth.user_logged_in` | `user_id`, `ip_address` | Emitted on successful JWT issuance. |
 | `UserLoggedOutEvent` | `auth.user_logged_out` | `user_id` | Emitted on explicit session termination. |
 | `UserDeactivatedEvent` | `auth.user_deactivated` | `user_id`, `reason` | Emitted when a user account is locked or deactivated. |
+| `UserActivatedEvent` | `auth.user_activated` | `user_id` | Emitted when a user account is re-activated. |
 | `ApiKeyCreatedEvent` | `auth.api_key_created` | `key_id`, `user_id`, `name`, `scopes` | Emitted when a new API key is generated. |
 | `ApiKeyRevokedEvent` | `auth.api_key_revoked` | `key_id`, `user_id` | Emitted when an API key is revoked. |
 
@@ -145,4 +147,37 @@ Location: `backend/app/modules/versioning/domain/events.py`
 | `TestRunStartedEvent` | `test_run.started` | `server_id`, `test_id`, `commit_id`, `bot_count`, `duration_minutes` | Emitted when an isolated test run begins execution. |
 | `TestRunCompletedEvent` | `test_run.completed` | `server_id`, `test_id`, `commit_id`, `passed`, `failure_reason` | Emitted when a test run completes. |
 | `TestRunFailedEvent` | `test_run.failed` | `server_id`, `test_id`, `commit_id`, `failure_code`, `blamed_mod` | Emitted when a test run fails or crashes. |
-| `CommitPromotedEvent` | `commit.promoted` | `server_id`, `commit_id`, `test_id`, `keep_world_changes`, `forced`, `actor_id` | Emitted when a tested commit is promoted to main. |
+| `BranchRuntimeStartedEvent` | `branch_runtime.started` | `server_id`, `branch_name`, `port` | Emitted when an isolated branch runtime container starts. |
+| `BranchRuntimeStoppedEvent` | `branch_runtime.stopped` | `server_id`, `branch_name` | Emitted when an isolated branch runtime container stops. |
+| `DataTemplateSavedEvent` | `data_template.saved` | `server_id`, `template_id`, `name` | Emitted when a quiescent Class-C data template is captured. |
+| `CommitPromotedEvent` | `commit.promoted` | `server_id`, `commit_id`, `test_id`, `keep_world_changes`, `forced`, `actor_id` | Historical event retained for event-store deserialization. |
+| `GitHubConnectedEvent` | `github.connected` | `server_id`, `repo_full_name` | Emitted when a server links a GitHub repository. |
+| `GitHubDisconnectedEvent` | `github.disconnected` | `server_id` | Emitted when a GitHub remote connection is removed. |
+| `GitHubCredentialsRotatedEvent` | `github.credentials_rotated` | `server_id` | Emitted when GitHub deploy key / credentials are rotated. |
+| `GitHubSyncedEvent` | `github.synced` | `server_id`, `branch_name` | Emitted when fetch-first GitHub sync completes. |
+| `GitHubPushedEvent` | `github.pushed` | `server_id`, `branch_name` | Emitted when a branch is pushed to GitHub. |
+| `GitHubWebhookReceivedEvent` | `github.webhook_received` | `server_id`, `event_type`, `delivery_id` | Emitted when an HMAC-verified GitHub webhook is queued. |
+| `ModpackInstalledEvent` | `modpack.installed` | `server_id`, `modpack_name`, `loader` | Emitted when a `.mrpack` or CurseForge modpack is installed. |
+| `UpgradePlannedEvent` | `upgrade.planned` | `server_id`, `upgrade_id`, `target_version` | Emitted when a 1-click safe upgrade plan is computed. |
+| `UpgradeManualBlockerResolvedEvent` | `upgrade.manual_blocker_resolved` | `server_id`, `upgrade_id`, `file_id` | Emitted when a manual CurseForge blocker jar is uploaded. |
+| `UpgradeBranchPreparedEvent` | `upgrade.branch_prepared` | `server_id`, `upgrade_id`, `branch_name` | Emitted when an `upgrade/*` test branch is prepared. |
+| `UpgradeTestStartedEvent` | `upgrade.test_started` | `server_id`, `upgrade_id`, `branch_name` | Emitted when an upgrade validation branch test starts. |
+| `UpgradeAppliedEvent` | `upgrade.applied` | `server_id`, `upgrade_id` | Emitted when a safe upgrade is applied to `main`. |
+| `UpgradeConfirmedEvent` | `upgrade.confirmed` | `server_id`, `upgrade_id` | Emitted when an upgrade passes the 4-step health gate and is confirmed. |
+| `UpgradeRolledBackEvent` | `upgrade.rolled_back` | `server_id`, `upgrade_id` | Emitted when an upgrade triggers triad rollback. |
+| `ServerP55SettingsUpdatedEvent` | `server.p55_settings_updated` | `server_id` | Emitted when P5.5 upgrade/health-gate settings are updated. |
+
+---
+
+## 9. Operations Events (`operations`)
+
+Location: `backend/app/modules/operations/domain/events.py`
+
+| Event Class | Event Name | Key Payload Fields | Description |
+|---|---|---|---|
+| `OperationStartedEvent` | `operation.started` | `operation_id`, `operation_type`, `target_id` | Emitted when an async multi-step operation starts. |
+| `OperationStepEvent` | `operation.step` | `operation_id`, `step_name`, `status` | Emitted as operation steps progress. |
+| `OperationLogEvent` | `operation.log` | `operation_id`, `message` | Emitted for structured operation progress logs. |
+| `OperationCompletedEvent` | `operation.completed` | `operation_id`, `result` | Emitted when an operation completes successfully. |
+| `OperationFailedEvent` | `operation.failed` | `operation_id`, `error` | Emitted when an operation fails terminally. |
+| `OperationCancelledEvent` | `operation.cancelled` | `operation_id` | Emitted when cooperative cancellation completes. |

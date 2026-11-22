@@ -8,11 +8,7 @@ This directory contains registries, contracts, and system catalogs reflecting li
 
 | Document | Scope |
 |---|---|
-| [`event-catalog.md`](event-catalog.md) | All 61 domain event classes across 8 bounded contexts with payload specifications. |
-| [`module-map.md`](module-map.md) | Complete directory map of 13 DDD modules, 18 REST routers, and 22 frontend pages. |
+| [`event-catalog.md`](event-catalog.md) | 87 domain event classes across 9 bounded contexts with payload specifications. |
+| [`module-map.md`](module-map.md) | Complete directory map of 13 DDD modules, 19 REST router files (211 live routes), and 23 routed frontend pages. |
 | [`dependency-graph.md`](dependency-graph.md) | Layering rules and hexagonal boundary constraints. |
-| [`contract-registry.md`](contract-registry.md) | Route permissions schema (155 live routes) and contract inventory. |
-
----
-
-> Historical feature design notes are preserved in [`docs/project-history/`](../project-history/).
+| [`contract-registry.md`](contract-registry.md) | Route permissions schema (211 live routes) and contract inventory. |

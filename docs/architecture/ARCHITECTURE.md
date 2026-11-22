@@ -1,7 +1,7 @@
 # Architecture Overview
 
-**Last updated**: 2026-09-11
-**Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md)
+**Last updated**: 2026-11-22
+**Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md), [SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02](../design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md)
 
 ---
 
@@ -35,51 +35,55 @@ Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI b
 
 ```
 backend/app/
-├── main.py                    # FastAPI app factory + startup
-├── registration.py            # Module registration
+├── main.py                    # FastAPI app factory + startup lifespan
+├── registration.py            # Module handler, middleware & event subscriber registration
 ├── api/                       # Interface layer (REST + WebSocket)
-│   ├── deps.py                # FastAPI dependency injection
+│   ├── deps.py                # FastAPI dependency injection & RBAC/ABAC guards
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 18 endpoint groups + WebSocket
-│       └── schemas/           # Pydantic request/response schemas
+│       ├── routers/           # 19 router files (211 live routes) + WebSocket
+│       └── schemas/           # Pydantic request/response schemas (BaseResponse UTC normalization)
 ├── core/                      # Foundation layer
-│   ├── command_bus.py         # CQRS command bus
+│   ├── command_bus.py         # CQRS command bus + DatabaseBusyRetryMiddleware
 │   ├── query_bus.py           # CQRS query bus
 │   ├── event_bus.py           # Async event bus with retry + DLQ
 │   ├── persistence/           # Database engine, Base ORM, UoW, reconciler, db_revision
+│   ├── allowlist.py           # Allow-list v2.3 normative classifier & open_safe_path_fd
+│   ├── host_state.py          # Authoritative 0700 host-state layout & path validation
+│   ├── container_hardening.py # Shared Docker hardening (--cap-drop=ALL, non-root, pids-limit, /data-only)
 │   ├── saga.py                # Saga orchestrator
 │   ├── circuit_breaker.py     # Circuit breaker pattern
 │   ├── idempotency.py         # Idempotency keys
 │   ├── feature_flags.py       # Feature flag system
-│   ├── config.py              # Configuration (AppSettings)
+│   ├── config.py              # Configuration (AppSettings, ONX_* / MCS_* sources)
 │   ├── settings_store.py      # Runtime dynamic settings store
 │   ├── identity.py            # Platform branding & path identity constants
 │   ├── timeutil.py            # UTC ISO-8601 time normalization
 │   ├── version.py             # Single-source app version
-│   ├── process_utils.py       # Cross-platform process inspection
+│   ├── platform_lock.py       # FD CLOEXEC & cross-platform file locking
+│   ├── process_utils.py       # Cross-platform process inspection & tree kill
 │   ├── security.py            # Hashing, token validation
-│   ├── security_files.py      # Secret file permission guards
+│   ├── security_files.py      # Secret file permission guards (0600)
 │   ├── exceptions.py          # MCSError / ONXError hierarchy
 │   └── logging.py             # Structured logging
 ├── modules/                   # 13 DDD modules (10 full DDD + 3 flat support modules)
-│   ├── server/                # Minecraft server domain & lifecycle
-│   ├── versioning/            # Git-inspired branching, snapshotting, tags, materialization
+│   ├── server/                # Minecraft server domain, lifecycle leases, discovery, provisioners
+│   ├── versioning/            # Git-native branching, CAS, LEC, vaults, merge, branch runtimes, GitHub sync, modpacks & upgrades
 │   ├── operations/            # Multi-step asynchronous operations & recovery
-│   ├── activity/              # Per-server activity & audit logs
-│   ├── backup/                # Backup/restore domain
-│   ├── auth/                  # User & auth domain
-│   ├── health/                # Health monitoring & diagnostics
-│   ├── plugin/                # Plugin system domain
-│   ├── monitoring/            # Health & metrics domain
+│   ├── activity/              # Per-server & per-branch activity & audit logs
+│   ├── backup/                # Backup/restore domain + pinned rollback protection
+│   ├── auth/                  # User & auth domain (JWT RS256, RBAC/ABAC, invites)
+│   ├── health/                # Health monitoring, evidence & crash diagnostics
+│   ├── plugin/                # Plugin system & Modrinth/CurseForge catalog domain
+│   ├── monitoring/            # Metrics, persistent RCON & alert rules
 │   ├── event_store/           # Event store module (flat support module)
 │   ├── shared/                # Shared value objects (flat support module)
 │   ├── storage/               # File storage backends (flat support module)
-│   └── exposure/              # Playit.gg network tunneling domain
-├── services/                  # Cross-module orchestration
-├── tasks/                     # Task queue + scheduling
-└── websocket/                 # WebSocket connection manager
+│   └── exposure/              # Playit.gg / UPnP / Cloudflare network exposure domain
+├── services/                  # Cross-module orchestration (server, backup, deployment)
+├── tasks/                     # InProcessQueue task queue + APScheduler scheduling
+└── websocket/                 # WebSocket connection manager, console stream & serializers
 ```
 
 ### Dependency Direction
@@ -139,6 +143,13 @@ Idempotency keys    No idempotency     No idempotency
 
 Every command handler returns `CommandResult(success, data, error, error_code)`. Every query handler returns `QueryResult(data, total)` for paginated queries.
 
+`CommandBus` executes handlers through an ordered middleware pipeline (`backend/app/registration.py`):
+1. `IdempotencyMiddleware` — deduplicates retries by idempotency key
+2. `DatabaseBusyRetryMiddleware` — retries transient SQLite lock contention
+3. `ServerLifecycleLockMiddleware` — acquires DB-backed multi-worker server lifecycle leases (`server_lifecycle_leases`, 90s TTL, 25s heartbeat, reentrancy via `ContextVar`) before mutating server runtime state.
+
+When both lifecycle and repository locks are held (e.g., during live refresh or rollback), the lock order is fixed: `ServerLifecycleLeaseManager` first, then `RepoLeaseManager` (host `flock` + monotonic `fencing_token`).
+
 ### Unit of Work
 
 All mutations run inside a `UnitOfWork` context (`core/persistence/unit_of_work.py`). The UoW collects domain events during a transaction and publishes them to the EventBus after a successful commit. On failure, the session is rolled back and no events are published.
@@ -168,16 +179,34 @@ This pattern was applied to `minecraft_version` (Batch 2.5) and `email` (Batch 4
 
 ---
 
-## Sandbox Isolation (ADR-0008)
+## Sandbox Isolation & Host State (ADR-0008, P2-1)
 
-Testing and development are isolated from production via environment variables:
+Testing and development are isolated from production via environment variables (`ONX_*` takes precedence with fallback to legacy `MCS_*`):
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `MCS_DATABASE_URL` | Database connection | `sqlite+aiosqlite:///data/mcs.db` |
-| `MCS_SERVERS_DATA_DIR` | Server file directory | `data/servers` |
+| `ONX_DATABASE_URL` / `MCS_DATABASE_URL` | Database connection | `sqlite+aiosqlite:///data/onx.db` |
+| `ONX_SERVERS_DATA_DIR` / `MCS_SERVERS_DATA_DIR` | Server file directory | `data/servers` |
+| `ONX_HOST_STATE_DIR` | Authoritative host-state layout (`0700` on POSIX) | `<data>/host-state` (derived) |
+| `ONX_HOST_STATE_HOST_DIR` | Host-visible bind path when panel runs containerized | `""` |
 
-Both must be set together when running test/development backends. Because `setsid` drops environment variables, they must be passed in the same command invocation as the uvicorn process.
+Both database and server data paths must be set together when running test/development backends. Because `setsid` drops environment variables, they must be passed in the same command invocation as the uvicorn process.
+
+---
+
+## Simple vs Advanced Modes & P1–P5.5 Architecture
+
+Guided by `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` (v8.7), ONX Manager separates standard server operation (`ServerMode.SIMPLE`) from Git-backed declarative server engineering (`ServerMode.ADVANCED`):
+
+- **Mode Gate & Platform Policy**: `mode_guard.py` and router dependencies enforce Simple vs Advanced boundaries across versioning commands and routes. Per owner decision `P2-6g` Option B, `advanced_mode_enabled` defaults to `os.name == "posix"`, keeping Windows Simple-only and fail-closed.
+- **Authoritative Host-State Layout (`core/host_state.py`)**: Isolates panel-owned artifacts outside container-writable `/data` under `<host_state_dir>/`: `server-meta/` (authoritative Simple lockfiles), `cas/` (SHA-256 Artifact CAS), `lec/` (Loader Environment Cache), `class-c-vault/` (AES-256-GCM encrypted Class-C snapshots), `repos/` (native bare/worktree Git repos), `locks/` (`RepoLeaseManager` + `RepoWriteLock`), `journal/` (swap/refresh journals), `quarantine/`, and `data-templates/`.
+- **Allow-list v2.3 (`core/allowlist.py`)**: Enforces TOCTOU-free descriptor-relative traversal (`open_safe_path_fd` with `O_DIRECTORY | O_NOFOLLOW` and `(st_dev, st_ino)` checks) and classifies every path into Class A (code/jars → CAS + `onx-jars.lock.json`), Class B (configs → Git; 1–16 MiB auto-routed to A-CAS), Class C (runtime/world/player state → encrypted Class-C vault), Class D (ignored ephemeral files), or Class E (forbidden/hostile paths).
+- **Clean Export, Journaled Swap & Triad Rollback (`refresh_orchestrator.py`)**: Builds a deterministic staged `/data` tree (`CleanExportService` + `.onx-complete.json`), carries complement Class-C state, performs a crash-safe journaled directory swap (`renameat2(..., RENAME_EXCHANGE)` or journaled `live -> live.prev` + `staging -> live` with `RefreshStartupReconciler` recovery), and triggers automatic triad rollback (Class A+B, Class-C snapshot, pinned Class-E backup) if the health gate fails.
+- **Protected `main`, Structured Merge & Vaults (P3)**: Enforces system-level `main` branch protection and removes Promote; provides key-level 3-way merge for YAML/TOML/JSON/Properties + `diff3` (`merge_engine.py`), `DynamicClassCRegistry`, AES-256-GCM Class-C snapshots (`format_version=2`, `ONX_MASTER_KEK`), `${ONX_SECRET_*}` secret vault (`server_secrets`), and Structured & Pattern Secret Scanner (`secret_scanner.py`).
+- **Isolated Branch Runtimes & Data Templates (P4)**: Runs branch/test containers in parallel with production via `BranchRuntimeService`, atomic `HostPortSet` allocation, ephemeral Class-C overlays (`white-list=true`, `enforce-whitelist=true`), quiescent `DataTemplates` (60s-capped RCON `save-off` with startup `save-on` recovery), and live RCON branch console.
+- **GitHub Sync & Webhook Queue (P5)**: `GitHubSyncService` provides fetch-first remote sync, non-fast-forward `main` guards, plain-jar gates, credential scrubbing, and an encrypted `GitHubVault`; `github_webhook_router` validates HMAC signatures and enqueues durable `github_webhook_deliveries`.
+- **Modpacks, LEC & 1-Click Safe Upgrades (P5.5)**: `.mrpack` and CurseForge parsers with strict archive quarantine, 19-host HTTPS download allow-list (`download_allowlist.py`), `LoaderEnvCache` (`lec_store.py` / `lec_builder.py`) for Paper (Fill v3 pre-warm), Forge (`1.17.1`–`1.20.1` bounds & argfile launch), NeoForge, Fabric, and Quilt, hash-only Modrinth compatibility matrix + transitive dependency BFS (`upgrade_matrix.py`), NBT `level.dat` `DataVersion` verification (`nbt_reader.py`), and a 4-step race-free `UpgradeHealthGateEvaluator` (stdout regex, TCP + RCON `save-all flush`, NBT `DataVersion`, dimension smoke).
+- **Container Hardening (`core/container_hardening.py`)**: All 4 Docker spawn paths (server, installer, isolated test, bot pool) enforce `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`, non-root `--user`, and a single `/data` bind mount.
 
 ---
 
@@ -190,10 +219,12 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.12 (installer-pinned; `requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (43 revisions, head `b1e2100000023`) |
+| Migrations | Alembic (51 revisions, head `b1e2100000031`, floor `b1e2100000031`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
+| Serialization | PyYAML, `tomli-w` (TOML merge), JSON |
+| Cryptography | `cryptography` (JWT RS256, backup AEAD, AES-256-GCM Class-C & secret vaults) |
 | Message Queue | InProcessQueue (in-process async queue; no Redis/Arq dependency) |
 | Event Bus | In-process async bus + dead letter queue |
 | WebSocket | FastAPI WebSocket + custom connection manager |
@@ -202,9 +233,9 @@ Both must be set together when running test/development backends. Because `setsi
 
 | Component | Choice |
 |-----------|--------|
-| Language | TypeScript 5+ |
-| Framework | React 19+ (Vite) |
-| Styling | TailwindCSS 4+ (raw Tailwind components, no shadcn/ui) |
+| Language | TypeScript 5.5+ |
+| Framework | React 19+ (Vite 5.4+) |
+| Styling | TailwindCSS 4+ (multi-skin semantic token engine, raw Tailwind primitives, no shadcn/ui) |
 | Data Fetching | TanStack Query |
 | State | Zustand |
 
@@ -245,6 +276,9 @@ The application supports dual environment variable prefixes (`ONX_*` takes prece
 | `ONX_DATABASE_URL` (or `MCS_DATABASE_URL`) | Yes | SQLite or PostgreSQL connection string |
 | `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) | Yes* | RSA private key PEM (*auto-generated if absent) |
 | `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`) | No | Path to a PEM file to load instead of the env/auto-generated key |
+| `ONX_MASTER_KEK` / `ONX_MASTER_KEK_FILE` | No* | 32-byte master KEK for AES-256-GCM Class-C snapshots, `${ONX_SECRET_*}` vault, and panel integration secrets (*required for Advanced mode / encrypted snapshots) |
+| `ONX_CURSEFORGE_API_KEY` | No | Optional CurseForge API key (also configurable via encrypted panel secrets UI) |
+| `ONX_HOST_STATE_DIR` / `ONX_HOST_STATE_HOST_DIR` | No | Host-state directory override & container-visible host bind path |
 | `ONX_STORAGE_BACKEND` (or `MCS_STORAGE_BACKEND`) | No | `local` or `s3` (default: `local`) |
 
 The RSA public key is derived from the private key at runtime — no public-key
@@ -444,32 +478,33 @@ isn't reachable until root_path is fixed.
 ## Testing
 
 ```bash
-pytest                          # All tests (2,906 passed; 6 skipped; 0 failures)
+pytest                          # Backend suite (5,322 tests collected across 318 test_*.py files)
 pytest tests/ -x -q             # Quick run, stop on first failure
+npm test                        # Frontend suite (1,302 passed across 135 test files)
 ```
 
-Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABASE_URL` and `MCS_SERVERS_DATA_DIR`.
+Test isolation: sandbox database + sandbox server directory, set via `ONX_DATABASE_URL` / `MCS_DATABASE_URL` and `ONX_SERVERS_DATA_DIR` / `MCS_SERVERS_DATA_DIR`.
 
 ### CI
 
 - **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `b1e2100000023`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
+  `b1e2100000031`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
   (`scripts/check-stray-db`), and Ruff baseline regression gate
   (`scripts/check-ruff-baseline`).
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
   verifies `pyproject.toml`, runtime, and frontend package versions agree.
 - **Route contract CI** (`.github/workflows/route-permission-ci.yml`): verifies
-  155 live routes match `contracts/permissions.yaml`.
+  211 live routes match `contracts/permissions.yaml`.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): typecheck, lint, test, build.
 - **Docker build smoke** (`.github/workflows/docker-build-smoke.yml`): builds Docker image on backend Dockerfile/requirements changes.
-- **Verification cadence & Windows CI** (`verification-cadence.yml`, `windows-ci.yml`): weekly scheduled runs.
+- **Verification cadence & Windows CI** (`verification-cadence.yml`, `windows-ci.yml`): weekly scheduled cadence (`verification-cadence.yml`) and manual dispatch (`windows-ci.yml`).
 
 Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`0.1.0` pins minimum Alembic revision `b1e2100000023`
+`0.1.0` pins minimum Alembic revision `b1e2100000031`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).
@@ -498,3 +533,10 @@ Full decision records are maintained under [`docs/decisions/`](../decisions/READ
 | 0014 | 2026-09-17 | Shared Commit DAG Migration Strategy and Branch Lifecycle |
 | 0015 | 2026-09-17 | Runtime Domain Entity and ServerProvider Relationship |
 | 0016 | 2026-09-17 | PersistentDataset Boundary and Non-Mutation Isolation |
+| 0017 | 2026-10-20 | Branch-Head Compare-and-Swap (CAS) for Versioning |
+| 0018 | 2026-10-20 | Atomic Promote Config Writes and Durability (F1-2a; Promote removed in P3-1) |
+| 0019 | 2026-10-20 | Dynamic Backend Port Selection with Active-Port Reuse |
+| 0020 | 2026-11-02 | Installer and Launcher Pin Python to Exactly 3.12 |
+| 0021 | 2026-11-04 | Frontend UX/IA Overhaul and Design Token System |
+| 0022 | 2026-11-08 | Brand Tokens and Favicon Architecture |
+| 0023 | 2026-11-08 | Corner Style Setting and Radius Token Architecture |

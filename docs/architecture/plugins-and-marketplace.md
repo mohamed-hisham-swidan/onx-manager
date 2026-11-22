@@ -1,13 +1,7 @@
 # Plugins & Marketplace — Current Implementation
 
-**Status:** ✅ **IMPLEMENTED** (backend + partial frontend). The backend
-marketplace and filesystem reconciliation shipped on 2026-08-04 as a
-documented exception to phase-gating. The frontend is functional but **not yet
-a first-class section** (see §5).
-
-**Last updated:** 2026-08-04
-**Cross-references:** `docs/current-state.md` §4.4 · `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`
-Phase 1 (Plugins/Marketplace separation)
+**Status:** ✅ **IMPLEMENTED** (backend + first-class `/marketplace` frontend + P5.5 modpacks).
+**Cross-references:** `docs/architecture/SPECS.md` · `docs/API.md`
 
 ---
 
@@ -18,13 +12,9 @@ This project has **two separate things** that are easy to confuse:
 | Concept | What it is | State |
 |---------|-----------|-------|
 | **Plugin management** | Managing the plugins already on a server — list, enable, disable, uninstall | Implemented; filesystem-reconciled |
-| **Marketplace** | Browsing/searching the Modrinth catalog and installing plugins from it | Backend implemented; frontend partial |
+| **Marketplace** | Browsing/searching the Modrinth catalog and installing plugins/mods from it | Implemented (backend + `/marketplace` frontend) |
 
-They are deliberately separated in this document and in the roadmap (Phase 1
-makes the marketplace a first-class, globally-navigable section distinct from
-server-scoped plugin management). They are **not** the same
-feature: plugin management operates on what's on disk; the marketplace
-operates on what's available to install.
+They are deliberately separated in this document: plugin management operates on what's on disk; the marketplace operates on what's available to install. (Full `.mrpack` and CurseForge modpack archive installation & 1-click safe upgrades are implemented under `backend/app/modules/versioning/`.)
 
 ---
 
@@ -75,14 +65,9 @@ mirrors the `StorageBackend` pattern:
 | `download(url, expected_sha1, expected_sha512)` | Download + checksum-verify |
 
 Factory: `build_plugin_catalog_provider(name=None, settings=None)` — provider selection is
-**configuration-driven** via `MCS_PLUGIN_PROVIDERS` (default `modrinth`); a value is validated at
-startup so an unknown, empty, **or multiple** configured providers fail fast. **K16A accepts
-exactly one active provider.** The variable uses comma-separated **list syntax** intentionally —
-preserved for forward compatibility with the remaining K16 work (multiple providers) — but K16A
-enforces a single provider, so list syntax must not currently be used to configure more than one.
-The only registered provider today is `ModrinthProvider` (`api.modrinth.com/v2`). Provider
-identity (`name`) lives on each provider implementation rather than in the application layer.
-See roadmap Phase 1 (K16).
+**configuration-driven** via `ONX_PLUGIN_PROVIDERS` (or legacy `MCS_PLUGIN_PROVIDERS`, default `modrinth`); a value is validated at
+startup so an unknown, empty, **or multiple** configured providers fail fast.
+The only registered plugin-catalog provider today is `ModrinthProvider` (`api.modrinth.com/v2`), while CurseForge modpack archives and API lookups are handled by `curseforge_adapter.py` in P5.5.
 
 ### 3.2 Modrinth quirks handled
 
@@ -187,20 +172,8 @@ installing within a specific server's context.
 
 ---
 
-## 5. Known issues (Phase 1 / Phase 4 scope)
+## 5. Known items
 
-| ID | Issue | Kind |
-|----|-------|------|
-| K4 | `enable`/`disable` routes use only `get_current_user`, no `require_permission` | Bug (should fix; Phase 4) |
-| K5 | ~~Marketplace not a first-class frontend section (no sidebar, no standalone nav)~~ **Resolved 2026-08-06** — own `/marketplace` route + sidebar entry + global search + install-time server picker | Feature (Phase 1) |
-| K16 | Provider selection now config-driven via `MCS_PLUGIN_PROVIDERS` (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Architecture debt (Phase 1) |
-
----
-
-## 6. Historical note
-
-The plugin marketplace was originally logged as a deferred feature in
-`docs/FEATURE_IDEAS.md` §2, then started on 2026-08-04 as a **documented
-exception** to the phase-gating rule (see `docs/history/mcs-manager-roadmap-v1.md`
-§"Documented exception"). It is now the first workstream of the v2 roadmap's
-Phase 1 (Plugins / Marketplace separation).
+| ID | Item | Notes |
+|----|------|-------|
+| K16 | Multi-provider plugin catalog selection | `ONX_PLUGIN_PROVIDERS` currently validates a single plugin catalog provider (`modrinth`); CurseForge modpack installs are supported separately via `curseforge_adapter.py`. |

@@ -7,8 +7,8 @@
 > Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
 > This document is maintained against the router code (`backend/app/api/v1/routers/`).
-> Verified and reconciled as of 2026-11-09 across the 18 routers:
-> `activity, auth, backups, exposure, files, health, invites, marketplace,
+> Verified across the 19 router files (211 live routes via `./scripts/check-route-contract`):
+> `activity, auth, backups, exposure, files, health, invites, marketplace, modpacks_upgrades,
 > monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`.
 
 ---
@@ -1265,15 +1265,39 @@ Retrieve structured evidence bundle (logs, mod blame diagnostics, exit codes).
 - **Auth:** Required (`server:version:read`)
 - **Response `200 OK`:** `EvidenceBundleResponse` (`test_id`, `evidence_bundle`: dict, `artifacts_purged`: bool)
 
-#### `POST /api/v1/servers/{server_id}/versioning/tests/{test_id}/promote`
-Promote a verified test run to main/production branch.
-- **Auth:** Required (`server:version:promote`)
-- **Response `200 OK`:** `TestRunResponse` (`status: "promoted"`)
-
 #### `POST /api/v1/servers/{server_id}/versioning/tests/{test_id}/discard`
 Discard an unverified or failed test run.
 - **Auth:** Required (`server:test:execute`)
 - **Response `200 OK`:** `TestRunResponse` (`status: "discarded"`)
+
+### Live Refresh, Class-C Vault & Secret Vault (P2–P3)
+
+- `GET /api/v1/servers/{server_id}/versioning/refresh` / `POST /refresh` / `POST /rollback` / `POST /upgrade/confirm` / `POST /refresh/release-pins` (`server.{id}.versioning` / `server.{id}.edit`)
+- `GET / POST / DELETE /api/v1/servers/{server_id}/versioning/class-c/snapshots` & `POST .../restore`
+- `GET /api/v1/servers/{server_id}/versioning/class-c/dynamic` & `POST .../reset`
+- `GET /api/v1/servers/{server_id}/versioning/secrets`, `POST /secrets/extract`, `DELETE /secrets/{key_name}`
+
+### Isolated Branch Runtimes & Data Templates (P4)
+
+- `GET / POST / DELETE /api/v1/servers/{server_id}/versioning/data-templates`
+- `POST / PUT /api/v1/servers/{server_id}/versioning/branches/{name}/port-set/allocate` & `.../port-set`
+- `GET / POST /api/v1/servers/{server_id}/versioning/branches/{name}/{runtime,run,stop,save-data-template,console,console/command}`
+
+### GitHub Sync & Webhooks (P5)
+
+- `GET / DELETE /api/v1/servers/{server_id}/versioning/github`, `POST /github/{deploy-key/generate,connect,credentials/rotate,fetch,push}`
+- `GET /api/v1/servers/{server_id}/versioning/github/webhooks/deliveries` & `POST .../redeliver`
+- `POST /api/v1/webhooks/github/{server_id}` (public HMAC-verified GitHub webhook ingress)
+
+### Modpacks, Safe Upgrades & Loader Environment Cache (P5.5)
+
+Routes defined in `backend/app/api/v1/routers/modpacks_upgrades.py` (and `settings.py` for CurseForge credentials):
+
+- `POST /api/v1/servers/{server_id}/modpacks/{inspect,install}`
+- `GET /api/v1/servers/{server_id}/upgrades`, `GET /upgrades/{upgrade_id}`, `POST /upgrades/{plan,{upgrade_id}/manual-upload,{upgrade_id}/prepare-test,{upgrade_id}/apply,{upgrade_id}/confirm,{upgrade_id}/rollback}`
+- `GET / PUT /api/v1/servers/{server_id}/p55-settings`
+- `GET /api/v1/lec/entries`, `POST /api/v1/lec/{prewarm,gc}`
+- `GET / PUT / DELETE /api/v1/settings/integrations/curseforge`
 
 ### Settings & Preflight
 

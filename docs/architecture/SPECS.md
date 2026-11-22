@@ -3,9 +3,9 @@
 A single authoritative overview of the project's **tech stack, libraries,
 repository shape, code statistics, structure, specs, and features.**
 
-> Companion docs: `docs/current-state.md` (verified state + test counts),
-> `docs/architecture/ARCHITECTURE.md` (design deep-dive), `docs/API.md`
-> (endpoint reference), `docs/architecture/DATABASE.md` (schema).
+> Companion docs: `docs/architecture/ARCHITECTURE.md` (design deep-dive),
+> `docs/API.md` (endpoint reference), `docs/architecture/DATABASE.md` (schema),
+> `docs/roadmap/ROADMAP.md` (public roadmap).
 
 ---
 
@@ -15,9 +15,9 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 0–5 CLOSED — Phase 4 CLOSED — Enterprise Branch Runtime (Stages A–G & Frontend UI Batch) CLOSED — Phase 5.5 CLOSED — Phase 6 (Final Installs & Wrap-up) UP NEXT — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
+| Status | `v0.1.0` Ready — Simple/Advanced Modes, Enterprise Branch Runtime, Native Git + AES-256-GCM Vaults, Isolated Branch Runtimes, GitHub Sync, Modpacks + LEC + 1-Click Safe Upgrades implemented (`SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` v8.7) — Public Roadmap: `docs/roadmap/ROADMAP.md` |
 | License | Apache 2.0 (`LICENSE`) |
-| Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
+| Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/API.md`, `docs/architecture/DATABASE.md` |
 
 ---
 
@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (43 revisions, head `b1e2100000023`) |
+| Migrations | Alembic `>=1.13` (51 revisions, head `b1e2100000031`, floor `b1e2100000031`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -40,26 +40,27 @@ repository shape, code statistics, structure, specs, and features.**
 | Scheduler | APScheduler `>=3.10` |
 | NAT traversal (UPnP / port forward) | aioupnp `>=0.0.18` |
 | Process/system monitoring | psutil `>=7.0` |
-| Crypto | cryptography `>=42` |
+| Crypto | cryptography `>=42` (JWT RS256, backup AEAD, AES-256-GCM Class-C & secret vaults) |
 | Prometheus metrics | prometheus-client `>=0.20` |
 | Logging | structlog `>=24.1` |
-| Serialization / misc | PyYAML `>=6` (config), python-multipart (uploads), packaging `>=23` |
+| Serialization / misc | PyYAML `>=6` (config), `tomli-w==1.2.0` (TOML merge), python-multipart (uploads), packaging `>=23` |
 | Architecture | Modular monolith, DDD modules (including `versioning` & `activity`), CQRS with Command/Query/Event buses |
 
 Backend dev dependencies (`[project.optional-dependencies].dev`):
-`httpx`, `pytest >=8`, `pytest-asyncio`, `pytest-cov`, `ruff`, `pyright`.
+`httpx`, `pytest >=8`, `pytest-asyncio`, `pytest-cov`, `ruff==0.16.0`, `pyright`.
 
 ### Frontend — React 19 + TypeScript 5 (Vite)
 
 | Category | Choice |
 |---|---|
-| Language | TypeScript 5+ (`tsc --noEmit` as typecheck) |
+| Language | TypeScript 5.5+ (`tsc --noEmit` as typecheck) |
 | Framework | React 19 (`react` / `react-dom` `^19`) |
 | Build tool | Vite `^5.4` (with `@vitejs/plugin-react`, `@tailwindcss/vite`) |
 | Routing | react-router-dom `^7.18` |
 | Data fetching / server state | TanStack Query `@tanstack/react-query ^5` (+ devtools `^5.101`) |
 | UI state | Zustand `^5.0` |
-| Styling | Tailwind CSS v4 `^4.3` |
+| Markdown rendering | `react-markdown ^10.1`, `remark-gfm ^4.0`, `rehype-raw ^7.0`, `rehype-sanitize ^6.0` |
+| Styling | Tailwind CSS v4 `^4.3` (+ `@tailwindcss/typography`) |
 | Tests | Vitest `^2` + Testing Library (react, jest-dom, user-event) + jsdom `^29` |
 | Lint | ESLint `^9` (typescript-eslint, react-hooks, react-refresh plugins) |
 
@@ -79,56 +80,56 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 ## 3. Repository shape — counts
 
-### Code size (measured 2026-11-09)
+### Code size (measured 2026-11-22)
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 723 | **147,796** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 416 | 68,694 | `find backend/app -name '*.py'` |
-| — `backend/tests` (249 `test_*.py` files) | 263 | 76,130 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + versions) | 44 | 2,972 | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 296 | **61,002** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 217 | 48,077 | `find frontend/src -name '*.tsx'` |
-| — `.ts` | 78 | 12,090 | `find frontend/src -name '*.ts'` |
+| Backend Python (app + tests + alembic) | 857 | **227,639** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 473 | 113,092 | `find backend/app -name '*.py'` |
+| — `backend/tests` (318 `test_*.py` files) | 332 | 110,227 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + 51 revisions) | 52 | 4,320 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 314 | **74,222** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 232 | 59,544 | `find frontend/src -name '*.tsx'` |
+| — `.ts` | 81 | 13,843 | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | 835 | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **1,019** | **208,798** | — |
-| Docs | 129 files | 32,059 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| **TOTAL (backend + frontend source)** | **1,171** | **301,861** | — |
+| Docs | 137 files | 36,668 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 723 |
-| `.tsx` | 217 |
-| `.ts` | 78 |
+| `.py` | 857 |
+| `.tsx` | 232 |
+| `.ts` | 81 |
 | `.css` | 1 |
-| **Total** | **1,019** |
+| **Total** | **1,171** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
 | Module | Files | Lines | Purpose |
 |---|---|---|---|
-| server | 64 | 15,820 | Aggregate, lifecycle, discovery, reconciliation, console stream |
-| versioning | 66 | 12,664 | Git-inspired commits, DAG, tags, worktrees, test definitions, admission |
-| exposure | 19 | 6,120 | Playit/UPnP/Cloudflare tunnel + port-forward |
-| plugin | 35 | 3,935 | Plugin lifecycle + Modrinth/CurseForge catalog |
-| health | 29 | 3,036 | Health evidence, evaluation, crash analysis |
-| auth | 31 | 2,618 | Users, RBAC/ABAC, JWT, invites |
-| operations | 14 | 2,304 | Multi-step operation state machine, steps, WS projection, idempotency |
-| monitoring | 17 | 1,600 | Metrics, RCON, alert rules, unified container telemetry |
-| backup | 18 | 1,182 | Backup/restore saga |
-| event_store | 6 | 615 | Append-only event store + DLQ |
-| activity | 11 | 485 | Persistent server activity logs & audit records |
-| storage | 5 | 472 | Storage backends (local/S3/encryption) |
+| versioning | 117 | 47,482 | Git-native versioning, lockfiles, CAS, LEC, vaults, merge engine, branch runtimes, GitHub sync, modpacks & safe upgrades |
+| server | 65 | 18,986 | Aggregate, Simple/Advanced mode, lifecycle leases, discovery, reconciliation, provisioners, console stream |
+| exposure | 19 | 6,128 | Playit/UPnP/Cloudflare tunnel + port-forward |
+| plugin | 35 | 4,346 | Plugin lifecycle + Modrinth/CurseForge catalog |
+| health | 29 | 3,033 | Health evidence, evaluation, crash analysis |
+| auth | 31 | 2,648 | Users, RBAC/ABAC, JWT, invites |
+| operations | 14 | 2,309 | Multi-step operation state machine, steps, WS projection, idempotency |
+| backup | 18 | 1,640 | Backup/restore saga + pinned rollback protection |
+| monitoring | 17 | 1,601 | Metrics, RCON, alert rules, unified container telemetry |
+| activity | 11 | 650 | Persistent server & branch activity logs + audit records |
+| event_store | 6 | 633 | Append-only event store + DLQ |
+| storage | 5 | 549 | Storage backends (local/S3/encryption) |
 | shared | 3 | 282 | Shared value objects / exceptions |
 
-### Tests (measured 2026-11-09)
+### Tests (measured 2026-11-22)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **3,636 passed / 6 skipped** (3,642 collected) | 249 `test_*.py` files across `backend/tests/` |
-| Frontend | **1,178 passed across 130 test files** | `npm test` (`npx vitest run`) |
-| Total | **4,820 total (4,814 passed, 0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
+| Backend | **5,322 collected** across 318 `test_*.py` files | `pytest --collect-only -q` (`backend/tests/`); last recorded full sequential run was P2 close-out (`4,743 passed / 7 skipped` at `592de67`) |
+| Frontend | **1,302 passed across 135 test files** | `npx vitest run` (verified 2026-11-22, 0 failed) |
+| Total | **6,624 tests** (5,322 backend collected + 1,302 frontend passing) | 6/6 backend CI quality gates PASS (211/211 routes, Alembic `b1e2100000031`) |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -141,21 +142,21 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 18 REST routers (148 route handlers + 7 system routes = 155 live routes)
+│   │   ├── routers/          # 19 REST router files (211 live routes + WebSocket; 211/211 contract gate)
 │   │   └── schemas/          # Pydantic response/request models
-│   ├── core/                 # settings, version, exceptions, buses, security
+│   ├── core/                 # settings, version, exceptions, buses, security, allowlist, host_state, container_hardening
 │   ├── modules/              # 13 DDD modules (server, versioning, activity, exposure,
 │   │   │                     #   plugin, health, auth, operations, monitoring, backup, event_store, storage, shared)
 │   │   └── <module>/{domain,application,infrastructure}/
 │   ├── tasks/                # APScheduler jobs (metrics, health, backup, cleanup)
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
-│   ├── services/             # orchestrators (server, backup)
-│   └── registrations.py      # bus handler registration
-├── alembic/                  # 43 migration revisions (head b1e2100000023)
+│   ├── services/             # orchestrators (server, backup, deployment)
+│   └── registration.py       # bus handler & middleware registration
+├── alembic/                  # 51 migration revisions (head b1e2100000031)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
-│                             #   infrastructure/ monitoring/ plugin/ tasks/ versioning/
+│                             #   infrastructure/ integration/ monitoring/ plugin/ tasks/ unit/ versioning/
 ├── config/                   # YAML settings
-├── data/                     # runtime data (servers, onx.db, etc.)
+├── data/                     # runtime data (servers, onx.db, host-state, etc.)
 ├── plugins/sdk/              # plugin host SDK
 ├── Dockerfile
 └── pyproject.toml
@@ -169,17 +170,20 @@ frontend/
     ├── App.tsx, main.tsx, index.css
     ├── pages/                    # auth, setup, invite, not-found...
     ├── components/
-    │   ├── ui/                   # StatusBadge, EmptyState, PageHeader...
-    │   ├── guards/               # route permission guards
-    │   └── layout/
+    │   ├── ui/                   # 21 design-system primitives (Modal, ConfirmDialog, Table, Tabs, Banner, etc.)
+    │   ├── brand/                # BrandLogo, VoxelBanner, SplashScreen
+    │   ├── guards/               # route permission & system status guards
+    │   └── layout/               # Sidebar, TopNav (shells in layouts/{AppShell,ServerShell}.tsx)
     ├── server_manager/
-    │   ├── pages/                # 22 pages (server + versioning + marketplace)
-    │   ├── components/           # 48+ components (BranchProtectionModal, TestEvidenceModal,
-    │   │                         #   CommitDiffModal, MaterializationBrowserModal, etc.)
+    │   ├── pages/                # 18 pages (server, versioning, mods/plugins, files, exposure, activity, settings)
+    │   ├── components/           # Feature components + versioning/ (BranchRun*, GitHub*, CommitTimeline, TestRunList)
+    │   │                         #   + p55/ (ModpackInstallWizardModal, SafeUpgradeWizardModal, UpgradePinnedBanner, settings)
+    │   ├── context/, data/       # server context & static catalogs
     │   ├── hooks/                # hooks (usePlugins, useServerExposure, etc.)
-    │   └── utils/                # versionMatching, format, etc.
+    │   └── utils/                # versionMatching, serverMode, format, etc.
     ├── services/                 # api.ts, queryClient.ts (+ tests)
-    ├── stores/                   # Zustand (toast, lastUsedServer, ...)
+    ├── stores/                   # Zustand (auth, ui, ws, toast, activity, lastUsedServer, ...)
+    ├── tokens/                   # multi-skin engine, dynamicFavicon, contrast & skin validator
     ├── types/                    # shared TS types (types.ts)
     └── websocket/                # WS client + state sync
 ```
@@ -189,14 +193,13 @@ frontend/
 ```
 docs/
 ├── architecture/        # ARCHITECTURE, SPECS, DATABASE, FRONTEND, SECURITY, PROVISIONING, etc.
-├── decisions/           # 38 md = 23 ADRs (0001–0023) + 12 DECISION records + README + Phase 5.5 design
-├── design/              # Design specs (incl. testing-system-refactor/ and frontend-overhaul/)
-├── project-history/     # Historical feature design reviews and notes
-├── roadmap/             # ROADMAP_v1.1.md
-├── reference/           # module-map.md, event-catalog.md, etc.
-├── runtime/             # providers.md, etc.
-API.md, DEPLOYMENT.md, DEVELOPMENT.md, FEATURE_IDEAS.md,
-README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
+├── decisions/           # 24 md = 23 ADRs (0001–0023) + README
+├── design/              # SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7 + frontend-overhaul/ design system
+├── governance/          # GOVERNANCE.md
+├── reference/           # module-map.md, event-catalog.md, dependency-graph.md, contract-registry.md
+├── roadmap/             # ROADMAP.md
+├── runtime/             # lifecycle.md, providers.md, reconciliation.md, supervision.md, ownership.md, recovery.md
+API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started.md, testing.md
 ```
 
 ---
@@ -213,7 +216,7 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   close even on commit failure.
 - **ABAC/RBAC authorization**: permission strings (`plugin:manage`, `server.x.view`, …)
   evaluated by `PermissionEvaluator`; enforced via `require_permission` /
-  `require_server_permission` dependencies + route→permission contract check (155/155 live routes).
+  `require_server_permission` dependencies + route→permission contract check (211/211 live routes).
 - **WebSocket layer**: `/ws` endpoint, channel subscriptions, auth via token,
   metrics batching + domain-event dispatch, reconnect/backoff client.
 - **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
@@ -224,11 +227,13 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 ### Server lifecycle & runtime providers
 
 - Explicit state machine (`STARTING` → `RUNNING` → `STOPPING` → `STOPPED`, plus
-  `CRASHED`/`FAILED`), Start/Stop/Restart/Delete commands.
-- Multi-runtime provider architecture (`ServerProvider` ABC):
+  `CRASHED`/`FAILED`), Start/Stop/Restart/Delete commands, serialized across workers by `ServerLifecycleLeaseManager` (`server_lifecycle_leases`) + `ServerLifecycleLockMiddleware` and fail-closed `stop_confirmed` gating.
+- **Server Modes (`ServerMode`)**: `simple` vs `advanced`, enforced at router and command boundaries (`mode_guard.py`); `advanced_mode_enabled` defaults to POSIX-only (`os.name == "posix"`), with Windows kept Simple-only fail-closed (`P2-6g` Option B).
+- **Loaders & Provisioners (`ServerType`)**: `vanilla`, `paper` (Fill v3), `purpur`, `fabric`, `forge` (`1.17.1`–`1.20.1` bounds & argfile launch), `neoforge`, `quilt` (`P5.5`), `spigot`, `bukkit`, plus deterministic Java floor resolution (`java_floor.py`).
+- Multi-runtime provider architecture (`ServerProvider` ABC) with shared `container_hardening.py` across all 4 Docker spawn paths (`--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`, non-root `--user`, `/data`-only bind mount):
   - `LocalLinuxProvider`: isolated tmux sessions (`mcs-{server_id}`) with `MCS_MANAGED=1` markers.
   - `LocalWindowsProvider`: Win32 detached process groups (`CREATE_NEW_PROCESS_GROUP`) with `taskkill /F /T` clean termination.
-  - `DockerProvider`: isolated containers with async subprocess driver, bridge networking, dynamic local container IP extraction (`get_container_ip()`, `get_address()`), loopback RCON, Java 8/17/21/25 dynamic image resolution, container crash diagnostics collection, clean stop exit code mapping (`exited 0` $\rightarrow$ `STOPPED`), and broadened volume-filter container cleanup (`--filter volume={host_mount}`).
+  - `DockerProvider`: isolated containers with async subprocess driver, bridge networking, dynamic local container IP extraction (`get_container_ip()`, `get_address()`), loopback RCON, Java 8/17/21/25 dynamic image resolution, config-fingerprint adoption, container crash diagnostics collection, clean stop exit code mapping (`exited 0` / `137` / `143` w/ OOM awareness $\rightarrow$ `STOPPED` or `ERROR`), and broadened volume-filter container cleanup (`--filter volume={host_mount}`).
 - Authoritative server identity stamping (`identity_writer.py`): Atomically stamps `.onx-manager/server.json` upon creation and import.
 - Filesystem reconciliation engine (`FilesystemReconciliationService`): Synchronizes on-disk directories with DB, matches un-identified directories via normalized `root_path` with deterministic candidate scoring (+100 active, +50 running, +25 docker runtime, newest `updated_at` tiebreak), and performs in-place `ActionType.HEAL_IDENTITY`.
 - Server console: streaming via WS, TPS validation w/ clamping, crash analyzer, health evidence collection.
@@ -252,17 +257,16 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   `client_side`, `server_side`, `date_modified`, `color`); install command selects
   best compatible version (strict two-part version matching); CompatibilityCard
   + ProjectVersionsList + detail tabs UI.
-- CurseForge provider: **DEFERRED** (ADR/K16).
+- CurseForge plugin-marketplace catalog provider: **DEFERRED** (ADR/K16); CurseForge modpack archive parsing & API integration (`curseforge_adapter.py`, `PanelSecretStore`) shipped in P5.5.
 
 ### Frontend features
 
-- React 19 SPA: pages for auth, dashboard, servers (list/detail/console),
-  plugins/marketplace, backups, monitoring, settings.
+- React 19 SPA with route-level `React.lazy` code-splitting across 18 feature pages + auth/setup/invite pages.
+- Multi-skin semantic token engine (6 curated skins across Dark/Light modes, 7 accent colors, Rounded/Sharp corner styles, dynamic brand favicon & tokens per ADRs 0021–0023), 21 primitives in `components/ui/`, and unified `AppShell` / `ServerShell`.
 - TanStack Query data layer w/ typed query keys incl. pagination offset;
-  Zustand for UI state; Tailwind v4 styling.
+  Zustand for UI/auth/WS/toast/activity state; Tailwind v4 styling.
 - First-class File Manager (`ServerFilesPage`) with reactive URL-`?path=` breadcrumb navigation and deep linking.
-- Runtime provider badges (`server-provider-badge` in console and detail view).
-- Dynamic local IP badges (`console-ip-badge`) displaying live container or host IP/port.
+- Runtime provider badges (`server-provider-badge` in console and detail view) and dynamic local IP badges (`console-ip-badge`).
 - Stop confirmation dialogs (`ConfirmDialog`) on single-click actions across dashboard, servers list, and server detail.
 - Marketplace (SPEC-PLUGIN-PAGINATION-V3, fully shipped 2026-08-19):
   Modrinth-style ProjectCard list (loader/category/environment pills capped
@@ -271,36 +275,29 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   versions list paginated via the same offset contract.
 - Live WebSocket console + server status invalidation; sub-second metric
   stream rendering (Sparkline, gauges).
+- P1–P5.5 UI surfaces: Simple/Advanced mode selection in server creation/import, native-Git Live State Files + AES-256-GCM Secret Vault UI, isolated Branch Runs & Data Templates (`BranchRunPanel`, `BranchRunModals`), GitHub Sync & webhook deliveries (`GitHubSyncPanel`, `GitHubModals`), and P5.5 Modpack Install / 1-Click Safe Upgrade wizards & settings (`ModpackInstallWizardModal`, `SafeUpgradeWizardModal`, `UpgradePinnedBanner`, `ServerP55SettingsCard`, `PanelP55IntegrationsSection`).
 
-### Versioning & Enterprise Branch Runtime (Stages A–G & Frontend Batch)
+### Versioning, Simple/Advanced Modes & P1–P5.5 Platform
 
-- **Git-inspired version control (Stage B)**: Persistent commit DAG with additive
-  `server_commit_parents` junction table, DAG cycle detection, multi-parent merge history,
-  immutable server tags (`server_tags`), deterministic tree and commit diffing (`diff_trees`, `diff_commits`),
-  branch archiving (`ArchiveBranchCommand` and persistent `status` column on `server_branches`),
-  revision resolution (`Revision.from_tag()`), and repository history queries.
-- **Filesystem & materialization engine (Stage C)**: Domain `Materialization` aggregate (`PENDING`, `READY`, `STALE`, `REMOVED`),
-  `ImportReview` aggregate with terminal state machine (`PENDING`, `CONFIRMED`, `DISMISSED`, `REVERTED`),
-  atomic filesystem engine (`fs_atomic.py`, `tree_writer.py`) with root escape validation (`.onx/worktrees/`, `.onx/tests/`),
-  and live changes review scanning (`POST /import-review/scan`).
-- **Runtime scheduling & admission control (Stage D)**: Global admission scheduler (`RuntimeAdmissionScheduler`)
-  with static + dynamic RAM/CPU headroom gating, FIFO run queue, concurrency caps, dynamic host headroom verification,
-  and `server_admission_lease` serialization.
-- **Console & observability (Stage E)**: Demand-driven `ConsoleStreamManager` (`docker logs -f --timestamps --tail 0`
-  with tmux capture fallback, 5s subscriber debounce, batch flush at 50 lines / 100ms, 64KB frame partitioning,
-  non-silent queue overflow drop marker); WS `exec_input` and `exec_resize` client messages with RBAC checks;
-  additive `write_exec_input` provider extension; unified `docker stats` batch telemetry with multi-core CPU normalization
-  clamped to 100%; frontend reconnect re-tail backfill and polling suppression when WS is connected.
-- **Test platform & verification drivers (Stage F)**: Reusable `TestDefinition` configurations aggregate,
-  1:1 `Runtime` entity container attach model via `server_runtimes` table, automated `PatternCrashAnalyzer`
-  mod blame integration, structured `EvidenceBundle` generation, and lazy 24h debug artifact pruning in admission reaping.
-- **Protected branches (Stage G)**: `BranchProtectionPolicy` frozen dataclass (`require_test_pass`, `allow_direct_commit`,
-  `allow_force_bypass`, `prevent_deletion`), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`),
-  `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission
-  and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection.
-- **Dedicated frontend UI batch**: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`,
-  `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`,
-  and full page integration in `ServerVersioningPage.tsx` with all 22 versioning routes wired in `api.ts`.
+- **Enterprise Branch Runtime (Stages A–G)**: Persistent commit DAG (`server_commit_parents`), immutable tags (`server_tags`), branch archiving, `Materialization` & `ImportReview` aggregates, `RuntimeAdmissionScheduler` (`server_admission_lease`), demand-driven `ConsoleStreamManager` + WS `exec_input`/`exec_resize`, `TestDefinition` + 1:1 `Runtime` attach (`server_runtimes`), and `BranchProtectionPolicy` (`BranchProtectedError`).
+- **P1/P2 Core Substrate, Allow-list v2.3 & Refresh Engine**:
+  - `ServerMode` (`simple` / `advanced`) gate (`mode_guard.py`, POSIX-only `advanced_mode_enabled`), `BackupJobModel.pinned`, and `ensure_simple_baseline_lockfile()`.
+  - Host-state layout (`host_state.py`, `0700` POSIX directories: `server-meta`, `class-c-vault`, `quarantine`, `lec`, `cas`, `repos`, `locks`, `journal`, `data-templates`).
+  - **Allow-list v2.3** (`allowlist.py`): TOCTOU-free `open_safe_path_fd` descriptor traversal, canonical relpath checks, and 5 file classes (Class-A code jars, Class-B configs, Class-C runtime/state, Class-D ignored, Class-E forbidden).
+  - **Lockfile Format 2.1 & CAS**: pure-domain parser/serializer (`lockfile.py`) + SHA-256 `ArtifactCas` + `CleanExportService` + `.onx-complete.json`.
+  - **Native Git Engine & Refresh/Rollback**: `GitRunner`/`GitRepositoryService` (`repo.git` + `.onx/worktrees/<branch>`), `RepoWriteLock`, `RepoLeaseManager` (monotonic `fencing_token` + `flock`), two-tier `RefreshJournalRepository` + `RefreshStartupReconciler`, `DirectorySwapJournal` (`renameat2` / journaled `.prev`), `RefreshOrchestrator` (`1.10x` preflight, complement carry), `LiveRefreshService`, and `TriadRollbackService`.
+- **P3 Protected `main`, Merge Engine & AES-256-GCM Vaults**:
+  - System-level `main` branch protection & Promote removal; `merge_engine.py` (key-level 3-way merge for YAML/TOML/JSON/Properties + `diff3` + `SET_MERGEABLE_ARRAY_KEYS`); `DynamicClassCRegistry` (`server_dynamic_class_c`).
+  - AES-256-GCM **Class-C Vault** (`class_c_snapshots`, `format_version=2`, `ONX_MASTER_KEK`), `${ONX_SECRET_*}` **Server Secret Vault** (`server_secrets`), and Structured & Pattern Secret Scanner (`secret_scanner.py` incl. multi-doc YAML & leaf `password` rules).
+  - Native-Git Live State Files API and P3 frontend UI cutover.
+- **P4 Branch Runtimes & Quiescent Data Templates**:
+  - Isolated branch runtime engine (`BranchRuntimeService`), atomic `HostPortSet` allocation, ephemeral Class-C overlays (`white-list=true`, `enforce-whitelist=true`), quiescent `DataTemplates` (`server_data_templates`, 60s capped `save-off` + startup recovery), live RCON branch console, and branch activity logs.
+- **P5 GitHub Sync & Webhooks**:
+  - `GitHubSyncService` (`server_github_connections`, fetch-first sync, non-ff `main` guard, plain-jar gate, credential scrubber, encrypted `GitHubVault`, `RepoWriteLock`), HMAC-verified public webhook endpoint (`github_webhook_router`), durable `github_webhook_deliveries` queue, and frontend `GitHubSyncPanel` & modals.
+- **P5.5 Modpacks, LEC & 1-Click Safe Upgrades**:
+  - `.mrpack` & CurseForge parsers (`modpack_parser.py`, `curseforge_adapter.py`) with strict archive quarantine, 19-host `download_allowlist.py` (HTTPS, port 443, manual redirect validation), and `PanelSecretStore` (`panel_integration_secrets`).
+  - **Loader Environment Cache (LEC)** (`lec_store.py`, `lec_builder.py`, `loader_env_cache_entries`) for Paper (Fill v3 pre-warm), Forge (`1.17.1`–`1.20.1` bounds & argfile launch), NeoForge, Fabric, and Quilt with reflink/copy attach and `java_floor.py`.
+  - **Safe Upgrade Pipeline**: hash-only Modrinth compatibility matrix + transitive dependency BFS (`upgrade_matrix.py`), 3-way upgrade merge (`upgrade_merge.py`), pure-Python gzipped NBT `level.dat` DataVersion reader (`nbt_reader.py`), 4-step race-free `UpgradeHealthGateEvaluator` (stdout regex + TCP/RCON flush + NBT DataVersion + dimension smoke) with automatic triad rollback, `server_upgrades` tracking, `modpacks_upgrades.py` routes (`server_p55_router`, `lec_router`), and P5.5 frontend wizards (`ModpackInstallWizardModal`, `SafeUpgradeWizardModal`, `UpgradePinnedBanner`, `ServerP55SettingsCard`, `PanelP55IntegrationsSection`).
 
 ### Backup & storage
 
@@ -320,22 +317,21 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | **208,798** |
-| Source files (backend + frontend) | **1,019** |
-| Python files / lines | 723 / 147,796 |
-| TS+TSX files / lines | 295 / 60,182 (+ 1 CSS file) |
-| REST endpoints / live routes | 155 live routes (18 routers + app routes; 155/155 contract gate) |
-| Alembic revisions | 43 (head `b1e2100000023`) |
-| DB tables | 40+ (default dev DB at head) |
+| Source lines (backend + frontend) | **301,861** |
+| Source files (backend + frontend) | **1,171** |
+| Python files / lines | 857 / 227,639 |
+| TS+TSX files / lines | 313 / 73,387 (+ 1 CSS file, 835 lines) |
+| REST endpoints / live routes | 211 live routes (19 router files + app routes; 211/211 contract gate) |
+| Alembic revisions | 51 (head `b1e2100000031`) |
+| DB tables | 56 ORM tables (`__tablename__`) |
 | CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
-| ADRs / Decisions | 23 ADRs (`0001`–`0023`) + 12 formal `DECISION` records |
-| Backend test files | 249 `test_*.py` test files |
-| Frontend test files | 130 test files |
-| Docs Markdown | 129 files / 32,059 lines |
+| ADRs | 23 ADRs (`0001`–`0023`) |
+| Backend test files / collected | 318 `test_*.py` test files / 5,322 collected tests |
+| Frontend test files / tests | 135 test files / 1,302 passing tests |
+| Docs | See `docs/README.md` for full documentation index |
 
 ---
 
 _Keep counts honest: refresh this file with the same commands whenever scope
-changes materially. See `docs/current-state.md` for verified-vs-claimed
-discipline._
+changes materially._

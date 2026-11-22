@@ -7,7 +7,7 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (43 revisions, head `b1e2100000023`) |
+| Migrations | Alembic (51 revisions, head `b1e2100000031`, floor `b1e2100000031`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
@@ -457,7 +457,15 @@ alembic upgrade head
 | `b1e2100000020` | `server_startup_timeout_seconds` on `servers` |
 | `b1e2100000021` | Phase 5.5 Stage A: `operations` and `operation_steps` tables |
 | `b1e2100000022` | Phase 5.5 Stage B: `operation_id` on `server_test_runs` |
-| `b1e2100000023` | Server Lifecycle Hardening: `server_lifecycle_leases` table (head) |
+| `b1e2100000023` | Server Lifecycle Hardening: `server_lifecycle_leases` table |
+| `b1e2100000024` | `servers.mode` (`simple` / `advanced`) column |
+| `b1e2100000025` | `backup_jobs.pinned` column for upgrade rollback protection |
+| `b1e2100000026` | `refresh_journals` and `server_repo_leases` tables |
+| `b1e2100000027` | `class_c_snapshots` and `server_secrets` tables (AES-256-GCM Class-C & secret vaults) |
+| `b1e2100000028` | `server_dynamic_class_c` table (dynamic Class-C path registry) |
+| `b1e2100000029` | `server_data_templates` table and P4 branch/port indexes |
+| `b1e2100000030` | `server_github_connections` and `github_webhook_deliveries` tables |
+| `b1e2100000031` | `server_upgrades`, `loader_env_cache_entries`, `panel_integration_secrets`, and P5.5 upgrade/LEC columns (**head**) |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.

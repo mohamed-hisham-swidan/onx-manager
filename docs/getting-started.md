@@ -90,7 +90,7 @@ and choose the access mode before you can log in. See "First Steps" below.
 | REST API reference | [API Documentation](API.md) |
 | Frontend architecture | [Frontend](architecture/FRONTEND.md) |
 | Running tests | [Testing Guide](testing.md) |
-| Project roadmap | [Roadmap](roadmap/ROADMAP_v1.1.md) |
+| Project roadmap | [Roadmap](roadmap/ROADMAP.md) |
 
 ## Troubleshooting
 

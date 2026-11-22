@@ -22,14 +22,17 @@
 | Type     | JAR Source                                    | Auto-download |
 |----------|-----------------------------------------------|---------------|
 | vanilla  | `piston-data.mojang.com` (SHA1 from manifest) | Yes           |
-| paper    | `fill.papermc.io/v3` (latest build · `fill-data.papermc.io` download object) | Yes           |
+| paper    | `fill.papermc.io/v3` (latest build · `fill-data.papermc.io` download object · LEC `patchonly` pre-warm) | Yes           |
 | purpur   | `api.purpurmc.org` (latest download)          | Yes           |
 | fabric   | `meta.fabricmc.net` (latest loader)           | Yes           |
+| quilt    | `meta.quiltmc.org` / `maven.quiltmc.org`      | Yes           |
 | spigot   | `download.getbukkit.org/spigot`               | Yes           |
 | bukkit   | `download.getbukkit.org/craftbukkit`           | Yes           |
-| forge ≥ 1.17 | Forge Maven installer (`--installServer`) | Auto-install  |
+| forge (`1.17.1`–`1.20.1`+ / ≥ `1.17`) | Forge Maven installer (`--installServer`, argfile launch) | Auto-install  |
 | forge < 1.17 | Forge Maven `-universal.jar`              | Yes           |
 | neoforge | NeoForge Maven installer (`--installServer`) | Auto-install  |
+
+Modpack installations (`.mrpack` and CurseForge archives) and Loader Environment Cache (LEC) pre-warming are handled via `modpack_parser.py`, `curseforge_adapter.py`, `lec_store.py`, and `java_floor.py` in `backend/app/modules/versioning/`.
 
 ## Forge Auto-Install (≥ 1.17)
 

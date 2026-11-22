@@ -1,6 +1,6 @@
 # ADR-0018: Atomic Promote Config Writes and Durability (F1-2a)
 
-**Status**: Accepted (implemented 2026-10-20; local sequential suite + 6/6 gates passed; F1-2b pending; CI/Windows UNVERIFIED)  
+**Status**: Superseded in part (`LocalFileSystem.write_binary_atomic`/`write_text_atomic` durability retained; `PromoteCommitHandler` was subsequently removed and replaced by Clean Export + Live Refresh)  
 **Date**: 2026-10-20  
 **Author**: F1-2a Build / Docs Session  
 **Decision level**: D1  

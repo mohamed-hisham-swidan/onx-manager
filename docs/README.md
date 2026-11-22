@@ -1,66 +1,65 @@
 # Documentation Index
 
-This is the authoritative index for ONX Manager documentation. Documents are
-listed with their status so it is always clear what is implemented vs planned.
+Welcome to the ONX Manager documentation (`v0.1.0`). Every active guide, architectural spec, runtime manual, and reference catalog is indexed below.
 
 ---
 
-## Start Here
+## Getting Started & Operations
 
-| Document | Status | Purpose |
-|---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 3,642 backend tests collected, 1,178 frontend tests, 43 DB migrations). |
-| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers — CLOSED), Phase 4 (Community Features — CLOSED), Enterprise Branch Runtime (Stages A–G & Frontend UI — CLOSED), Phase 5.5 (Pre-Beta Reliability — CLOSED), Phase 6 (UP NEXT). |
-| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor (`b1e2100000023`). |
-| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (18 routers, 155 live routes) & WebSocket protocols. |
-
----
-
-## Architecture & Design
-
-| Document | Status | Purpose |
-|---|---|---|
-| [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 13 DDD bounded contexts, CQRS buses, outbox, supervisor. |
-| [Technical Specs](architecture/SPECS.md) | ✅ **CURRENT** | Tech stack, repository metrics, directory layouts, feature matrices. |
-| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 43 Alembic migrations (`b1e2100000023`), pre-backend reconciler. |
-| [Security Architecture](architecture/SECURITY.md) | ✅ **CURRENT** | RS256 JWT auth, RBAC/ABAC route permissions, API keys, path sandboxing. |
-| [Frontend Architecture](architecture/FRONTEND.md) | ✅ **CURRENT** | React 19, Tailwind CSS v4, TanStack Query, WebSocket store. |
-| [Forge/NeoForge Provisioning Spec](architecture/SPEC-FORGE-PROVISIONING-001.md) | ✅ **CURRENT** | Unified InstallerProvisioner, non-destructive retry, failure classification. |
-| [Plugins & Marketplace](architecture/plugins-and-marketplace.md) | ✅ **CURRENT** | Modrinth catalog integration, markdown descriptions, platform metadata. |
-| [Server Provisioning](architecture/PROVISIONING.md) | ✅ **CURRENT** | Server creation engine, JAR validation, supported software types. |
-| [Bug 3 Server Identity Loss Spec](design/BUG_3_SERVER_IDENTITY_LOSS_DESIGN_SPEC.md) | ✅ **ADOPTED** | Authoritative identity stamping, reconciliation adopt-vs-heal scoring, broadened container cleanup. |
+| Document | Purpose |
+|---|---|
+| [Getting Started](getting-started.md) | 5-minute quickstart with the unified launcher or manual setup. |
+| [Deployment Guide](DEPLOYMENT.md) | Docker Compose deployment, DooD profile, environment variables, and DB migration floor. |
+| [Development Guide](DEVELOPMENT.md) | Local development workflow, preflight scripts, and troubleshooting. |
+| [Testing Guide](testing.md) | Backend (`pytest`) & frontend (`vitest`) suites and the 6 CI quality gates. |
+| [REST & WebSocket API](API.md) | API reference across 19 router files (211 live routes) and `/ws` WebSocket protocols. |
+| [Versioning Policy](VERSIONING.md) | SemVer 2.0.0 rules, single source of truth (`0.1.0`), and fail-closed DB compatibility floor (`b1e2100000031`). |
+| [Roadmap](roadmap/ROADMAP.md) | Public post-launch roadmap placeholder. |
 
 ---
 
-## Runtime & Subsystems
+## Architecture & Design (`architecture/` & `design/`)
 
-| Document | Status | Purpose |
-|---|---|---|
-| [Server Lifecycle State Machine](runtime/lifecycle.md) | ✅ **CURRENT** | 8 `ServerStatus` states, transition matrices, recovery workflows. |
-| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux), `LocalWindowsProvider` (Win32), and `DockerProvider` (Phase 5 complete, dynamic IP, broadened cleanup). |
-| [Reconciliation Engine](runtime/reconciliation.md) | ✅ **CURRENT** | Runtime server state reconciliation, Filesystem Reconciliation & Identity Healing (`identity_writer.py`), and Pre-Backend Database Reconciler (`reconciler.py`). |
-| [Supervision Engine](runtime/supervision.md) | ✅ **CURRENT** | `RuntimeSupervisor` heartbeats, process PID recovery, zombie pruning. |
-
----
-
-## Reference & Registries
-
-| Document | Status | Purpose |
-|---|---|---|
-| [Domain Event Catalog](reference/event-catalog.md) | ✅ **CURRENT** | 61 domain event classes across 8 bounded contexts with payload schemas. |
-| [System Module Map](reference/module-map.md) | ✅ **CURRENT** | 13 DDD modules, 18 REST routers, 22 frontend pages. |
-| [Dependency Graph](reference/dependency-graph.md) | ✅ **CURRENT** | Layering rules, bounded context communication, hexagonal boundaries. |
-| [Contract Registry](reference/contract-registry.md) | ✅ **CURRENT** | RBAC route contracts (`contracts/permissions.yaml`, 155 live routes), schemas. |
+| Document | Purpose |
+|---|---|
+| [Architecture Portal](architecture/README.md) | Index of architecture specifications. |
+| [System Architecture](architecture/ARCHITECTURE.md) | Modular monolith, 13 DDD bounded contexts, CQRS buses, and Simple/Advanced P1–P5.5 architecture. |
+| [Technical Specs](architecture/SPECS.md) | Tech stack, repository shape, code/test metrics, and complete feature inventory. |
+| [Database Architecture](architecture/DATABASE.md) | SQLite & PostgreSQL schema, 56 ORM tables, 51 Alembic migrations (`b1e2100000031`), and pre-backend reconciler. |
+| [Security Architecture](architecture/SECURITY.md) | RS256 JWT auth, RBAC/ABAC route permissions, API keys, and path-traversal sandboxing. |
+| [Frontend Architecture](architecture/FRONTEND.md) | React 19, Tailwind CSS v4, TanStack Query, Zustand, and WebSocket cache bridge. |
+| [Server Provisioning](architecture/PROVISIONING.md) | Server creation engine, JAR validation, supported software types (incl. Quilt & modpacks). |
+| [Forge/NeoForge Provisioning](architecture/SPEC-FORGE-PROVISIONING-001.md) | Unified installer provisioner, non-destructive retry, and failure classification. |
+| [Plugins & Marketplace](architecture/plugins-and-marketplace.md) | Plugin lifecycle, disk reconciliation, and Modrinth catalog integration. |
+| [Health Engine Design](architecture/health-engine-design.md) | Multi-factor server health evaluation engine and crash classification. |
+| [Simple & Advanced Modes Spec](design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md) | Normative specification (v8.7) for Simple/Advanced modes, Allow-list v2.3, vaults, branch runtimes, GitHub sync, and safe upgrades. |
+| [Frontend Design System](design/frontend-overhaul/README.md) | Design system index ([BRAND.md](design/frontend-overhaul/BRAND.md), [TOKENS.md](design/frontend-overhaul/TOKENS.md), [SKINS.md](design/frontend-overhaul/SKINS.md), [PRIMITIVES.md](design/frontend-overhaul/PRIMITIVES.md), [TEMPLATES.md](design/frontend-overhaul/TEMPLATES.md), [MINECRAFT-FLAVOR-GUARDRAILS.md](design/frontend-overhaul/MINECRAFT-FLAVOR-GUARDRAILS.md)). |
 
 ---
 
-## Historical & Archival
+## Runtime & Subsystems (`runtime/`)
 
-| Document | Status | Purpose |
-|---|---|---|
-| [Project History Index](project-history/README.md) | ✅ **RECORD** | Index of preserved feature design reviews and engineering notes. |
-| [K5 Marketplace Design Review](project-history/features/2026-08-07-k5-marketplace-review.md) | ⏸️ **ARCHIVED** | First-class marketplace section design review. |
-| [Marketplace UX & Theming Findings](project-history/features/marketplace-ux-findings.md) | ⏸️ **ARCHIVED** | Marketplace UX and theming findings. |
-| [Dashboard & Server Management Redesign](project-history/features/dashboard-redesign-v1-findings.md) | ⏸️ **ARCHIVED** | Dashboard and server management redesign findings. |
-| [Plugin Description Markdown Fast-Fix](project-history/post-phase-7/2026-08-20-plugin-description-markdown-fastfix.md) | ⏸️ **ARCHIVED** | Markdown rendering and sanitization notes for plugin descriptions. |
-| [FakePlayer Verification Speedup Report](project-history/FIX2C-SPEED-2026-09-21.md) | ⏸️ **ARCHIVED** | Test execution optimization record for FakePlayer verification. |
+| Document | Purpose |
+|---|---|
+| [Runtime Overview](runtime/README.md) | Supervision, reconciliation, and ownership feedback loop. |
+| [Server Lifecycle State Machine](runtime/lifecycle.md) | Server status transitions and recovery workflows. |
+| [Server Providers](runtime/providers.md) | `LocalLinuxProvider` (tmux), `LocalWindowsProvider` (Win32), and `DockerProvider`. |
+| [Runtime Reconciliation](runtime/reconciliation.md) | DB ↔ OS state reconciliation and orphan cleanup. |
+| [Filesystem Reconciliation](runtime/filesystem-reconciliation.md) | Disk-as-truth directory scanner and `.onx-manager/server.json` identity healing. |
+| [Ownership Verification](runtime/ownership.md) | Multi-factor process ownership checks and port claiming. |
+| [Supervision Engine](runtime/supervision.md) | `RuntimeSupervisor` heartbeats, startup deadlines, and crash handling. |
+| [Recovery Procedures](runtime/recovery.md) | Startup and crash recovery playbooks. |
+
+---
+
+## Reference & Decisions (`reference/`, `decisions/`, `governance/`)
+
+| Document | Purpose |
+|---|---|
+| [Reference Portal](reference/README.md) | Index of live subsystem registries. |
+| [System Module Map](reference/module-map.md) | Directory map of 13 DDD modules, 19 REST router files (211 routes), and 23 routed frontend pages. |
+| [Domain Event Catalog](reference/event-catalog.md) | 87 domain event classes across 9 bounded contexts. |
+| [Dependency Graph](reference/dependency-graph.md) | Layering rules and hexagonal boundary constraints. |
+| [Contract Registry](reference/contract-registry.md) | Route permission contracts (`contracts/permissions.yaml`) and JSON/YAML schemas. |
+| [Architecture Decision Records](decisions/README.md) | Index of ADRs `0001`–`0023`. |
+| [Contributing & Governance](../CONTRIBUTING.md) | Development workflow, quality gates, and project decision/PR process. |

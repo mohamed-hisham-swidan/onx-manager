@@ -64,7 +64,7 @@ consistently in the backend, frontend, docs, and state files.
 3. **No release semantics.** `4.0.0` was a string, not a SemVer contract —
    **resolved**: SemVer 2.0.0 semantics adopted (§4.2).
 4. **No migration/version compatibility rule.** With an Alembic migration chain
-    (43 revisions, head `b1e2100000023`) and a prod DB that trails head, there was
+    (51 revisions, head `b1e2100000031`) and a prod DB that trails head, there was
     no documented rule for "which DB revision a given app version expects" —
     **resolved**: per-release minimum DB revision, fail-closed, never auto-migrated
     (§4.3).
@@ -134,7 +134,7 @@ auto-upgraded**.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `0.1.0` | `b1e2100000023` (current Alembic head and floor) |
+| `0.1.0` | `b1e2100000031` (current Alembic head and floor) |
 
 - **Authoritative declaration:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`). No other runtime source duplicates it.
@@ -179,19 +179,9 @@ Because state lives in SQLite/Postgres behind Alembic, define:
 
 ---
 
-## 5. Roadmap placement
+## 5. Implementation Status
 
-Versioning is **Roadmap Phase 5 (Versioning & State Consistency)** in
-`docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`. It is deliberately scheduled after the
-Plugins/Marketplace restructure, the UI stabilization, and the bug-fixing
-phases, so the versioning change lands on a stable baseline.
-
-**Status:** the **policy** above (SemVer semantics + internal-vs-API separation)
-is **ADOPTED** (Phase 5 Workstream 5.1, 2026-08-12). The **enforcement
-mechanism** — single source of truth (Workstream 5.2), frontend consumption
-(Workstream 5.3), CI propagation check (Workstream 5.4), and Alembic minimum
-revision (Workstream 5.5) — is **implemented** (verified 2026-08-13). Phase 5 is
-CLOSED.
+The versioning policy above (SemVer semantics, single source of truth via `backend/app/core/version.py:get_app_version()`, CI propagation check, and fail-closed Alembic minimum revision floor in `backend/app/core/persistence/db_revision.py`) is active and enforced in CI.
 
 ---
 
