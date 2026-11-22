@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -76,6 +77,11 @@ from app.modules.versioning.infrastructure.models import (
 )
 
 pytestmark = pytest.mark.no_isolated_db
+
+_POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P5 GitHub sync / secret vault requires a POSIX host; Windows = Simple-only",
+)
 
 KEK_HEX = "a5" * 32
 PAT = "ghp_unitsecret1234567890abcdef"
@@ -305,6 +311,7 @@ async def test_simple_mode_guard_rejects_every_public_operation(
         assert exc_info.value.code == "SERVER_MODE_VERSIONING_DISABLED"
 
 
+@_POSIX_ONLY
 async def test_invalid_server_segment_is_rejected(harness: _Harness) -> None:
     with pytest.raises(InvalidValueError):
         await harness.service.get_status("../escape")
@@ -359,6 +366,7 @@ def test_remote_url_and_auth_method_must_agree() -> None:
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 async def test_generate_deploy_key_redacts_private_material(
     harness: _Harness,
 ) -> None:
@@ -481,6 +489,7 @@ def test_classifier_preserves_timeouts_and_transient_network_errors() -> None:
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 async def test_force_push_is_denied_before_touching_git(harness: _Harness) -> None:
     with pytest.raises(NonFastForwardMainError) as main_exc:
         await harness.service.push_branch(ADVANCED_SERVER, "main", force=True)
@@ -499,6 +508,7 @@ async def test_force_push_is_denied_before_touching_git(harness: _Harness) -> No
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 async def test_webhook_fails_closed_without_leaking_secrets(
     harness: _Harness,
 ) -> None:
@@ -569,6 +579,7 @@ async def test_webhook_fails_closed_without_leaking_secrets(
         assert hashlib.sha256(body).hexdigest() not in rendered
 
 
+@_POSIX_ONLY
 async def test_valid_push_webhook_enqueues_only_and_dedupes(
     harness: _Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -653,6 +664,7 @@ async def test_valid_push_webhook_enqueues_only_and_dedupes(
     assert dedupe_events[0].operation_id == result.operation_id
 
 
+@_POSIX_ONLY
 async def test_ping_webhook_is_ignored_without_an_operation(
     harness: _Harness,
 ) -> None:
@@ -685,6 +697,7 @@ async def test_ping_webhook_is_ignored_without_an_operation(
     assert delivery.processed_at is not None
 
 
+@_POSIX_ONLY
 async def test_redelivery_increments_count_and_creates_fresh_operations(
     harness: _Harness,
 ) -> None:
@@ -733,6 +746,7 @@ async def test_redelivery_increments_count_and_creates_fresh_operations(
     assert all(event.actor_id == "operator-1" for event in redelivery_events)
 
 
+@_POSIX_ONLY
 async def test_list_deliveries_is_reverse_chronological_and_secret_free(
     harness: _Harness,
 ) -> None:
@@ -770,6 +784,7 @@ async def test_list_deliveries_is_reverse_chronological_and_secret_free(
         assert not hasattr(record, "raw_payload")
 
 
+@_POSIX_ONLY
 async def test_oversized_webhook_payload_is_rejected(
     harness: _Harness,
 ) -> None:
@@ -832,6 +847,7 @@ async def test_domain_events_instantiate_and_publish(harness: _Harness) -> None:
         assert WEBHOOK_SECRET not in rendered
 
 
+@_POSIX_ONLY
 async def test_status_and_dto_never_expose_secret_material(
     harness: _Harness,
 ) -> None:

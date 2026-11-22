@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import stat
 import time
 from datetime import datetime
@@ -75,7 +76,14 @@ def _setup_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return ensure_host_state_layout(settings)
 
 
+_POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix",
+    reason="GitHub secret vault requires a POSIX host; Windows = Simple-only",
+)
+
+
 @pytest.mark.no_isolated_db
+@_POSIX_ONLY
 def test_vault_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_kek(monkeypatch)
     pat = "ghp_secrettoken1234567890"
@@ -96,6 +104,7 @@ def test_vault_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.no_isolated_db
+@_POSIX_ONLY
 def test_vault_roundtrip_with_kek_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -124,6 +133,7 @@ def test_vault_roundtrip_with_kek_file(
 
 
 @pytest.mark.no_isolated_db
+@_POSIX_ONLY
 def test_vault_antitransplant(monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_kek(monkeypatch)
     pat = "ghp_secrettoken1234567890"
@@ -192,6 +202,7 @@ def test_vault_antitransplant(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.no_isolated_db
+@_POSIX_ONLY
 def test_vault_validation_and_keypair() -> None:
     # invalid purpose
     try:
@@ -287,6 +298,7 @@ def test_vault_validation_and_keypair() -> None:
 
 
 @pytest.mark.no_isolated_db
+@_POSIX_ONLY
 def test_vault_orm_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_kek(monkeypatch)
     db_file = tmp_path / "vault-orm.db"

@@ -92,6 +92,11 @@ SECRET = "correct-horse-battery-staple"
 KEY_A = bytes.fromhex("a5" * 32)
 KEY_B = bytes.fromhex("5a" * 32)
 
+_POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P3-3 Class-C / secret vault / Git / POSIX KEK contract requires POSIX; Windows = Simple-only",
+)
+
 
 @dataclass
 class P33Env:
@@ -293,6 +298,7 @@ def _unwrap_dek(
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 def test_nonce_and_dek_uniqueness(p33_env: P33Env, tmp_path: Path) -> None:
     live = tmp_path / "live-big"
     payload = _write_big_live(live)
@@ -332,6 +338,7 @@ def test_derive_chunk_nonce_rejects_invalid_parameters() -> None:
         derive_chunk_nonce(b"0" * 12, 1 << 32)
 
 
+@_POSIX_ONLY
 def test_secret_reextraction_rotates_dek_and_nonce(p33_env: P33Env) -> None:
     p33_env.vault.store_secret(SERVER_SECRETS, "RCON_PASSWORD", "first-secret")
     first = _stored_secret_row(p33_env, SERVER_SECRETS, "RCON_PASSWORD")
@@ -362,6 +369,7 @@ def _stored_secret_row(env: P33Env, server_id: str, key_name: str) -> ServerSecr
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 @pytest.mark.parametrize(
     ("wrong_server", "wrong_snapshot", "wrong_relpath"),
     [
@@ -408,6 +416,7 @@ def test_snapshot_chunk_aad_rejects_substitution(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_secret_aad_rejects_cross_server_and_cross_key(
     p33_env: P33Env,
 ) -> None:
@@ -440,6 +449,7 @@ def test_secret_aad_rejects_cross_server_and_cross_key(
         p33_env.vault.load_server_secrets(SERVER_A)
 
 
+@_POSIX_ONLY
 def test_secret_aad_and_placeholder_normalization(p33_env: P33Env) -> None:
     assert normalize_key_name("  rcon_password ") == "RCON_PASSWORD"
     with pytest.raises(ValidationError):
@@ -473,6 +483,7 @@ def _create_big_snapshot(env: P33Env, tmp_path: Path, snapshot_id: str) -> Path:
     return env.layout.class_c_vault_dir(SERVER_A) / snapshot_id
 
 
+@_POSIX_ONLY
 def test_restore_rejects_dropped_final_chunk(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -496,6 +507,7 @@ def test_restore_rejects_dropped_final_chunk(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_restore_rejects_swapped_chunks(p33_env: P33Env, tmp_path: Path) -> None:
     root = _create_big_snapshot(p33_env, tmp_path, "snap-swapped")
     manifest = _manifest(root)
@@ -515,6 +527,7 @@ def test_restore_rejects_swapped_chunks(p33_env: P33Env, tmp_path: Path) -> None
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_restore_rejects_flipped_ciphertext_byte(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -531,6 +544,7 @@ def test_restore_rejects_flipped_ciphertext_byte(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_restore_rejects_altered_manifest_aad_fields(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -547,6 +561,7 @@ def test_restore_rejects_altered_manifest_aad_fields(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_restore_rejects_corrupt_manifest_and_missing_marker(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -580,6 +595,7 @@ def test_restore_rejects_corrupt_manifest_and_missing_marker(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_empty_file_round_trip_and_tamper_rejection(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -623,6 +639,7 @@ def test_empty_file_round_trip_and_tamper_rejection(
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 def test_restore_rejects_on_disk_manifest_not_in_ledger(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -641,6 +658,7 @@ def test_restore_rejects_on_disk_manifest_not_in_ledger(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_restore_rejects_missing_or_mismatched_ledger_row(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -674,6 +692,7 @@ def test_restore_rejects_missing_or_mismatched_ledger_row(
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 def test_snapshot_restore_rejects_kek_version_mismatch(
     p33_env: P33Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -695,6 +714,7 @@ def test_snapshot_restore_rejects_kek_version_mismatch(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_secret_vault_rejects_kek_version_mismatch(
     p33_env: P33Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -769,6 +789,7 @@ def test_kek_file_precedence_warns_without_key_material(
     assert KEY_B.hex() not in caplog.text
 
 
+@_POSIX_ONLY
 def test_insecure_kek_permissions_fail_closed_before_chmod(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -847,6 +868,7 @@ def test_simple_mode_and_empty_secrets_need_no_kek(
     assert AppSettings().advanced_mode_enabled is (os.name == "posix")
 
 
+@_POSIX_ONLY
 def test_standalone_ledger_fallback_uses_layout_root(
     p33_env: P33Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -890,6 +912,7 @@ def test_standalone_ledger_fallback_uses_layout_root(
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 def test_reconcile_removes_orphans_and_marks_missing(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -933,6 +956,7 @@ def test_reconcile_removes_orphans_and_marks_missing(
     _assert_untouched(target)
 
 
+@_POSIX_ONLY
 def test_startup_reconciler_runs_class_c_reconciliation(
     p33_env: P33Env,
 ) -> None:
@@ -984,6 +1008,7 @@ def test_posix_modes_and_no_plaintext_in_vault(
         assert b"home: 1" not in blob.read_bytes()
 
 
+@_POSIX_ONLY
 def test_failure_paths_never_leak_key_dek_or_secret(
     p33_env: P33Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1026,6 +1051,7 @@ def test_failure_paths_never_leak_key_dek_or_secret(
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 def test_retention_pinned_exempt_and_gc_roots(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -1078,6 +1104,7 @@ def test_retention_pinned_exempt_and_gc_roots(
     assert len(roots_after.snapshot_ids) == 10
 
 
+@_POSIX_ONLY
 def test_repo_lease_serializes_encrypted_snapshot_creation(
     p33_env: P33Env, tmp_path: Path
 ) -> None:
@@ -1182,6 +1209,7 @@ class _RecordingExportService:
         )
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_clean_export_adapter_substitutes_vault_secrets(
     p33_env: P33Env, tmp_path: Path
@@ -1234,6 +1262,7 @@ async def test_clean_export_adapter_substitutes_vault_secrets(
 # ----------------------------------------------------------------------
 
 
+@_POSIX_ONLY
 def test_format_version_one_is_retired(p33_env: P33Env, tmp_path: Path) -> None:
     live = tmp_path / "live-v1"
     _write_small_live(live)
@@ -1288,6 +1317,7 @@ def _init_export_repo(
     return root, result.main_sha
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_clean_export_adapter_defaults_to_server_secret_vault(
     p33_env: P33Env,
@@ -1338,6 +1368,7 @@ async def test_clean_export_adapter_defaults_to_server_secret_vault(
         vault.close()
 
 
+@_POSIX_ONLY
 def test_preflight_rejects_lowercase_secret_placeholder(
     p33_env: P33Env,
     tmp_path: Path,
@@ -1362,6 +1393,7 @@ def test_preflight_rejects_lowercase_secret_placeholder(
     )
 
 
+@_POSIX_ONLY
 def test_javascript_text_secret_is_substituted_and_fails_closed(
     p33_env: P33Env,
     tmp_path: Path,
@@ -1406,6 +1438,7 @@ def test_javascript_text_secret_is_substituted_and_fails_closed(
     assert not missing.exists()
 
 
+@_POSIX_ONLY
 def test_reconcile_marks_missing_when_vault_root_deleted(
     p33_env: P33Env,
     tmp_path: Path,

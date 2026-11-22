@@ -898,6 +898,49 @@ async def parse_mrpack(
         return plan, override_blobs
 
 
+def _is_posix_host() -> bool:
+    return os.name == "posix"
+
+
+def _is_symlink_or_reparse(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    reparse_attr = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if not reparse_attr:
+        return False
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return bool(getattr(st, "st_file_attributes", 0) & reparse_attr)
+
+
+def _resolve_non_posix_override_target(root: Path, rel_path: str) -> Path:
+    """Resolve and create parent dirs under ``root`` while rejecting symlinks/reparse points."""
+    norm = validate_canonical_relpath(rel_path)
+    if _is_symlink_or_reparse(root):
+        raise SymlinkEscapeError(f"Root itself is a symlink: {root!r}")
+    root_real = os.path.realpath(root)
+    curr = root
+    segments = norm.split("/")
+    for seg in segments[:-1]:
+        curr = curr / seg
+        if _is_symlink_or_reparse(curr):
+            raise SymlinkEscapeError(f"Symlink component rejected: {seg!r}")
+        if curr.exists():
+            if not curr.is_dir():
+                raise SymlinkEscapeError(f"Non-directory path component rejected: {seg!r}")
+        else:
+            curr.mkdir(parents=False, exist_ok=True)
+    target = root.joinpath(*segments)
+    if _is_symlink_or_reparse(target):
+        raise SymlinkEscapeError(f"Final symlink rejected: {norm!r}")
+    target_real = os.path.realpath(target)
+    if target_real == root_real or os.path.commonpath([root_real, target_real]) != root_real:
+        raise SymlinkEscapeError(f"Path escapes root after resolution: {norm!r}")
+    return target
+
+
 def extract_overrides_safely(
     zf: zipfile.ZipFile,
     overrides: Sequence[InstallPlanOverride],
@@ -920,21 +963,28 @@ def extract_overrides_safely(
                 f"Override changed after planning: {override.path[:128]!r}",
                 field="overrides",
             )
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        try:
-            fd = open_safe_path_fd(
-                str(root),
-                override.path,
-                flags=flags,
-                mode=0o644,
-                allow_create_parents=True,
-            )
-        except SymlinkEscapeError:
-            raise
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
+        if _is_posix_host():
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            try:
+                fd = open_safe_path_fd(
+                    str(root),
+                    override.path,
+                    flags=flags,
+                    mode=0o644,
+                    allow_create_parents=True,
+                )
+            except SymlinkEscapeError:
+                raise
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+        else:
+            target = _resolve_non_posix_override_target(root, override.path)
+            with target.open("wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
         written.append(root / override.path)
     return written
 

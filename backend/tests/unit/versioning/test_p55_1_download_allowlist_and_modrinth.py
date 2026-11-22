@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -161,6 +162,10 @@ class TestDownloadAllowList:
 
 
 class TestHardenedDownloader:
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+    )
     @pytest.mark.asyncio
     async def test_download_verifies_and_stores(self, tmp_path: Path) -> None:
         body = b"verified-content"
@@ -181,6 +186,10 @@ class TestHardenedDownloader:
         assert cas.has(_sha256(body))
         assert session.calls == [(CDN, False)]
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+    )
     @pytest.mark.asyncio
     async def test_download_follows_validated_github_redirect(self, tmp_path: Path) -> None:
         body = b"github-asset"
@@ -226,6 +235,10 @@ class TestHardenedDownloader:
                 CDN, cas, client=_FakeSession(responses)
             )
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+    )
     @pytest.mark.asyncio
     async def test_hash_mismatch_does_not_pollute_cas(self, tmp_path: Path) -> None:
         body = b"corrupted"
@@ -239,6 +252,10 @@ class TestHardenedDownloader:
             )
         assert not cas.has(_sha256(body))
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+    )
     @pytest.mark.asyncio
     async def test_size_mismatch_does_not_pollute_cas(self, tmp_path: Path) -> None:
         body = b"short"
@@ -252,6 +269,10 @@ class TestHardenedDownloader:
             )
         assert not cas.has(_sha256(body))
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+    )
     @pytest.mark.asyncio
     async def test_oversized_stream_aborts(self, tmp_path: Path) -> None:
         body = b"x" * 32

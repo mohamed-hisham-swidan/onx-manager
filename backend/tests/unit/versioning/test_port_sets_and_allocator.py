@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import socket
 from pathlib import Path
 
@@ -11,6 +12,11 @@ from app.modules.versioning.infrastructure.port_allocator import (
     allocate_port_set,
     is_host_port_free,
     validate_port_set_atomic,
+)
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P4 branch port sets require POSIX; Windows = Simple-only",
 )
 
 

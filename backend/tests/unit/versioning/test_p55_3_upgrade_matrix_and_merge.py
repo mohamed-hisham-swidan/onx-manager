@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,11 @@ from app.modules.versioning.infrastructure.modpack_parser import (
 from app.modules.versioning.infrastructure.upgrade_matrix import (
     MatrixStatus,
     build_compatibility_matrix,
+)
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="Uses ArtifactCas (POSIX-only); Windows = Simple-only",
 )
 
 

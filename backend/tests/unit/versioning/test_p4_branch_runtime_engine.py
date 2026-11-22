@@ -57,6 +57,13 @@ def test_container_name() -> None:
     assert name == "onx-branch-server12-feature-my-test-runtime5"
 
 
+_POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P4 branch runtime / HostPortSet / Git require POSIX; Windows = Simple-only",
+)
+
+
+@_POSIX_ONLY
 def test_hardening_flags() -> None:
     ps = HostPortSet(
         game_port=25600,
@@ -123,6 +130,7 @@ def test_fail_closed_windows(layout, monkeypatch) -> None:
         asyncio.get_event_loop().run_until_complete(svc.get_branch_runtime_status("s", "dev"))
 
 
+@_POSIX_ONLY
 def test_main_branch_fail_closed(layout) -> None:
     from app.modules.versioning.infrastructure.branch_runtime_service import BranchRuntimeService
 
@@ -224,6 +232,7 @@ def _runner(start_rc=0, inspect_running="false"):
     return runner
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_ephemeral_class_c_overlay_success_and_failure(tmp_path, monkeypatch):
     layout, server_root, engine, factory, lockfile = await _setup(tmp_path, monkeypatch)
@@ -304,6 +313,7 @@ async def test_ephemeral_class_c_overlay_success_and_failure(tmp_path, monkeypat
     assert not overlay2.exists()
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_allow_public_test_join_props(tmp_path, monkeypatch):
     layout, server_root, engine, factory, lockfile = await _setup(tmp_path, monkeypatch)
@@ -348,6 +358,7 @@ async def test_allow_public_test_join_props(tmp_path, monkeypatch):
         assert "enforce-whitelist=true" not in props2
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_dynamic_class_c_overlay(tmp_path, monkeypatch):
     layout, server_root, engine, factory, lockfile = await _setup(tmp_path, monkeypatch)
@@ -383,6 +394,7 @@ async def test_dynamic_class_c_overlay(tmp_path, monkeypatch):
     assert captured["dynamic"] == frozenset({"ops.json", "plugins/x.yml"})
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_d8_secret_injection_and_unresolved(tmp_path, monkeypatch):
     layout, server_root, engine, factory, lockfile = await _setup(
@@ -437,6 +449,7 @@ async def test_d8_secret_injection_and_unresolved(tmp_path, monkeypatch):
         assert found
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_rollback_on_docker_start_failure(tmp_path, monkeypatch):
     layout, server_root, engine, factory, lockfile = await _setup(tmp_path, monkeypatch)
@@ -486,6 +499,7 @@ async def test_rollback_on_docker_start_failure(tmp_path, monkeypatch):
             assert list(exports.iterdir()) == [] or all(not p.exists() for p in exports.iterdir())
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_save_data_template_live_and_stopped(tmp_path, monkeypatch):
     layout, server_root, engine, factory, lockfile = await _setup(tmp_path, monkeypatch)

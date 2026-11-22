@@ -162,6 +162,10 @@ def _decode_local_key(raw: bytes) -> bytes:
     )
 
 
+def _is_posix_host() -> bool:
+    return os.name == "posix"
+
+
 def _read_local_key(path: Path) -> bytes:
     try:
         st = os.lstat(path)
@@ -176,7 +180,12 @@ def _read_local_key(path: Path) -> bytes:
         raise SecurityPermissionError(
             f"Panel integration key {path} must be a regular non-symlink file"
         )
-    if (st.st_mode & 0o077) != 0:
+    reparse_attr = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if getattr(st, "st_file_attributes", 0) & reparse_attr:
+        raise SecurityPermissionError(
+            f"Panel integration key {path} must not be a reparse point"
+        )
+    if _is_posix_host() and (st.st_mode & 0o077) != 0:
         raise SecurityPermissionError(
             f"Insecure file permissions on panel integration key {path} "
             f"(mode {oct(st.st_mode & 0o777)}, expected 0600)"
@@ -192,7 +201,7 @@ def _read_local_key(path: Path) -> bytes:
         ) from exc
     try:
         st = os.fstat(fd)
-        if stat.S_IMODE(st.st_mode) & 0o077:
+        if _is_posix_host() and (stat.S_IMODE(st.st_mode) & 0o077):
             raise SecurityPermissionError(
                 f"Insecure file permissions on panel integration key {path}"
             )
@@ -225,7 +234,8 @@ def _load_or_create_local_key(path: Path) -> bytes:
         ) from exc
 
     try:
-        os.fchmod(fd, 0o600)
+        if _is_posix_host() and hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
         os.write(fd, secrets.token_hex(_DEK_BYTES).encode("ascii"))
         os.fsync(fd)
     except OSError as exc:

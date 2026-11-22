@@ -79,5 +79,6 @@ def test_mandatory_encryption_policy_and_kek_permissions(tmp_path: Path, monkeyp
     kek_path = tmp_path / "keys" / "master.kek"
     kek = load_or_create_master_kek(kek_file_path=kek_path, allow_create=True)
     assert len(kek.key_bytes) == 32
-    mode = stat.S_IMODE(kek_path.stat().st_mode)
-    assert mode == 0o600
+    if os.name == "posix":
+        mode = stat.S_IMODE(kek_path.stat().st_mode)
+        assert mode == 0o600

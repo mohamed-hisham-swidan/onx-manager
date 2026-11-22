@@ -73,7 +73,13 @@ from app.modules.versioning.infrastructure.models import (
     ServerCommitModel,
 )
 
-pytestmark = pytest.mark.no_isolated_db
+pytestmark = [
+    pytest.mark.no_isolated_db,
+    pytest.mark.skipif(
+        os.name != "posix",
+        reason="P5 GitHub sync integration requires POSIX git-http-backend & GitRunner; Windows = Simple-only",
+    ),
+]
 
 SERVER_ID = "srv-gh"
 REMOTE_URL = "https://github.com/octo/mc-server.git"

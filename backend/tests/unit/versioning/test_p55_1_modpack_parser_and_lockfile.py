@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 import zipfile
 from pathlib import Path
@@ -93,7 +94,12 @@ def _index(
 def _write_zip(path: Path, entries: dict[str, bytes]) -> Path:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in entries.items():
-            zf.writestr(name, data)
+            # Preserve raw names on Windows so zipfile._sanitize_filename
+            # does not rewrite backslashes before archive quarantine sees them.
+            info = zipfile.ZipInfo(name)
+            info.filename = name
+            info.compress_type = zf.compression
+            zf.writestr(info, data)
     return path
 
 
@@ -193,6 +199,9 @@ async def test_mrpack_happy_path_and_lockfile_roundtrip(tmp_path: Path) -> None:
     assert "config/c.toml" not in override_blobs
     assert "run.sh" in plan.discarded_paths
     assert len(fake.calls) == 1
+
+    if os.name != "posix":
+        return
 
     cas = ArtifactCas(tmp_path / "cas")
     downloaded = _downloaded_map(
@@ -508,6 +517,37 @@ async def test_extract_overrides_happy_path(tmp_path: Path) -> None:
     assert (dest / "config" / "foo.toml").read_bytes() == b"server-value"
 
 
+@pytest.mark.asyncio
+async def test_extract_overrides_safely_non_posix_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = _write_mrpack(
+        tmp_path / "extract-nt.mrpack",
+        _index(),
+        {"overrides/config/foo.toml": b"nt-value"},
+    )
+    plan, _blobs = await parse_mrpack(archive, modrinth_client=_FakeModrinth())
+    monkeypatch.setattr(modpack_parser, "_is_posix_host", lambda: False)
+
+    dest = tmp_path / "dest-nt"
+    with zipfile.ZipFile(archive, "r") as zf:
+        written = extract_overrides_safely(zf, plan.overrides, dest)
+    assert written
+    assert (dest / "config" / "foo.toml").read_bytes() == b"nt-value"
+
+    bad_dest = tmp_path / "dest-nt-bad"
+    bad_dest.mkdir()
+    outside = tmp_path / "outside-nt"
+    outside.mkdir()
+    (bad_dest / "config").symlink_to(outside, target_is_directory=True)
+    with zipfile.ZipFile(archive, "r") as zf, pytest.raises(SymlinkEscapeError):
+        extract_overrides_safely(zf, plan.overrides, bad_dest)
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+)
 def test_base_override_store_validation(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     stored = store_base_overrides_in_cas(

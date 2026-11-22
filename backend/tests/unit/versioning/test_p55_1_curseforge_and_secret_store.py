@@ -137,16 +137,18 @@ class TestPanelSecretStoreCrypto:
         assert envelope.encryption_mode == ENCRYPTION_MODE_PANEL_LOCAL
         key_path = Path(settings.host_state_dir) / ".onx-integration.key"
         assert key_path.exists()
-        assert stat.S_IMODE(key_path.stat().st_mode) & 0o077 == 0
+        if os.name == "posix":
+            assert stat.S_IMODE(key_path.stat().st_mode) & 0o077 == 0
         assert decrypt_panel_secret(
             CURSEFORGE_API_KEY_NAME, envelope, settings=settings
         ) == "local-secret"
 
-        os.chmod(key_path, 0o644)
-        with pytest.raises(SecurityPermissionError):
-            encrypt_panel_secret(
-                CURSEFORGE_API_KEY_NAME, "another-secret", settings=settings
-            )
+        if os.name == "posix":
+            os.chmod(key_path, 0o644)
+            with pytest.raises(SecurityPermissionError):
+                encrypt_panel_secret(
+                    CURSEFORGE_API_KEY_NAME, "another-secret", settings=settings
+                )
 
     def test_api_key_hint_never_leaks_key(self) -> None:
         assert make_api_key_hint("abcdefgh") == "***...efgh"
@@ -164,6 +166,24 @@ class TestPanelSecretStoreCrypto:
     def test_appsettings_repr_redacts_curseforge_key(self) -> None:
         settings = AppSettings(curseforge_api_key="super-secret-key")
         assert "super-secret-key" not in repr(settings)
+
+    def test_panel_local_key_non_posix_works_without_fchmod(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.modules.versioning.infrastructure import panel_secret_store
+
+        monkeypatch.setattr(panel_secret_store, "_is_posix_host", lambda: False)
+        settings = _settings(tmp_path)
+        envelope = encrypt_panel_secret(
+            CURSEFORGE_API_KEY_NAME, "win-secret", settings=settings
+        )
+        assert envelope.encryption_mode == ENCRYPTION_MODE_PANEL_LOCAL
+        assert (
+            decrypt_panel_secret(
+                CURSEFORGE_API_KEY_NAME, envelope, settings=settings
+            )
+            == "win-secret"
+        )
 
 class TestPanelSecretStoreDatabase:
     @pytest.mark.asyncio
@@ -650,6 +670,10 @@ class TestCurseForgeDownloads:
         assert "skipped_client_override_jar:mods/client.jar" in updated.warnings
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+)
 class TestManualDownloadUpload:
     def _plan(self, data: bytes) -> InstallPlan:
         return InstallPlan(

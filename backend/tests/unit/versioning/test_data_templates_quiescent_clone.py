@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,11 @@ from app.core.host_state import HostStateLayout
 from app.modules.versioning.infrastructure.data_templates import (
     DataTemplateService,
     reconcile_data_templates_and_save_off,
+)
+
+POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P2/P4 Advanced-mode data templates & clean export are POSIX-only; Windows = Simple-only",
 )
 
 
@@ -45,6 +51,7 @@ class FakeStore:
         self.active = active
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_stopped_clone(tmp_path: Path) -> None:
     # build layout manually
@@ -97,6 +104,7 @@ async def test_stopped_clone(tmp_path: Path) -> None:
     assert not (out / "session.lock").exists()
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_running_reflink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "host-state"
@@ -145,6 +153,7 @@ async def test_running_reflink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert (out / ".onx-complete.json").exists()
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_running_two_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "host-state"
@@ -189,6 +198,7 @@ async def test_running_two_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert (out / ".onx-complete.json").exists()
 
 
+@POSIX_ONLY
 def test_reconcile(tmp_path: Path) -> None:
     root = tmp_path / "host-state"
     root.mkdir()
@@ -273,6 +283,7 @@ async def test_async_persist_template(tmp_path: Path) -> None:
     await engine.dispose()
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_reconcile_save_on_and_flag(tmp_path: Path) -> None:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -343,6 +354,7 @@ async def test_reconcile_save_on_and_flag(tmp_path: Path) -> None:
     await engine.dispose()
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_reconcile_no_callback_keeps_flag(tmp_path: Path) -> None:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -406,6 +418,7 @@ async def test_reconcile_no_callback_keeps_flag(tmp_path: Path) -> None:
     await engine.dispose()
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_flush_failure_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "host-state"
@@ -454,12 +467,6 @@ async def test_flush_failure_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             container_state=container,
             save_off_store=store,
         )
-
-
-POSIX_ONLY = pytest.mark.skipif(
-    __import__("os").name != "posix",
-    reason="P2 Advanced-mode clean export is POSIX-only",
-)
 
 
 @POSIX_ONLY
@@ -524,6 +531,7 @@ def test_clean_export_overlays_data_template(tmp_path: Path) -> None:
     assert (destination / "world" / "level.dat").read_bytes() == b"level-data"
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_two_pass_60s_save_off_cap_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -596,6 +604,7 @@ async def test_two_pass_60s_save_off_cap_raises(
     assert not (server_dir / "tmpl60").exists()
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_two_pass_30s_flush_timeout_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -657,6 +666,7 @@ async def test_two_pass_30s_flush_timeout_raises(
     assert staging_left == []
 
 
+@POSIX_ONLY
 @pytest.mark.asyncio
 async def test_two_pass_delta_mutated_and_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

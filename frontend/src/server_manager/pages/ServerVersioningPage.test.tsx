@@ -752,7 +752,8 @@ describe("ServerVersioningPage", () => {
 
     renderPage();
 
-    const panel = await screen.findByTestId("github-sync-panel");
+    const strip = await screen.findByTestId("github-branch-sync-strip");
+    const panel = screen.getByTestId("github-sync-panel");
     expect(within(panel).getByTestId("github-sync-status-badge")).toHaveTextContent(
       "Synced",
     );
@@ -760,7 +761,6 @@ describe("ServerVersioningPage", () => {
       within(panel).getByText("https://github.com/owner/repo.git"),
     ).toBeInTheDocument();
 
-    const strip = within(panel).getByTestId("github-branch-sync-strip");
     expect(strip).toHaveTextContent("Selected Branch (1:1 Sync)");
     expect(strip).toHaveTextContent("main");
     expect(strip).toHaveTextContent("Local aaaa1111");
@@ -793,9 +793,7 @@ describe("ServerVersioningPage", () => {
     });
 
     renderPage();
-    await screen.findByTestId("github-sync-panel");
-
-    fireEvent.click(screen.getByRole("button", { name: "Fetch Now" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fetch Now" }));
 
     await waitFor(() =>
       expect(mockApi.fetchGitHubSync).toHaveBeenCalledWith("srv-vers-1"),
@@ -818,9 +816,7 @@ describe("ServerVersioningPage", () => {
     });
 
     renderPage();
-    await screen.findByTestId("github-sync-panel");
-
-    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
 
     await waitFor(() =>
       expect(mockApi.pushGitHubBranch).toHaveBeenCalledWith("srv-vers-1", {
@@ -851,9 +847,7 @@ describe("ServerVersioningPage", () => {
     );
 
     renderPage();
-    await screen.findByTestId("github-sync-panel");
-
-    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
 
     const alert = await screen.findByTestId("github-nff-conflict-alert");
     expect(alert).toHaveTextContent("Local: aaaa1111");
@@ -872,9 +866,7 @@ describe("ServerVersioningPage", () => {
     );
 
     renderPage();
-    await screen.findByTestId("github-sync-panel");
-
-    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
 
     const banner = await screen.findByTestId("github-reauth-banner");
     expect(banner).toHaveTextContent("GitHub authentication failed");
@@ -906,9 +898,7 @@ describe("ServerVersioningPage", () => {
     );
 
     renderPage();
-    await screen.findByTestId("github-sync-panel");
-
-    fireEvent.click(screen.getByRole("button", { name: "Push main" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
 
     const alert = await screen.findByTestId("github-push-rejected-alert");
     expect(alert).toHaveTextContent(
@@ -928,9 +918,7 @@ describe("ServerVersioningPage", () => {
     });
 
     renderPage();
-    await screen.findByTestId("github-sync-panel");
-
-    fireEvent.click(screen.getByRole("button", { name: "Webhook Deliveries" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Webhook Deliveries" }));
     const deliveriesDialog = await screen.findByRole("dialog", {
       name: "GitHub Webhook Deliveries",
     });

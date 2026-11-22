@@ -31,6 +31,11 @@ from app.modules.versioning.application.scheduling.admission import (
 
 pytestmark = pytest.mark.no_isolated_db
 
+_POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P4 branch admission requires a POSIX host; Windows = Simple-only",
+)
+
 
 @pytest.fixture
 async def db_engine(tmp_path):
@@ -63,6 +68,7 @@ def _big_headroom():
     )
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_default_cap_second_raises(db_engine) -> None:
     p1, p2 = _big_headroom()
@@ -84,6 +90,7 @@ async def test_default_cap_second_raises(db_engine) -> None:
         assert "stop an active branch run" in str(ei.value)
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_configurable_cap_up_to_3(db_engine) -> None:
     p1, p2 = _big_headroom()
@@ -116,6 +123,7 @@ async def test_configurable_cap_up_to_3(db_engine) -> None:
         )
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_same_branch_twice_raises(db_engine) -> None:
     p1, p2 = _big_headroom()
@@ -129,6 +137,7 @@ async def test_same_branch_twice_raises(db_engine) -> None:
             )
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_memory_floors_and_default(db_engine) -> None:
     # resolve_branch_resources static
@@ -172,6 +181,7 @@ async def test_memory_floors_and_default(db_engine) -> None:
         assert d.memory_min_mb == min(1024, d.memory_max_mb)
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_global_headroom_denial(db_engine) -> None:
     # tight headroom
@@ -184,6 +194,7 @@ async def test_global_headroom_denial(db_engine) -> None:
         )
 
 
+@_POSIX_ONLY
 @pytest.mark.asyncio
 async def test_concurrent_gather_serializes(db_engine) -> None:
     p1, p2 = _big_headroom()
