@@ -7,7 +7,7 @@
 > Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
 > This document is maintained against the router code (`backend/app/api/v1/routers/`).
-> Verified across the 19 router files (211 live routes via `./scripts/check-route-contract`):
+> Verified across the 19 router files (213 live routes via `./scripts/check-route-contract`):
 > `activity, auth, backups, exposure, files, health, invites, marketplace, modpacks_upgrades,
 > monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`.
 
@@ -1298,6 +1298,11 @@ Routes defined in `backend/app/api/v1/routers/modpacks_upgrades.py` (and `settin
 - `GET / PUT /api/v1/servers/{server_id}/p55-settings`
 - `GET /api/v1/lec/entries`, `POST /api/v1/lec/{prewarm,gc}`
 - `GET / PUT / DELETE /api/v1/settings/integrations/curseforge`
+
+### Simple ↔ Advanced Mode Conversion (P7-2)
+
+- `POST /api/v1/servers/{server_id}/convert/to-advanced` (`server.versioning.manage`)
+- `POST /api/v1/servers/{server_id}/convert/to-simple` (`server.versioning.manage`)
 
 ### Settings & Preflight
 

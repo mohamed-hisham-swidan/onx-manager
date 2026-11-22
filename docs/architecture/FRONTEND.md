@@ -326,7 +326,7 @@ Production builds use `window.location.host` for API and WS URLs.
 
 ## Testing
 
-135 frontend test files on disk (1,302 tests passed 2026-11-22). Test infrastructure:
+137 frontend test files on disk (Vitest + jsdom). Test infrastructure:
 - `vitest.config.ts` — jsdom environment, `@/` path alias, globals enabled, `TZ: 'Africa/Cairo'`
 - `test-setup.ts` — jsdom, localStorage mock, matchMedia mock
 - Testing libraries: `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`
@@ -337,7 +337,7 @@ Production builds use `window.location.host` for API and WS URLs.
 
 Frontend CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR to
 `master` and gates on: `npm run typecheck`, `npm run lint`, `npm test`
-(135 test files), and `npm run build`.
+(137 test files), and `npm run build`.
 
 Key test areas: `authStore`, `uiStore`, `api.ts`, `wsStore`, `AuthGuard`, `LoginPage`, `Sidebar`, `TopBar`, `AppShell`, `WebSocketManager`, `ServersPage`, `DashboardPage`.
 

@@ -42,7 +42,7 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 19 router files (211 live routes) + WebSocket
+│       ├── routers/           # 19 router files (213 live routes) + WebSocket
 │       └── schemas/           # Pydantic request/response schemas (BaseResponse UTC normalization)
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus + DatabaseBusyRetryMiddleware
@@ -206,6 +206,7 @@ Guided by `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` (v8.7), ONX Manager separat
 - **Isolated Branch Runtimes & Data Templates (P4)**: Runs branch/test containers in parallel with production via `BranchRuntimeService`, atomic `HostPortSet` allocation, ephemeral Class-C overlays (`white-list=true`, `enforce-whitelist=true`), quiescent `DataTemplates` (60s-capped RCON `save-off` with startup `save-on` recovery), and live RCON branch console.
 - **GitHub Sync & Webhook Queue (P5)**: `GitHubSyncService` provides fetch-first remote sync, non-fast-forward `main` guards, plain-jar gates, credential scrubbing, and an encrypted `GitHubVault`; `github_webhook_router` validates HMAC signatures and enqueues durable `github_webhook_deliveries`.
 - **Modpacks, LEC & 1-Click Safe Upgrades (P5.5)**: `.mrpack` and CurseForge parsers with strict archive quarantine, 19-host HTTPS download allow-list (`download_allowlist.py`), `LoaderEnvCache` (`lec_store.py` / `lec_builder.py`) for Paper (Fill v3 pre-warm), Forge (`1.17.1`–`1.20.1` bounds & argfile launch), NeoForge, Fabric, and Quilt, hash-only Modrinth compatibility matrix + transitive dependency BFS (`upgrade_matrix.py`), NBT `level.dat` `DataVersion` verification (`nbt_reader.py`), and a 4-step race-free `UpgradeHealthGateEvaluator` (stdout regex, TCP + RCON `save-all flush`, NBT `DataVersion`, dimension smoke).
+- **Docker-Only Runtime & Two-Tier Backups (P6–P7)**: P6 removes local host tmux/Win32 execution providers in favor of Docker-only server containers (`DockerProvider`) with local-to-Docker migration; P7 adds Tier-1 snapshots (`tier1_snapshot.py`), chunked AES-256-GCM envelope-encrypted Tier-2 archives (`tier2_archive.py`, `envelope_crypto.py`), and Simple ↔ Advanced conversion endpoints (`/convert/to-advanced`, `/convert/to-simple`).
 - **Container Hardening (`core/container_hardening.py`)**: All 4 Docker spawn paths (server, installer, isolated test, bot pool) enforce `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`, non-root `--user`, and a single `/data` bind mount.
 
 ---
@@ -219,7 +220,7 @@ Guided by `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` (v8.7), ONX Manager separat
 | Language | Python 3.12 (installer-pinned; `requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (51 revisions, head `b1e2100000031`, floor `b1e2100000031`) |
+| Migrations | Alembic (52 revisions, head `b1e2100000032`, floor `b1e2100000032`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
@@ -422,9 +423,7 @@ DB record. To prevent killing untracked real Minecraft servers, it uses a
 
 ### Factors (checked in order)
 
-1. **Positive ownership marker** — Every process spawned by `LocalLinuxProvider`
-   gets `MCS_MANAGED=1` in its environment (`/proc/{pid}/environ`). Presence of
-   this marker proves project ownership.
+1. **Positive ownership marker** — Legacy host processes spawned with `MCS_MANAGED=1` / `ONX_MANAGED=1` in `/proc/{pid}/environ` (note: local host-process providers were removed in P6 in favor of Docker-only execution, while orphan ownership verification remains active for safety).
 2. **cwd inside project data directory** — `/proc/{pid}/cwd` is resolved and
    compared against `MCS_SERVERS_DATA_DIR`. If the process's working directory
    is within the project's server data directory, it's treated as owned.
@@ -478,9 +477,9 @@ isn't reachable until root_path is fixed.
 ## Testing
 
 ```bash
-pytest                          # Backend suite (5,322 tests collected across 318 test_*.py files)
+pytest                          # Backend suite (5,293 tests collected across 325 test_*.py files)
 pytest tests/ -x -q             # Quick run, stop on first failure
-npm test                        # Frontend suite (1,302 passed across 135 test files)
+npm test                        # Frontend suite (137 test files)
 ```
 
 Test isolation: sandbox database + sandbox server directory, set via `ONX_DATABASE_URL` / `MCS_DATABASE_URL` and `ONX_SERVERS_DATA_DIR` / `MCS_SERVERS_DATA_DIR`.
@@ -489,13 +488,13 @@ Test isolation: sandbox database + sandbox server directory, set via `ONX_DATABA
 
 - **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `b1e2100000031`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
+  `b1e2100000032`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
   (`scripts/check-stray-db`), and Ruff baseline regression gate
   (`scripts/check-ruff-baseline`).
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
   verifies `pyproject.toml`, runtime, and frontend package versions agree.
 - **Route contract CI** (`.github/workflows/route-permission-ci.yml`): verifies
-  211 live routes match `contracts/permissions.yaml`.
+  213 live routes match `contracts/permissions.yaml`.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): typecheck, lint, test, build.
 - **Docker build smoke** (`.github/workflows/docker-build-smoke.yml`): builds Docker image on backend Dockerfile/requirements changes.
 - **Verification cadence & Windows CI** (`verification-cadence.yml`, `windows-ci.yml`): weekly scheduled cadence (`verification-cadence.yml`) and manual dispatch (`windows-ci.yml`).
@@ -504,7 +503,7 @@ Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`0.1.0` pins minimum Alembic revision `b1e2100000031`
+`0.1.0` pins minimum Alembic revision `b1e2100000032`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

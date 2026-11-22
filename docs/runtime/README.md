@@ -101,10 +101,8 @@ backend/app/modules/server/
 └── infrastructure/
     └── providers/                 # ServerProvider implementations
         ├── base.py                # Abstract provider, ProviderFactory
-        ├── local.py               # LocalLinuxProvider (tmux-based)
-        ├── local_windows.py       # LocalWindowsProvider (PowerShell jobs)
-        ├── docker.py              # DockerProvider
-        ├── remote.py              # SSHProvider
+        ├── docker.py              # DockerProvider (sole active local runtime, P6)
+        ├── remote.py              # SSHProvider (stub)
         ├── cloud.py               # CloudProvider (abstract + stub)
         └── circuit_breaker_wrapper.py
 ```

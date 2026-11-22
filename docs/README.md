@@ -12,8 +12,8 @@ Welcome to the ONX Manager documentation (`v0.1.0`). Every active guide, archite
 | [Deployment Guide](DEPLOYMENT.md) | Docker Compose deployment, DooD profile, environment variables, and DB migration floor. |
 | [Development Guide](DEVELOPMENT.md) | Local development workflow, preflight scripts, and troubleshooting. |
 | [Testing Guide](testing.md) | Backend (`pytest`) & frontend (`vitest`) suites and the 6 CI quality gates. |
-| [REST & WebSocket API](API.md) | API reference across 19 router files (211 live routes) and `/ws` WebSocket protocols. |
-| [Versioning Policy](VERSIONING.md) | SemVer 2.0.0 rules, single source of truth (`0.1.0`), and fail-closed DB compatibility floor (`b1e2100000031`). |
+| [REST & WebSocket API](API.md) | API reference across 19 router files (213 live routes) and `/ws` WebSocket protocols. |
+| [Versioning Policy](VERSIONING.md) | SemVer 2.0.0 rules, single source of truth (`0.1.0`), and fail-closed DB compatibility floor (`b1e2100000032`). |
 | [Roadmap](roadmap/ROADMAP.md) | Public post-launch roadmap placeholder. |
 
 ---
@@ -25,7 +25,7 @@ Welcome to the ONX Manager documentation (`v0.1.0`). Every active guide, archite
 | [Architecture Portal](architecture/README.md) | Index of architecture specifications. |
 | [System Architecture](architecture/ARCHITECTURE.md) | Modular monolith, 13 DDD bounded contexts, CQRS buses, and Simple/Advanced P1–P5.5 architecture. |
 | [Technical Specs](architecture/SPECS.md) | Tech stack, repository shape, code/test metrics, and complete feature inventory. |
-| [Database Architecture](architecture/DATABASE.md) | SQLite & PostgreSQL schema, 56 ORM tables, 51 Alembic migrations (`b1e2100000031`), and pre-backend reconciler. |
+| [Database Architecture](architecture/DATABASE.md) | SQLite & PostgreSQL schema, 56 ORM tables, 52 Alembic migrations (`b1e2100000032`), and pre-backend reconciler. |
 | [Security Architecture](architecture/SECURITY.md) | RS256 JWT auth, RBAC/ABAC route permissions, API keys, and path-traversal sandboxing. |
 | [Frontend Architecture](architecture/FRONTEND.md) | React 19, Tailwind CSS v4, TanStack Query, Zustand, and WebSocket cache bridge. |
 | [Server Provisioning](architecture/PROVISIONING.md) | Server creation engine, JAR validation, supported software types (incl. Quilt & modpacks). |
@@ -43,7 +43,7 @@ Welcome to the ONX Manager documentation (`v0.1.0`). Every active guide, archite
 |---|---|
 | [Runtime Overview](runtime/README.md) | Supervision, reconciliation, and ownership feedback loop. |
 | [Server Lifecycle State Machine](runtime/lifecycle.md) | Server status transitions and recovery workflows. |
-| [Server Providers](runtime/providers.md) | `LocalLinuxProvider` (tmux), `LocalWindowsProvider` (Win32), and `DockerProvider`. |
+| [Server Providers](runtime/providers.md) | Docker-only runtime provider (`DockerProvider` in P6) and remote/cloud provider stubs. |
 | [Runtime Reconciliation](runtime/reconciliation.md) | DB ↔ OS state reconciliation and orphan cleanup. |
 | [Filesystem Reconciliation](runtime/filesystem-reconciliation.md) | Disk-as-truth directory scanner and `.onx-manager/server.json` identity healing. |
 | [Ownership Verification](runtime/ownership.md) | Multi-factor process ownership checks and port claiming. |
@@ -57,7 +57,7 @@ Welcome to the ONX Manager documentation (`v0.1.0`). Every active guide, archite
 | Document | Purpose |
 |---|---|
 | [Reference Portal](reference/README.md) | Index of live subsystem registries. |
-| [System Module Map](reference/module-map.md) | Directory map of 13 DDD modules, 19 REST router files (211 routes), and 23 routed frontend pages. |
+| [System Module Map](reference/module-map.md) | Directory map of 13 DDD modules, 19 REST router files (213 routes), and 23 routed frontend pages. |
 | [Domain Event Catalog](reference/event-catalog.md) | 87 domain event classes across 9 bounded contexts. |
 | [Dependency Graph](reference/dependency-graph.md) | Layering rules and hexagonal boundary constraints. |
 | [Contract Registry](reference/contract-registry.md) | Route permission contracts (`contracts/permissions.yaml`) and JSON/YAML schemas. |

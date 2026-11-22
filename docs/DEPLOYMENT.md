@@ -155,7 +155,7 @@ in its container command and will not start against an incompatible schema
 ## Database migrations & compatibility floor
 
 **ONX Manager 0.1.0 requires DB compatibility with Alembic revision
-`b1e2100000031`.** The version-conditional floor is declared once in
+`b1e2100000032`.** The version-conditional floor is declared once in
 `backend/app/core/persistence/db_revision.py`
 (`RELEASE_MINIMUM_DB_REVISION`); it is **never auto-applied** and **never read
 from the DB URL config**.
@@ -170,7 +170,7 @@ alembic upgrade head
 
 # 2. Verify the database reached the required revision
 alembic current
-#   → should show b1e2100000031 (or a compatible descendant for later releases)
+#   → should show b1e2100000032 (or a compatible descendant for later releases)
 
 # 3. Start the application
 uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -181,7 +181,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
   performs **no** automatic migration.
 - **Startup fails closed.** On start the backend reads `alembic_version` from the
   live database and aborts if the revision is missing, unknown, **behind
-  `b1e2100000031`**, or on an incompatible branch. The error names the current
+  `b1e2100000032`**, or on an incompatible branch. The error names the current
   revision, the required minimum, and the fix (`alembic upgrade head`) — without
   exposing the database URL or credentials.
 - A fresh database migrated with `alembic upgrade head` starts normally; a

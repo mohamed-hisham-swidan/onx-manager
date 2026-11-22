@@ -13,7 +13,7 @@ Manage multiple servers, monitor live telemetry, browse plugins and modpacks, is
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-5322_backend_%7C_1302_frontend-brightgreen?style=flat-square)](docs/testing.md)
+[![Tests](https://img.shields.io/badge/Tests-5293_backend_%7C_137_frontend_suites-brightgreen?style=flat-square)](docs/testing.md)
 
 </div>
 
@@ -33,10 +33,10 @@ ONX Manager is a **self-hosted web dashboard** for running and engineering Minec
 - Create, import (directory scan or `.zip` upload), start, stop, restart, and delete servers from the dashboard
 - Supports **Vanilla, Paper (Fill v3), Spigot, Purpur, Fabric, Forge, NeoForge, and Quilt** — with automatic JAR/installer provisioning and deterministic Java floor resolution
 - **Modpack Install Wizard**: Inspect and install `.mrpack` (Modrinth) and CurseForge modpacks via a strict 19-host HTTPS download allow-list and shared **Loader Environment Cache (LEC)**
-- Multi-runtime execution: host processes (tmux on Linux, native Win32 on Windows) and hardened isolated Docker containers (`DockerProvider` with `--cap-drop=ALL`, non-root `--user`, bridge networking, and opt-in DooD support)
+- Isolated **Docker container** runtime (`DockerProvider` with `--cap-drop=ALL`, non-root `--user`, `--pids-limit=2048`, bridge networking, loopback RCON, and opt-in DooD support)
 
 ### 🌿 Simple/Advanced Modes & Git-Native Versioning
-- **Simple vs Advanced Mode**: Zero-friction server management in Simple Mode; declarative Git-backed branches, commits, tags, protected `main`, and 3-way structured config merge (`YAML`, `TOML`, `JSON`, `.properties`, `diff3`) in Advanced Mode (POSIX hosts)
+- **Simple vs Advanced Mode & Live Conversion**: Zero-friction server management in Simple Mode, or declarative Git-backed branches, commits, tags, protected `main`, and 3-way structured config merge (`YAML`, `TOML`, `JSON`, `.properties`, `diff3`) in Advanced Mode (POSIX hosts), with live Simple ↔ Advanced conversion endpoints
 - **Encrypted Vaults & Secret Scanner**: AES-256-GCM Class-C state snapshots (`format_version=2`) and `${ONX_SECRET_*}` secret vault with structured secret scanning
 - **Isolated Branch Runtimes & Bot Testing**: Spin up parallel branch test containers with atomic host port sets, ephemeral Class-C overlays, quiescent Data Templates, live RCON console, and FakePlayer/Mineflayer bot test drivers
 - **GitHub Sync & Webhooks**: Fetch-first remote sync, non-fast-forward `main` guards, deploy-key credential vault, and HMAC-verified webhook ingress
@@ -46,14 +46,14 @@ ONX Manager is a **self-hosted web dashboard** for running and engineering Minec
 - Full live console over WebSocket with interactive command input and sub-second CPU, RAM, TPS, and player count graphs
 - Browser File Manager with syntax-highlighted config editor, upload/download, and path-traversal sandboxing
 
-### 💾 Backups, Marketplace & Network Exposure
-- Scheduled and manual `tar.gz` backups with **AES-256-GCM encryption**, SHA-256 verification, S3/local storage backends, and pinned rollback protection
+### 💾 Two-Tier Backups, Marketplace & Network Exposure
+- Scheduled and manual two-tier backups (Tier-1 snapshots + Tier-2 archives with chunked **AES-256-GCM envelope encryption**), SHA-256 verification, S3/local storage backends, and pinned rollback protection
 - First-class **Modrinth Marketplace** with version compatibility matching, custom `.jar` upload, and on-disk reconciliation
 - Built-in **Playit.gg tunnels**, **Cloudflare Named Tunnels**, and **UPnP** port forwarding
 
 ### 🔐 Auth, RBAC & Operations
 - First-run Owner bootstrap wizard (`/setup`) with `LOCAL` and `GLOBAL` access modes and invitation links (`/invite/:token`)
-- RS256 JWT authentication, Argon2id password hashing, scoped `onx_` API keys, and RBAC/ABAC verified across **211 live routes**
+- RS256 JWT authentication, Argon2id password hashing, scoped `onx_` API keys, and RBAC/ABAC verified across **213 live routes**
 - Multi-step async `Operation` engine with idempotency keys, Prometheus `/metrics`, and configurable alerts
 
 ---
@@ -107,7 +107,7 @@ Open `http://localhost:5173` (local launcher) or `http://localhost:80` (Docker) 
 
 | | |
 |---|---|
-| **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2.0 async · Alembic (`51` revisions) · Pydantic v2 |
+| **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2.0 async · Alembic (`52` revisions) · Pydantic v2 |
 | **Frontend** | React 19 · TypeScript 5.5+ · Vite 5.4+ · TailwindCSS 4 · TanStack Query 5 · Zustand 5 |
 | **Database** | SQLite (default, zero config) or PostgreSQL 16 |
 | **Auth & Crypto** | JWT RS256 · Argon2id · RBAC/ABAC · AES-256-GCM vaults & backups |
@@ -142,8 +142,8 @@ Full documentation index: [`docs/README.md`](docs/README.md).
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker Compose, DooD & production env configuration |
 | [Architecture](docs/architecture/ARCHITECTURE.md) | System architecture, DDD modules & P1–P5.5 overview |
 | [Technical Specs](docs/architecture/SPECS.md) | Tech stack, repository metrics & feature inventory |
-| [Database Architecture](docs/architecture/DATABASE.md) | Schema (`56` tables), `51` Alembic migrations & reconciler |
-| [API Reference](docs/API.md) | REST endpoints (`19` router files, `211` routes) & WebSocket protocol |
+| [Database Architecture](docs/architecture/DATABASE.md) | Schema (`56` tables), `52` Alembic migrations & reconciler |
+| [API Reference](docs/API.md) | REST endpoints (`19` router files, `213` routes) & WebSocket protocol |
 | [Development Guide](docs/DEVELOPMENT.md) | Local development workflow & preflight reconciliation |
 | [Testing Guide](docs/testing.md) | Test suites & CI verification gates |
 | [Roadmap](docs/roadmap/ROADMAP.md) | Public post-launch roadmap |

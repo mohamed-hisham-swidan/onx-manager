@@ -9,7 +9,7 @@
 
 | Contract ID | Name | File Path | Scope & Purpose |
 |---|---|---|---|
-| **C-001** | `permissions.yaml` | `contracts/permissions.yaml` | Comprehensive RBAC/ABAC route contract mapping 211 live routes to roles & scopes across 19 router files. |
+| **C-001** | `permissions.yaml` | `contracts/permissions.yaml` | Comprehensive RBAC/ABAC route contract mapping 213 live routes to roles & scopes across 19 router files. |
 | **C-002** | `api.yaml` | `contracts/api.yaml` | OpenAPI contract specification outline for API v1. |
 | **C-003** | `events.yaml` | `contracts/events.yaml` | Domain event schema definitions and payload versioning. |
 | **C-004** | `plugin.yaml` | `contracts/plugin.yaml` | Plugin manifest contract and JSON-RPC subprocess bridge interface. |
@@ -19,10 +19,10 @@
 
 ## 2. Route Permission Contracts (`contracts/permissions.yaml`)
 
-The permissions registry enforces zero-trust route security across all **211 live API routes**:
+The permissions registry enforces zero-trust route security across all **213 live API routes**:
 - **Owner-only routes:** System bootstrap, global settings, user role elevation, panel exposure configuration, panel integration secrets, LEC cache management.
 - **Admin routes:** User management, global server creation, backup deletion.
 - **Server-scoped routes:** Server start/stop/restart, console access, file editing, plugin installation, versioning, branch runtimes, GitHub sync, modpacks & safe upgrades (governed by user server access lists).
 - **Public routes:** Login, register (with invite), setup status check, health probes, GitHub webhook ingress (HMAC-verified).
 
-Verified by CI gate: `./scripts/check-route-contract` (211/211 PASS).
+Verified by CI gate: `./scripts/check-route-contract` (213/213 PASS).

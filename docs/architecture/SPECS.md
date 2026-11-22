@@ -15,7 +15,7 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | `v0.1.0` Ready — Simple/Advanced Modes, Enterprise Branch Runtime, Native Git + AES-256-GCM Vaults, Isolated Branch Runtimes, GitHub Sync, Modpacks + LEC + 1-Click Safe Upgrades implemented (`SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` v8.7) — Public Roadmap: `docs/roadmap/ROADMAP.md` |
+| Status | `v0.1.0` Ready — P1–P7 Complete (`SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` v8.7: Simple/Advanced Modes, Docker-only Runtime, Two-Tier Envelope-Encrypted Backups, Mode Conversion, Enterprise Branch Runtime, Native Git + Vaults, Branch Runtimes, GitHub Sync, Modpacks + LEC + 1-Click Safe Upgrades) — Public Roadmap: `docs/roadmap/ROADMAP.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/API.md`, `docs/architecture/DATABASE.md` |
 
@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (51 revisions, head `b1e2100000031`, floor `b1e2100000031`) |
+| Migrations | Alembic `>=1.13` (52 revisions, head `b1e2100000032`, floor `b1e2100000032`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -84,41 +84,41 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 857 | **227,639** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 473 | 113,092 | `find backend/app -name '*.py'` |
-| — `backend/tests` (318 `test_*.py` files) | 332 | 110,227 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + 51 revisions) | 52 | 4,320 | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 314 | **74,222** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 232 | 59,544 | `find frontend/src -name '*.tsx'` |
-| — `.ts` | 81 | 13,843 | `find frontend/src -name '*.ts'` |
+| Backend Python (app + tests + alembic) | 872 | **229,177** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 480 | 114,356 | `find backend/app -name '*.py'` |
+| — `backend/tests` (325 `test_*.py` files) | 339 | 110,432 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + 52 revisions) | 53 | 4,389 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 318 | **75,264** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 234 | 60,379 | `find frontend/src -name '*.tsx'` |
+| — `.ts` | 83 | 14,050 | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | 835 | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **1,171** | **301,861** | — |
+| **TOTAL (backend + frontend source)** | **1,190** | **304,441** | — |
 | Docs | 64 `.md` files | 14,314 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 857 |
-| `.tsx` | 232 |
-| `.ts` | 81 |
+| `.py` | 872 |
+| `.tsx` | 234 |
+| `.ts` | 83 |
 | `.css` | 1 |
-| **Total** | **1,171** |
+| **Total** | **1,190** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
 | Module | Files | Lines | Purpose |
 |---|---|---|---|
 | versioning | 117 | 47,482 | Git-native versioning, lockfiles, CAS, LEC, vaults, merge engine, branch runtimes, GitHub sync, modpacks & safe upgrades |
-| server | 65 | 18,986 | Aggregate, Simple/Advanced mode, lifecycle leases, discovery, reconciliation, provisioners, console stream |
+| server | 64 | 17,656 | Aggregate, Simple/Advanced mode, lifecycle leases, discovery, reconciliation, provisioners, console stream |
 | exposure | 19 | 6,128 | Playit/UPnP/Cloudflare tunnel + port-forward |
 | plugin | 35 | 4,346 | Plugin lifecycle + Modrinth/CurseForge catalog |
+| backup | 24 | 3,960 | Two-tier backup/restore (`tier1_snapshot`, `tier2_archive` envelope encryption), saga + pinned rollback protection |
 | health | 29 | 3,033 | Health evidence, evaluation, crash analysis |
 | auth | 31 | 2,648 | Users, RBAC/ABAC, JWT, invites |
 | operations | 14 | 2,309 | Multi-step operation state machine, steps, WS projection, idempotency |
-| backup | 18 | 1,640 | Backup/restore saga + pinned rollback protection |
 | monitoring | 17 | 1,601 | Metrics, RCON, alert rules, unified container telemetry |
-| activity | 11 | 650 | Persistent server & branch activity logs + audit records |
+| activity | 11 | 662 | Persistent server & branch activity logs + audit records |
 | event_store | 6 | 633 | Append-only event store + DLQ |
 | storage | 5 | 549 | Storage backends (local/S3/encryption) |
 | shared | 3 | 282 | Shared value objects / exceptions |
@@ -127,9 +127,9 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **5,322 collected** across 318 `test_*.py` files | `pytest --collect-only -q` (`backend/tests/`); last recorded full sequential run was P2 close-out (`4,743 passed / 7 skipped` at `592de67`) |
-| Frontend | **1,302 passed across 135 test files** | `npx vitest run` (verified 2026-11-22, 0 failed) |
-| Total | **6,624 tests** (5,322 backend collected + 1,302 frontend passing) | 6/6 backend CI quality gates PASS (211/211 routes, Alembic `b1e2100000031`) |
+| Backend | **5,293 collected** across 325 `test_*.py` files | `pytest --collect-only -q` (`backend/tests/`, post-P6/P7 merge) |
+| Frontend | **137 test files** on disk | `npx vitest run` (1,302 passed across 135 files at P5.5; P6/P7 added 2 test files) |
+| CI Gates | **6/6 PASS** | `check-version-propagation`, `check-db-revision` (`b1e2100000032`), `check-ruff-baseline`, `check-route-contract` (`213/213`), `check-ps1-bom`, `check-stray-db` |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -142,7 +142,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 19 REST router files (211 live routes + WebSocket; 211/211 contract gate)
+│   │   ├── routers/          # 19 REST router files (213 live routes + WebSocket; 213/213 contract gate)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security, allowlist, host_state, container_hardening
 │   ├── modules/              # 13 DDD modules (server, versioning, activity, exposure,
@@ -152,7 +152,7 @@ backend/
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
 │   ├── services/             # orchestrators (server, backup, deployment)
 │   └── registration.py       # bus handler & middleware registration
-├── alembic/                  # 51 migration revisions (head b1e2100000031)
+├── alembic/                  # 52 migration revisions (head b1e2100000032)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
 │                             #   infrastructure/ integration/ monitoring/ plugin/ tasks/ unit/ versioning/
 ├── config/                   # YAML settings
@@ -216,7 +216,7 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
   close even on commit failure.
 - **ABAC/RBAC authorization**: permission strings (`plugin:manage`, `server.x.view`, …)
   evaluated by `PermissionEvaluator`; enforced via `require_permission` /
-  `require_server_permission` dependencies + route→permission contract check (211/211 live routes).
+  `require_server_permission` dependencies + route→permission contract check (213/213 live routes).
 - **WebSocket layer**: `/ws` endpoint, channel subscriptions, auth via token,
   metrics batching + domain-event dispatch, reconnect/backoff client.
 - **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
@@ -228,12 +228,10 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
 
 - Explicit state machine (`STARTING` → `RUNNING` → `STOPPING` → `STOPPED`, plus
   `CRASHED`/`FAILED`), Start/Stop/Restart/Delete commands, serialized across workers by `ServerLifecycleLeaseManager` (`server_lifecycle_leases`) + `ServerLifecycleLockMiddleware` and fail-closed `stop_confirmed` gating.
-- **Server Modes (`ServerMode`)**: `simple` vs `advanced`, enforced at router and command boundaries (`mode_guard.py`); `advanced_mode_enabled` defaults to POSIX-only (`os.name == "posix"`), with Windows kept Simple-only fail-closed (`P2-6g` Option B).
+- **Server Modes (`ServerMode`)**: `simple` vs `advanced`, enforced at router and command boundaries (`mode_guard.py`); `advanced_mode_enabled` defaults to POSIX-only (`os.name == "posix"`), with Windows kept Simple-only fail-closed (`P2-6g` Option B). Live Simple ↔ Advanced conversion endpoints shipped in P7-2 (`/convert/to-advanced`, `/convert/to-simple`).
 - **Loaders & Provisioners (`ServerType`)**: `vanilla`, `paper` (Fill v3), `purpur`, `fabric`, `forge` (`1.17.1`–`1.20.1` bounds & argfile launch), `neoforge`, `quilt` (`P5.5`), `spigot`, `bukkit`, plus deterministic Java floor resolution (`java_floor.py`).
-- Multi-runtime provider architecture (`ServerProvider` ABC) with shared `container_hardening.py` across all 4 Docker spawn paths (`--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`, non-root `--user`, `/data`-only bind mount):
-  - `LocalLinuxProvider`: isolated tmux sessions (`mcs-{server_id}`) with `MCS_MANAGED=1` markers.
-  - `LocalWindowsProvider`: Win32 detached process groups (`CREATE_NEW_PROCESS_GROUP`) with `taskkill /F /T` clean termination.
-  - `DockerProvider`: isolated containers with async subprocess driver, bridge networking, dynamic local container IP extraction (`get_container_ip()`, `get_address()`), loopback RCON, Java 8/17/21/25 dynamic image resolution, config-fingerprint adoption, container crash diagnostics collection, clean stop exit code mapping (`exited 0` / `137` / `143` w/ OOM awareness $\rightarrow$ `STOPPED` or `ERROR`), and broadened volume-filter container cleanup (`--filter volume={host_mount}`).
+- **Docker-only runtime provider architecture (P6)** (`ServerProvider` ABC) with shared `container_hardening.py` across all 4 Docker spawn paths (`--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`, non-root `--user`, `/data`-only bind mount):
+  - `DockerProvider` (sole active local runtime; local tmux/Win32 providers removed in `P6-2`, with local-to-Docker migration tooling in `P6-1`): isolated containers with async subprocess driver, bridge networking, dynamic local container IP extraction (`get_container_ip()`, `get_address()`), loopback RCON, Java 8/17/21/25 dynamic image resolution, config-fingerprint adoption, container crash diagnostics collection, clean stop exit code mapping (`exited 0` / `137` / `143` w/ OOM awareness $\rightarrow$ `STOPPED` or `ERROR`), and broadened volume-filter container cleanup (`--filter volume={host_mount}`). (`SSHProvider` / `CloudProvider` remain stubs.)
 - Authoritative server identity stamping (`identity_writer.py`): Atomically stamps `.onx-manager/server.json` upon creation and import.
 - Filesystem reconciliation engine (`FilesystemReconciliationService`): Synchronizes on-disk directories with DB, matches un-identified directories via normalized `root_path` with deterministic candidate scoring (+100 active, +50 running, +25 docker runtime, newest `updated_at` tiebreak), and performs in-place `ActionType.HEAL_IDENTITY`.
 - Server console: streaming via WS, TPS validation w/ clamping, crash analyzer, health evidence collection.
@@ -299,11 +297,9 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
   - **Loader Environment Cache (LEC)** (`lec_store.py`, `lec_builder.py`, `loader_env_cache_entries`) for Paper (Fill v3 pre-warm), Forge (`1.17.1`–`1.20.1` bounds & argfile launch), NeoForge, Fabric, and Quilt with reflink/copy attach and `java_floor.py`.
   - **Safe Upgrade Pipeline**: hash-only Modrinth compatibility matrix + transitive dependency BFS (`upgrade_matrix.py`), 3-way upgrade merge (`upgrade_merge.py`), pure-Python gzipped NBT `level.dat` DataVersion reader (`nbt_reader.py`), 4-step race-free `UpgradeHealthGateEvaluator` (stdout regex + TCP/RCON flush + NBT DataVersion + dimension smoke) with automatic triad rollback, `server_upgrades` tracking, `modpacks_upgrades.py` routes (`server_p55_router`, `lec_router`), and P5.5 frontend wizards (`ModpackInstallWizardModal`, `SafeUpgradeWizardModal`, `UpgradePinnedBanner`, `ServerP55SettingsCard`, `PanelP55IntegrationsSection`).
 
-### Backup & storage
+### Backup & storage (P7 Two-Tier Backups)
 
-- Backup restore/create/delete/verify commands, FULL/incremental suffix rules
-  (tolerates missing world dir), BackupSaga with compensation, AES-256-GCM
-  encryption, local + S3 (`aioboto3`) backends.
+- **Tier-1 Snapshots** (`tier1_snapshot.py`) & **Tier-2 Archives** (`tier2_archive.py`) with chunked AES-256-GCM envelope encryption (`envelope_crypto.py`, `ONX_MASTER_KEK`-wrapped DEKs), `two_tier_restore.py`, `backup_jobs.tier` & `backup_jobs.pinned` rollback protection, FULL/incremental suffix rules, BackupSaga with compensation, and local + S3 (`aioboto3`) backends.
 
 ### High-reliability / ops features
 
@@ -321,14 +317,14 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
 | Source files (backend + frontend) | **1,171** |
 | Python files / lines | 857 / 227,639 |
 | TS+TSX files / lines | 313 / 73,387 (+ 1 CSS file, 835 lines) |
-| REST endpoints / live routes | 211 live routes (19 router files + app routes; 211/211 contract gate) |
-| Alembic revisions | 51 (head `b1e2100000031`) |
+| REST endpoints / live routes | 213 live routes (19 router files + app routes; 213/213 contract gate) |
+| Alembic revisions | 52 (head `b1e2100000032`) |
 | DB tables | 56 ORM tables (`__tablename__`) |
 | CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
 | ADRs | 23 ADRs (`0001`–`0023`) |
-| Backend test files / collected | 318 `test_*.py` test files / 5,322 collected tests |
-| Frontend test files / tests | 135 test files / 1,302 passing tests |
+| Backend test files / collected | 325 `test_*.py` test files / 5,293 collected tests |
+| Frontend test files | 137 test files |
 | Docs | See `docs/README.md` for full documentation index |
 
 ---
