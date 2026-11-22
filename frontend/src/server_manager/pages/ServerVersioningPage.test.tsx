@@ -208,13 +208,10 @@ describe("ServerVersioningPage", () => {
   it("renders branches, preflight COW status, and commit timeline", async () => {
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/Instant storage cloning: available/i)).toBeInTheDocument();
+    expect(await screen.findByText("Versions & Isolated Testing")).toBeInTheDocument();
+    expect(await screen.findByText(/Instant storage cloning: available/i)).toBeInTheDocument();
     expect(screen.getByTitle(/copy-on-write \/ Btrfs \/ ZFS/i)).toBeInTheDocument();
-    expect(screen.getByText("Initial baseline configuration")).toBeInTheDocument();
+    expect(await screen.findByText("Initial baseline configuration")).toBeInTheDocument();
     expect(screen.getByText("c-111222")).toBeInTheDocument();
   });
 
@@ -243,16 +240,18 @@ describe("ServerVersioningPage", () => {
   it("clicking Rollback calls rollbackRefresh when can_rollback", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Rollback" }));
+    const rollbackBtn = await screen.findByRole("button", { name: "Rollback" });
+    await waitFor(() => expect(rollbackBtn).toBeEnabled());
+    await user.click(rollbackBtn);
     await waitFor(() => expect(mockApi.rollbackRefresh).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ journal_id: "j1", reason: "operator_requested" })));
   });
 
   it("clicking Confirm Upgrade calls confirmUpgrade", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Confirm Upgrade" }));
+    const confirmBtn = await screen.findByRole("button", { name: "Confirm Upgrade" });
+    await waitFor(() => expect(confirmBtn).toBeEnabled());
+    await user.click(confirmBtn);
     await waitFor(() => expect(mockApi.confirmUpgrade).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ journal_id: "j1" })));
   });
 
@@ -581,8 +580,8 @@ describe("ServerVersioningPage", () => {
   });
 
   const switchToTrialBranch = async () => {
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
-    fireEvent.change(screen.getByDisplayValue("main"), { target: { value: "feat-trial" } });
+    const branchSelect = await screen.findByDisplayValue("main");
+    fireEvent.change(branchSelect, { target: { value: "feat-trial" } });
     return screen.findByTestId("branch-run-panel");
   };
 
