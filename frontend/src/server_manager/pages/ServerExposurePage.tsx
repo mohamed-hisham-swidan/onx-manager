@@ -12,6 +12,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useQuery } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import type {
   ExposureMethodType,
   ServerExposureResponse,
@@ -21,6 +22,7 @@ import type {
 export function ServerExposurePage() {
   const { serverId } = useParams<{ serverId: string }>();
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const { isLocal, showFullControls, toggleShowFullVpsControls } = useDeploymentProfile();
 
   // 1. Fetch Current User Identity for RBAC (Spec §7, F-75-09)
   const { data: currentUser } = useQuery({
@@ -181,8 +183,31 @@ export function ServerExposurePage() {
         </div>
       </div>
 
-      {/* Visual Connection Topology Pipeline */}
-      <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
+      {/* Quick-Share Guidance in Local Mode vs Full Topology in VPS Mode */}
+      {isLocal && !showFullControls ? (
+        <div
+          data-testid="local-quick-share-banner"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border-default bg-surface-card p-4 shadow-2xs"
+        >
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+              <Icon name="globe" size={16} className="text-accent-primary" />
+              <span>Quick Share with Friends (Local Mode)</span>
+            </div>
+            <p className="text-xs text-text-secondary">
+              Use <strong>Playit.gg</strong> or a <strong>Cloudflare Tunnel</strong> below to share this server without router port forwarding.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={toggleShowFullVpsControls}
+            className="shrink-0 rounded-lg border border-border-default bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+          >
+            Show VPS / routing topology details
+          </button>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
         <div className="mb-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Icon name="activity" size={14} className="text-accent-primary" />
@@ -273,7 +298,8 @@ export function ServerExposurePage() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      )}
 
       {/* Aggregate Error Banner */}
       {aggregateStatus === "ERROR" && (
@@ -340,8 +366,8 @@ export function ServerExposurePage() {
         isReadOnly={isReadOnly}
       />
 
-      {/* 3. Instance Owner Global Exposure Actions (Owner-Only) */}
-      <GlobalExposureActionsCard />
+      {/* 3. Instance Owner Global Exposure Actions (Owner-Only, VPS or Expanded) */}
+      {showFullControls && <GlobalExposureActionsCard />}
 
       {/* Disable Exposure Confirmation Modal */}
       <Modal

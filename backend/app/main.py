@@ -2,6 +2,7 @@ import datetime
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.encoders import ENCODERS_BY_TYPE
@@ -14,6 +15,7 @@ from app.api.v1.middleware.audit import AuditMiddleware
 from app.api.v1.middleware.auth import AuthMiddleware
 from app.api.v1.middleware.rate_limit import RateLimitMiddleware
 from app.api.v1.middleware.request_id import RequestIDMiddleware
+from app.api.v1.middleware.spa_static import SpaStaticMiddleware
 from app.api.v1.routers import (
     activity,
     auth,
@@ -95,6 +97,9 @@ async def lifespan(_app: FastAPI):
     register_handlers(command_bus, query_bus, event_bus)
     init_buses(command_bus, query_bus, event_bus)
     init_storage(settings)
+    from app.modules.versioning.infrastructure.vault_crypto import ensure_master_kek_file
+
+    ensure_master_kek_file(settings)
     validate_plugin_providers(settings.plugin_providers)
     init_http_client()
     init_websocket(event_bus)
@@ -464,7 +469,7 @@ async def lifespan(_app: FastAPI):
     await close_http_client()
 
 
-def create_app() -> FastAPI:
+def create_app(static_dir: str | Path | None = None) -> FastAPI:
     app = FastAPI(
         title="ONX Manager",
         version=get_app_version(),
@@ -544,6 +549,7 @@ def create_app() -> FastAPI:
         return {
             "status": "ok",
             "version": get_app_version(),
+            "deployment_profile": ConfigFactory.global_settings().deployment_profile,
             "database": db_status,
             "uptime_seconds": time.time() - _start_time if _start_time else 0,
             "docker": docker_available,
@@ -564,6 +570,8 @@ def create_app() -> FastAPI:
                 content={"message": "Prometheus client not installed"},
                 status_code=501,
             )
+
+    app.add_middleware(SpaStaticMiddleware, static_dir=static_dir)
 
     return app
 

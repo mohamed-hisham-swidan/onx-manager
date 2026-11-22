@@ -133,6 +133,16 @@ function saveStorage(key: string, val: string) {
   }
 }
 
+const SHOW_FULL_VPS_CONTROLS_KEY = "onx_show_full_vps_controls";
+
+function loadShowFullVpsControls(): boolean {
+  try {
+    return localStorage.getItem(SHOW_FULL_VPS_CONTROLS_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export interface UIState {
   theme: Theme;
   skin: Skin;
@@ -141,6 +151,7 @@ export interface UIState {
   cornerStyle: CornerStyle;
   sidebarOpen: boolean;
   mobileSidebarOpen: boolean;
+  showFullVpsControls: boolean;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   setSkin: (skin: Skin) => void;
@@ -153,6 +164,8 @@ export interface UIState {
   toggleSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
   toggleMobileSidebar: () => void;
+  setShowFullVpsControls: (show: boolean) => void;
+  toggleShowFullVpsControls: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => {
@@ -161,6 +174,7 @@ export const useUIStore = create<UIState>((set) => {
   const initialDensity = loadDensity();
   const initialAccent = loadAccent();
   const initialCornerStyle = loadCornerStyle();
+  const initialShowFullVpsControls = loadShowFullVpsControls();
 
   applyTheme(initialTheme);
   applySkin(initialSkin);
@@ -176,6 +190,7 @@ export const useUIStore = create<UIState>((set) => {
     cornerStyle: initialCornerStyle,
     sidebarOpen: true,
     mobileSidebarOpen: false,
+    showFullVpsControls: initialShowFullVpsControls,
 
     setTheme: (theme) => {
       saveStorage(THEME_KEY, theme);
@@ -238,5 +253,17 @@ export const useUIStore = create<UIState>((set) => {
     setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
 
     toggleMobileSidebar: () => set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen })),
+
+    setShowFullVpsControls: (showFullVpsControls) => {
+      saveStorage(SHOW_FULL_VPS_CONTROLS_KEY, String(showFullVpsControls));
+      set({ showFullVpsControls });
+    },
+
+    toggleShowFullVpsControls: () =>
+      set((state) => {
+        const next = !state.showFullVpsControls;
+        saveStorage(SHOW_FULL_VPS_CONTROLS_KEY, String(next));
+        return { showFullVpsControls: next };
+      }),
   };
 });

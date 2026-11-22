@@ -4,12 +4,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/authStore";
 import { createApiClient } from "@/services/api";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 
 export function SetupPage() {
   const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
   const queryClient = useQueryClient();
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
+  const { isLocal } = useDeploymentProfile();
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -17,6 +19,7 @@ export function SetupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [accessMode, setAccessMode] = useState<"LOCAL" | "GLOBAL">("LOCAL");
+  const [showAccessOptions, setShowAccessOptions] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [alreadyInitialized, setAlreadyInitialized] = useState(false);
@@ -78,7 +81,9 @@ export function SetupPage() {
             <BrandLogo variant="full" size="md" />
           </div>
           <p className="text-sm text-text-muted mt-1">
-            First-time Instance Setup
+            {isLocal
+              ? "Local Desktop Setup — create your owner account to get started"
+              : "First-time Instance Setup"}
           </p>
         </div>
 
@@ -193,9 +198,25 @@ export function SetupPage() {
           </div>
 
           <div className="space-y-2 pt-2 border-t border-border-subtle">
-            <label className="block text-sm font-medium text-text-secondary">
-              Access Mode
-            </label>
+            {isLocal ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">
+                  Access Mode: <strong className="text-text-primary">{accessMode}</strong> (default for personal desktop)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAccessOptions((v) => !v)}
+                  className="text-xs font-medium text-text-accent hover:underline cursor-pointer"
+                >
+                  {showAccessOptions ? "Hide options" : "Network access options"}
+                </button>
+              </div>
+            ) : (
+              <label className="block text-sm font-medium text-text-secondary">
+                Access Mode
+              </label>
+            )}
+            {(!isLocal || showAccessOptions) && (
             <div className="grid grid-cols-1 gap-3">
               <label
                 className={`flex items-start p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -247,6 +268,7 @@ export function SetupPage() {
                 </div>
               </label>
             </div>
+            )}
           </div>
 
           <button

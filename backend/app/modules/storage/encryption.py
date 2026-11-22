@@ -53,6 +53,8 @@ def load_or_create_backup_key(
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(key)
+        if os.name == "posix":
+            os.chmod(tmp_path_str, 0o600)
         ensure_private_key_permissions(tmp_path_str, allow_insecure=allow_insecure)
         os.replace(tmp_path_str, key_path)
     except Exception:

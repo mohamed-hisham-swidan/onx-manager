@@ -43,39 +43,36 @@ def init_jwt_from_settings(settings: AppSettings) -> None:
     global _private_key, _public_key, _key_id
 
     pem_data: bytes | None = None
+    target_path = (
+        Path(settings.jwt_private_key_path)
+        if settings.jwt_private_key_path
+        else _DEFAULT_KEY_PATH
+    )
 
     if settings.jwt_private_key:
         pem_data = settings.jwt_private_key.encode()
         logger.info("Loading JWT private key from MCS_JWT_PRIVATE_KEY env var")
-    elif settings.jwt_private_key_path:
+    elif target_path.exists():
         ensure_private_key_permissions(
-            settings.jwt_private_key_path,
+            target_path,
             allow_insecure=settings.allow_insecure_keys,
         )
-        with open(settings.jwt_private_key_path, "rb") as f:
+        with open(target_path, "rb") as f:
             pem_data = f.read()
-        logger.info("Loading JWT private key from %s", settings.jwt_private_key_path)
-    elif _DEFAULT_KEY_PATH.exists():
-        ensure_private_key_permissions(
-            _DEFAULT_KEY_PATH,
-            allow_insecure=settings.allow_insecure_keys,
-        )
-        with open(_DEFAULT_KEY_PATH, "rb") as f:
-            pem_data = f.read()
-        logger.info("Loading JWT private key from %s", _DEFAULT_KEY_PATH)
+        logger.info("Loading JWT private key from %s", target_path)
 
     if pem_data is not None:
         _private_key = serialization.load_pem_private_key(pem_data, password=None)
         _public_key = _private_key.public_key()
     else:
         logger.info(
-            "No JWT private key configured (MCS_JWT_PRIVATE_KEY, MCS_JWT_PRIVATE_KEY_PATH, "
+            "No JWT private key configured (ONX_JWT_PRIVATE_KEY, ONX_JWT_PRIVATE_KEY_PATH, "
             "or %s). Generating and persisting a static key.",
-            _DEFAULT_KEY_PATH,
+            target_path,
         )
         _private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         _public_key = _private_key.public_key()
-        _DEFAULT_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         pem = _private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,
@@ -84,21 +81,23 @@ def init_jwt_from_settings(settings: AppSettings) -> None:
         fd, tmp_path_str = tempfile.mkstemp(
             prefix="jwt_key_",
             suffix=".tmp",
-            dir=_DEFAULT_KEY_PATH.parent,
+            dir=target_path.parent,
         )
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(pem)
+            if os.name == "posix":
+                os.chmod(tmp_path_str, 0o600)
             ensure_private_key_permissions(
                 tmp_path_str,
                 allow_insecure=settings.allow_insecure_keys,
             )
-            os.replace(tmp_path_str, _DEFAULT_KEY_PATH)
+            os.replace(tmp_path_str, target_path)
         except Exception:
             if os.path.exists(tmp_path_str):
                 os.unlink(tmp_path_str)
             raise
-        logger.info("Persisted generated JWT private key to %s", _DEFAULT_KEY_PATH)
+        logger.info("Persisted generated JWT private key to %s", target_path)
 
     _key_id = _compute_key_id(_public_key)
     logger.info("JWT key ID: %s", _key_id)

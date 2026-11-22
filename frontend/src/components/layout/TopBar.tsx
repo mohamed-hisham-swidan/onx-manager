@@ -8,6 +8,7 @@ import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { ConnectionState } from "@/websocket/types";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import {
   SKIN_PRESETS,
   ACCENT_PRESETS,
@@ -49,6 +50,13 @@ export function TopBar() {
 
   const connectionState = useEffectiveConnectionState();
   const navigate = useNavigate();
+  const {
+    profile,
+    hasExplicitProfile,
+    isLocal,
+    showFullVpsControls,
+    toggleShowFullVpsControls,
+  } = useDeploymentProfile();
 
   const [showWsDiagnostics, setShowWsDiagnostics] = useState(false);
   const [showThemeStudio, setShowThemeStudio] = useState(false);
@@ -109,6 +117,15 @@ export function TopBar() {
           </button>
         )}
         <BrandLogo variant="full" size="sm" />
+        {hasExplicitProfile && (
+          <span
+            data-testid="deployment-profile-badge"
+            className="hidden sm:inline-flex items-center rounded-md border border-border-subtle bg-surface-muted/60 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-text-secondary"
+            title={`Panel Deployment Profile: ${profile.toUpperCase()}`}
+          >
+            {profile === "local" ? "Local" : "VPS"}
+          </span>
+        )}
       </div>
 
       {isAuthenticated && (
@@ -181,6 +198,22 @@ export function TopBar() {
                     <span>Density:</span>
                     <span className="font-medium text-text-primary capitalize">{density}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span>Profile:</span>
+                    <span className="font-medium text-text-primary uppercase">{profile}</span>
+                  </div>
+                  {isLocal && (
+                    <div className="pt-2 border-t border-border-subtle flex items-center justify-between gap-2">
+                      <span className="text-text-secondary">Full VPS Controls:</span>
+                      <button
+                        type="button"
+                        onClick={toggleShowFullVpsControls}
+                        className="rounded-md border border-border-default bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
+                      >
+                        {showFullVpsControls ? "Enabled" : "Collapsed"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

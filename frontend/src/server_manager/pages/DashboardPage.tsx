@@ -10,9 +10,11 @@ import {
   getHostTelemetry,
   getInitialDaemonLogs,
 } from "@/server_manager/utils/telemetryAdapter";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 
 export function DashboardPage() {
   const { data: servers, isLoading, error } = useServersList();
+  const { isLocal, showFullControls } = useDeploymentProfile();
 
   const serverList = useMemo(() => servers ?? [], [servers]);
 
@@ -62,7 +64,9 @@ export function DashboardPage() {
               Command Center
             </h1>
             <p className="hidden sm:inline text-xs font-normal text-text-muted">
-              Real-time node telemetry &amp; server orchestration
+              {isLocal && !showFullControls
+                ? "Local Minecraft servers & quick sharing"
+                : "Real-time node telemetry & server orchestration"}
             </p>
           </div>
         </div>

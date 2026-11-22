@@ -11,6 +11,7 @@ import { AccessSection } from "@/server_manager/components/AccessSection";
 import { AppearanceSettingsSection } from "@/server_manager/components/AppearanceSettingsSection";
 import { ApiKeysPage } from "@/server_manager/pages/ApiKeysPage";
 import { PanelP55IntegrationsSection } from "@/server_manager/components/p55/PanelP55IntegrationsSection";
+import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 
 interface FormState {
   app_name: string;
@@ -40,14 +41,15 @@ interface TabDefinition {
   label: string;
   icon: IconName;
   description: string;
+  vpsOnly?: boolean;
 }
 
 const TABS: TabDefinition[] = [
   { id: "system", label: "System Settings", icon: "settings", description: "Core engine, security, and sagas" },
   { id: "appearance", label: "Appearance & Themes", icon: "sun", description: "Skins, density, and colors" },
-  { id: "invitations", label: "Invitations", icon: "users", description: "Invite tokens and access onboarding" },
-  { id: "access", label: "Access Control", icon: "lock", description: "LAN vs global exposure posture" },
-  { id: "api-keys", label: "API Keys", icon: "hard-drive", description: "Programmatic tokens and CI/CD auth" },
+  { id: "invitations", label: "Invitations", icon: "users", description: "Invite tokens and access onboarding", vpsOnly: true },
+  { id: "access", label: "Access Control", icon: "lock", description: "LAN vs global exposure posture", vpsOnly: true },
+  { id: "api-keys", label: "API Keys", icon: "hard-drive", description: "Programmatic tokens and CI/CD auth", vpsOnly: true },
   {
     id: "integrations",
     label: "Modpacks & Cache (LEC)",
@@ -239,6 +241,12 @@ export function SettingsPage() {
   };
 
   const { data: settings, isLoading, error } = useSettings();
+  const { isLocal, showFullControls, showFullVpsControls, toggleShowFullVpsControls } =
+    useDeploymentProfile();
+  const visibleTabs = useMemo(
+    () => (showFullControls ? TABS : TABS.filter((tab) => !tab.vpsOnly || tab.id === activeTab)),
+    [showFullControls, activeTab]
+  );
 
   if (isLoading) {
     return (
@@ -272,29 +280,44 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       {/* Top-Level Modern Icon-Enhanced Tab Navigation */}
-      <div className="flex flex-wrap items-center gap-1 border-b border-border-default pb-px">
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => handleTabChange(tab.id)}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer rounded-t-lg ${
-                isActive
-                  ? "border-accent-primary text-accent-primary bg-surface-card"
-                  : "border-transparent text-text-muted hover:text-text-primary hover:bg-surface-hover"
-              }`}
-            >
-              <Icon
-                name={tab.icon}
-                size={16}
-                className={isActive ? "text-accent-primary" : "text-text-muted"}
-              />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default pb-px">
+        <div className="flex flex-wrap items-center gap-1">
+          {visibleTabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabChange(tab.id)}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer rounded-t-lg ${
+                  isActive
+                    ? "border-accent-primary text-accent-primary bg-surface-card"
+                    : "border-transparent text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                }`}
+              >
+                <Icon
+                  name={tab.icon}
+                  size={16}
+                  className={isActive ? "text-accent-primary" : "text-text-muted"}
+                />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        {isLocal && (
+          <button
+            type="button"
+            aria-pressed={showFullVpsControls}
+            onClick={toggleShowFullVpsControls}
+            className="mb-1 inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+          >
+            <Icon name="lock" size={13} />
+            <span>
+              {showFullVpsControls ? "Hide VPS settings" : "Show VPS & multi-user settings"}
+            </span>
+          </button>
+        )}
       </div>
 
       {activeTab === "system" ? (
@@ -316,6 +339,8 @@ export function SettingsPage() {
 
 function SettingsForm({ settings }: { settings: SettingsResponse }) {
   const updateSettings = useUpdateSettings();
+  const { isLocal, showFullControls, toggleShowFullVpsControls } = useDeploymentProfile();
+  const [showInfraInLocal, setShowInfraInLocal] = useState(false);
 
   const [formData, setFormData] = useState<FormState>({
     app_name: settings.app_name ?? "onx-manager",
@@ -518,6 +543,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
   const isSectionVisible = (sectionNumber: number) => {
     if (searchQuery.trim()) {
       return Boolean(sectionMatches[sectionNumber]);
+    }
+    if (isLocal && !showFullControls && !showInfraInLocal && [2, 3, 4].includes(sectionNumber)) {
+      return false;
     }
     const cat = CATEGORIES.find((c) => c.id === activeCategory);
     if (!cat) return true;
@@ -825,6 +853,32 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       )}
 
       {/* Section 2: Rate Limiting & Security (Split-Row Card) */}
+      {isLocal && !showFullControls && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-subtle bg-surface-card px-4 py-3 text-xs">
+          <span className="text-text-secondary">
+            Running in <strong>Local Mode</strong> — VPS rate-limiting, circuit-breaker, and saga tuning sections are collapsed.
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowInfraInLocal((v) => !v)}
+              className="rounded-lg border border-border-default bg-surface-elevated px-3 py-1.5 font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
+            >
+              {showInfraInLocal
+                ? "Hide infrastructure tuning"
+                : "Show advanced infrastructure settings"}
+            </button>
+            <button
+              type="button"
+              onClick={toggleShowFullVpsControls}
+              className="rounded-lg border border-border-subtle px-2.5 py-1.5 font-medium text-text-muted hover:text-text-primary cursor-pointer"
+            >
+              Enable Full VPS Controls
+            </button>
+          </div>
+        </div>
+      )}
+
       {isSectionVisible(2) && (
         <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
           <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">

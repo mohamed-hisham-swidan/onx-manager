@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     EnvSettingsSource,
@@ -69,9 +69,18 @@ class AppSettings(BaseSettings):
     server_startup_timeout_seconds: int = 120
     test_boot_timeout_seconds: int = 120
     advanced_mode_enabled: bool = Field(default_factory=lambda: os.name == "posix")
+    deployment_profile: Literal["local", "vps"] = "vps"
+    static_dir: str = ""
     allow_legacy_run_sh: bool = False
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
+
+    @field_validator("deployment_profile", mode="before")
+    @classmethod
+    def _normalize_deployment_profile(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
     @classmethod
     def settings_customise_sources(

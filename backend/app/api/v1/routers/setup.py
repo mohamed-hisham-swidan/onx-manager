@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
@@ -24,6 +26,7 @@ class SystemStatusResponse(BaseModel):
     user_count: int
     version: str = get_app_version()
     advanced_mode_enabled: bool = False
+    deployment_profile: Literal["local", "vps"] = "vps"
 
 
 class BootstrapRequest(BaseModel):
@@ -52,7 +55,9 @@ async def get_setup_status(
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
 ) -> SystemStatusResponse:
     data = dict(await query_bus.ask(GetSystemStatusQuery()))
-    data["advanced_mode_enabled"] = ConfigFactory.global_settings().advanced_mode_enabled
+    live_settings = ConfigFactory.global_settings()
+    data["advanced_mode_enabled"] = live_settings.advanced_mode_enabled
+    data["deployment_profile"] = live_settings.deployment_profile
     return SystemStatusResponse(**data)
 
 
@@ -87,5 +92,7 @@ async def update_access_mode(
         )
     )
     data = dict(check_command_result(result))
-    data["advanced_mode_enabled"] = ConfigFactory.global_settings().advanced_mode_enabled
+    live_settings = ConfigFactory.global_settings()
+    data["advanced_mode_enabled"] = live_settings.advanced_mode_enabled
+    data["deployment_profile"] = live_settings.deployment_profile
     return SystemStatusResponse(**data)

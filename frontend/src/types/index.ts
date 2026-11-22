@@ -285,12 +285,15 @@ export interface SettingsUpdateResponse {
   settings: SettingsResponse;
 }
 
+export type DeploymentProfile = "local" | "vps";
+
 export interface SystemStatusResponse {
   initialized: boolean;
   access_mode: "LOCAL" | "GLOBAL";
   user_count: number;
   version: string;
   advanced_mode_enabled?: boolean;
+  deployment_profile?: DeploymentProfile;
 }
 
 export interface BootstrapRequest {

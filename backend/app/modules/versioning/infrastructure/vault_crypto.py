@@ -53,7 +53,9 @@ import contextlib
 import logging
 import os
 import re
+import secrets
 import stat
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -231,4 +233,56 @@ def load_master_kek(settings: AppSettings | None = None) -> MasterKek:
     )
 
 
-__all__ = ["KEK_BYTES", "MasterKek", "load_master_kek"]
+def ensure_master_kek_file(
+    settings: AppSettings | None = None,
+    default_path: Path | None = None,
+) -> Path | None:
+    """Ensure a 0600 master KEK file exists on POSIX if no env KEK is set.
+
+    Unlike :func:`load_master_kek`, which intentionally fails closed in unit tests
+    and direct vault calls when unconfigured, this startup helper generates a
+    256-bit hex key file once on first boot so fresh POSIX installs never crash
+    before Advanced mode or panel integration secrets are used.
+    """
+    if os.name != "posix":
+        return None
+
+    settings_obj = settings if settings is not None else AppSettings()
+    kek_file = (
+        os.environ.get("ONX_MASTER_KEK_FILE") or settings_obj.master_kek_file
+    ).strip()
+    kek_env = (os.environ.get("ONX_MASTER_KEK") or settings_obj.master_kek).strip()
+
+    if kek_env and not kek_file:
+        return None
+
+    target = Path(kek_file) if kek_file else (default_path or Path("config/master_kek.key"))
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        material = f"{secrets.token_hex(KEK_BYTES)}\n".encode("ascii")
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="master_kek_",
+            suffix=".tmp",
+            dir=target.parent,
+        )
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(material)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, target)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+        logger.info("Auto-generated 256-bit master KEK file at %s (mode 0600)", target)
+
+    # Validate file type, non-symlink status, strict 0600 mode, and key format
+    _parse_file_bytes(_read_kek_file(target))
+    if not os.environ.get("ONX_MASTER_KEK_FILE"):
+        os.environ["ONX_MASTER_KEK_FILE"] = str(target.resolve())
+    return target
+
+
+__all__ = ["KEK_BYTES", "MasterKek", "ensure_master_kek_file", "load_master_kek"]
