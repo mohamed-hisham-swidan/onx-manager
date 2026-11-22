@@ -25,13 +25,14 @@ COPY --chown=app:app . .
 ENV PYTHONPATH=/deps:/app \
     PATH=/deps/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin \
     PYTHONUNBUFFERED=1 \
-    MCS_PANEL_BIND_HOST=0.0.0.0 \
-    MCS_PANEL_BIND_PORT=8000 \
-    MCS_DATABASE_URL=sqlite+aiosqlite:////app/data/onx.db
+    ONX_DEPLOYMENT_PROFILE=vps \
+    ONX_PANEL_BIND_HOST=0.0.0.0 \
+    ONX_PANEL_BIND_PORT=8000 \
+    ONX_DATABASE_URL=sqlite+aiosqlite:////app/data/onx.db
 
 # Create data dirs with correct ownership before switching to non-root
 USER root
-RUN mkdir -p /app/data/servers /app/data/backups /app/config && \
+RUN mkdir -p /app/data/servers /app/data/backups /app/data/host-state /app/config && \
     chown -R app:app /app/data /app/config
 USER app
 

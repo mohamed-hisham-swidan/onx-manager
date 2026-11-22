@@ -7,22 +7,24 @@ services:
     container_name: onx-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${ONX_API_PORT:-8000}:8000"
     env_file:
       - path: .env
         required: false
     environment:
+      # Panel Deployment Profile ('vps' for full server panel, 'local' for streamlined personal UI)
+      ONX_DEPLOYMENT_PROFILE: "${ONX_DEPLOYMENT_PROFILE:-vps}"
       # Bind to all interfaces inside the container so nginx can reach it
-      MCS_PANEL_BIND_HOST: "0.0.0.0"
-      MCS_PANEL_BIND_PORT: "8000"
+      ONX_PANEL_BIND_HOST: "0.0.0.0"
+      ONX_PANEL_BIND_PORT: "8000"
       # SQLite database inside the named volume
-      MCS_DATABASE_URL: "sqlite+aiosqlite:////app/data/onx.db"
+      ONX_DATABASE_URL: "sqlite+aiosqlite:////app/data/onx.db"
     volumes:
       - onx-db-data:/app/data
       - onx-server-data:/app/data/servers
-      # JWT signing key, backup encryption key and settings.yaml live here;
+      # JWT signing key, backup encryption key, master KEK and settings.yaml live here;
       # without a volume they are regenerated on container recreate (which
-      # makes existing backups undecryptable).
+      # makes existing encrypted backups/snapshots undecryptable).
       - onx-config:/app/config
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"]
@@ -38,7 +40,7 @@ services:
     container_name: onx-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "${ONX_PANEL_PORT:-80}:80"
     depends_on:
       backend:
         condition: service_healthy
