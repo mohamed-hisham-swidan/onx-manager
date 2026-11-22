@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +151,21 @@ def _sandbox_servers_data_dir(tmp_path: os.PathLike) -> None:
         os.environ["MCS_SERVERS_DATA_DIR"] = old_val
     else:
         os.environ.pop("MCS_SERVERS_DATA_DIR", None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_live_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Isolate settings_store to a per-test temporary YAML so tests never mutate host config."""
+    from app.core import settings_store
+
+    test_yaml = tmp_path / "settings.yaml"
+    monkeypatch.setattr(settings_store, "_SETTINGS_FILE", test_yaml)
+    monkeypatch.setattr(settings_store, "_live", None)
+    settings_store.init_settings_store(test_yaml)
+    yield
+    monkeypatch.setattr(settings_store, "_live", None)
 
 
 @pytest.fixture

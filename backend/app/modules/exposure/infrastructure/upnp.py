@@ -38,8 +38,13 @@ class UPnPResult:
 class AsyncUPnPService:
     """Async UPnP service for IGD port discovery and mapping."""
 
-    def __init__(self, timeout: int = DEFAULT_SSDP_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        timeout: int = DEFAULT_SSDP_TIMEOUT_SECONDS,
+        rpc_timeout: float | None = None,
+    ) -> None:
         self._timeout = timeout
+        self._rpc_timeout = rpc_timeout if rpc_timeout is not None else max(5.0, float(timeout * 2))
 
     @staticmethod
     def is_private_or_cgnat(ip_str: str) -> bool:
@@ -107,11 +112,23 @@ class AsyncUPnPService:
                 fix_hint="Enable UPnP in your router settings or use Cloudflare Tunnel/playit.gg.",
             )
 
+        rpc_timeout = self._rpc_timeout
+
         # 3. Read External IP
         try:
-            external_ip = await upnp.get_external_ip()
+            external_ip = await asyncio.wait_for(
+                upnp.get_external_ip(), timeout=rpc_timeout
+            )
             if not external_ip:
                 raise ValueError("Empty external IP returned by router")
+        except TimeoutError:
+            logger.warning("UPnP get_external_ip timed out after %.1fs", rpc_timeout)
+            return UPnPResult(
+                success=False,
+                error_code="UPNP_TIMEOUT",
+                error_message="Timed out waiting for router external WAN IP response.",
+                fix_hint="Check router UPnP responsiveness or use Cloudflare Tunnel/playit.gg.",
+            )
         except Exception as exc:
             logger.warning("Failed to retrieve external IP via UPnP: %s", exc)
             return UPnPResult(
@@ -150,12 +167,15 @@ class AsyncUPnPService:
                 continue
 
             try:
-                await upnp.add_port_mapping(
-                    external_port=target_port,
-                    protocol=protocol,
-                    internal_port=internal_port,
-                    lan_address=lan_address,
-                    description=description,
+                await asyncio.wait_for(
+                    upnp.add_port_mapping(
+                        external_port=target_port,
+                        protocol=protocol,
+                        internal_port=internal_port,
+                        lan_address=lan_address,
+                        description=description,
+                    ),
+                    timeout=rpc_timeout,
                 )
                 if attempt > 0:
                     auto_fixed = True
@@ -211,7 +231,11 @@ class AsyncUPnPService:
         if upnp is None:
             return False
         try:
-            await upnp.delete_port_mapping(external_port=external_port, protocol=protocol)
+            rpc_timeout = self._rpc_timeout
+            await asyncio.wait_for(
+                upnp.delete_port_mapping(external_port=external_port, protocol=protocol),
+                timeout=rpc_timeout,
+            )
             logger.info("UPnP deleted mapping for port %d (%s)", external_port, protocol)
             return True
         except Exception as exc:

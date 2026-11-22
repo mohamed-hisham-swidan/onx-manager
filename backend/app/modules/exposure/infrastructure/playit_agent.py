@@ -100,25 +100,32 @@ def _get_playit_cli_cmd() -> list[str]:
     return ["playit"]
 
 
-async def generate_playit_claim_code() -> tuple[str, str]:
+async def generate_playit_claim_code(*, timeout: float = 10.0) -> tuple[str, str]:
     """Generate a real 10-character hex claim code and claim URL via `playit claim generate`.
 
     Falls back to a 10-hex token (secrets.token_hex(5)) if playit binary is unavailable
-    (e.g., in lightweight CI / unit test environments).
+    or times out (e.g., in lightweight CI / unit test environments).
     """
+    proc: asyncio.subprocess.Process | None = None
     try:
+        cmd = [*_get_playit_cli_cmd(), "claim", "generate"]
         proc = await asyncio.create_subprocess_exec(
-            "playit",
-            "claim",
-            "generate",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await proc.communicate()
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         if proc.returncode == 0 and stdout:
             code = stdout.decode("utf-8").strip()
             if code and len(code) <= 64:
                 return code, f"https://playit.gg/claim/{code}"
+    except TimeoutError:
+        logger.warning("playit claim generate timed out after %.1fs", timeout)
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
     except (FileNotFoundError, OSError) as exc:
         logger.warning("playit binary not available during claim generate: %s", exc)
     except Exception as exc:

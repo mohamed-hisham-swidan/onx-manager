@@ -336,3 +336,23 @@ class TestPlayitSupervisor:
                 assert supervisor.status == ExposureStatus.RECLAIM_REQUIRED
         finally:
             await supervisor.stop()
+
+
+class TestUPnPTimeouts:
+    async def test_upnp_get_external_ip_timeout_returns_structured_error(self) -> None:
+        from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
+
+        fake_igd = MagicMock()
+
+        async def _hang_ip() -> str:
+            await asyncio.sleep(5.0)
+            return "1.2.3.4"
+
+        fake_igd.get_external_ip = _hang_ip
+        svc = AsyncUPnPService(timeout=1, rpc_timeout=0.05)
+
+        with patch.object(svc, "_discover_igd", AsyncMock(return_value=fake_igd)):
+            result = await svc.attempt_mapping(internal_port=25565, requested_external_port=25565)
+
+        assert result.success is False
+        assert result.error_code == "UPNP_TIMEOUT"

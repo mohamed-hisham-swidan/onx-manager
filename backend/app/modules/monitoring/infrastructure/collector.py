@@ -143,7 +143,7 @@ def parse_docker_stats_output(output: str) -> dict[str, ContainerStats]:
     return result
 
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
+_BACKEND_DIR = Path(__file__).resolve().parents[4]
 
 
 def _resolve_properties_path(properties_path: str) -> Path:
@@ -156,6 +156,50 @@ def _resolve_properties_path(properties_path: str) -> Path:
     if backend_relative.exists():
         return backend_relative
     return p.resolve()
+
+
+def _resolve_server_properties_path(
+    server_id: str,
+    properties_path: str | None,
+    server_name: str | None = None,
+) -> str | None:
+    """Resolve ``server.properties`` with fallback for stale/nested ``root_path``."""
+    if properties_path:
+        candidate = _resolve_properties_path(properties_path)
+        if candidate.is_file():
+            return str(candidate)
+
+    try:
+        from app.core.config import AppSettings
+        from app.modules.server.application.services.jar_service import server_dir_name
+
+        raw_data_dir = Path(AppSettings().servers_data_dir)
+        search_roots = (
+            [raw_data_dir]
+            if raw_data_dir.is_absolute()
+            else [Path.cwd() / raw_data_dir, _BACKEND_DIR / raw_data_dir]
+        )
+        suffix = f"-{server_id[:8]}"
+        for base_dir in search_roots:
+            if not base_dir.is_dir():
+                continue
+            direct = base_dir / server_id / "server.properties"
+            if direct.is_file():
+                return str(direct)
+            if server_name:
+                named = base_dir / server_dir_name(server_name, server_id) / "server.properties"
+                if named.is_file():
+                    return str(named)
+            with contextlib.suppress(OSError):
+                for entry in sorted(base_dir.iterdir()):
+                    if entry.is_dir() and entry.name.endswith(suffix):
+                        prop_file = entry / "server.properties"
+                        if prop_file.is_file():
+                            return str(prop_file)
+    except Exception:
+        logger.debug("Fallback server.properties lookup failed for %s", server_id, exc_info=True)
+
+    return properties_path
 
 
 def _read_server_properties(properties_path: str) -> dict[str, str]:
@@ -415,20 +459,37 @@ class MetricsCollector:
             container_name = None
             pid = None
             rcon_host = "127.0.0.1"
-            props_path = None
+            raw_props_path: str | None = None
+            server_name: str | None = None
             try:
                 async with database.session_factory() as session:
                     server_repo = SQLServerRepository(session)
                     server = await server_repo.get(ServerId(server_id))
                     if server is not None:
+                        if isinstance(getattr(server, "name", None), str) and server.name:
+                            server_name = server.name
                         if server.runtime is not None:
                             pid = server.runtime.pid
                             container_name = server.runtime.external_id
-                            rcon_host = server.runtime.host or "127.0.0.1"
+                            raw_host = (
+                                server.runtime.host
+                                if isinstance(getattr(server.runtime, "host", None), str)
+                                else ""
+                            )
+                            cleaned_host = raw_host.strip()
+                            rcon_host = (
+                                "127.0.0.1"
+                                if cleaned_host in ("", "0.0.0.0", "::", "*")
+                                else cleaned_host
+                            )
                         if server.deployment and server.deployment.root_path:
-                            props_path = server.deployment.properties_path()
+                            raw_props_path = server.deployment.properties_path()
             except Exception:
                 logger.debug("Server lookup failed for %s, using defaults", server_id)
+
+            props_path = _resolve_server_properties_path(
+                server_id, raw_props_path, server_name=server_name
+            )
 
             # Check docker stats first for CPU/RAM/Net/Block
             cstats = None

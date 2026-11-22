@@ -408,3 +408,25 @@ class TestPlayitProcessLifecycle:
         ):
             await supervisor._terminate_pid_direct(9999)
             mock_to_thread.assert_awaited_once()
+
+    async def test_generate_playit_claim_code_timeout_kills_subprocess(self) -> None:
+        from app.modules.exposure.infrastructure.playit_agent import generate_playit_claim_code
+
+        proc = MagicMock(spec=asyncio.subprocess.Process)
+        proc.returncode = None
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock(return_value=-9)
+
+        async def _hang() -> tuple[bytes, bytes]:
+            await asyncio.sleep(5.0)
+            return b"", b""
+
+        proc.communicate = AsyncMock(side_effect=_hang)
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            code, url = await generate_playit_claim_code(timeout=0.05)
+
+        proc.kill.assert_called_once()
+        proc.wait.assert_awaited_once()
+        assert len(code) == 10
+        assert url == f"https://playit.gg/claim/{code}"

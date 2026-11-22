@@ -417,3 +417,80 @@ async def test_run_metrics_collection_task_cancellation_releases_lock() -> None:
     assert "skipped" not in second_result
     mod._collector = None
 
+
+def test_backend_dir_resolves_to_backend_root() -> None:
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    assert mod._BACKEND_DIR.name == "backend"
+    assert (mod._BACKEND_DIR / "app").is_dir()
+
+
+def test_resolve_server_properties_path_falls_back_on_stale_root_path(tmp_path) -> None:
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    servers_dir = tmp_path / "servers"
+    sid = "deadbeef111122223333444455556666"
+    named_dir = servers_dir / f"my-smp-{sid[:8]}"
+    named_dir.mkdir(parents=True)
+    real_props = named_dir / "server.properties"
+    real_props.write_text("enable-rcon=true\nrcon.password=topsecret\n", encoding="utf-8")
+
+    mock_settings = MagicMock(servers_data_dir=str(servers_dir))
+    with patch("app.core.config.AppSettings", return_value=mock_settings):
+        resolved = mod._resolve_server_properties_path(
+            sid,
+            "/stale/data/servers/server/server.properties",
+            server_name="My SMP",
+        )
+
+    assert resolved == str(real_props)
+
+
+@pytest.mark.asyncio
+async def test_collect_normalizes_wildcard_rcon_host(tmp_path) -> None:
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    props_file = tmp_path / "server.properties"
+    props_file.write_text(
+        "enable-rcon=true\nrcon.port=25575\nrcon.password=secret\n", encoding="utf-8"
+    )
+
+    fake_server = MagicMock()
+    fake_server.name = "SMP"
+    fake_server.runtime.pid = None
+    fake_server.runtime.external_id = None
+    fake_server.runtime.host = "0.0.0.0"
+    fake_server.deployment.root_path = str(tmp_path)
+    fake_server.deployment.properties_path.return_value = str(props_file)
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session_ctx
+    session_ctx.add = MagicMock()
+    fake_db = MagicMock()
+    fake_db.session_factory = lambda: session_ctx
+    fake_repo = MagicMock()
+    fake_repo.get = AsyncMock(return_value=fake_server)
+
+    seen_hosts: list[str] = []
+
+    def make_client(host: str, port: int, password: str) -> MagicMock:
+        seen_hosts.append(host)
+        client = MagicMock()
+        client.host = host
+        client.port = port
+        client.password = password
+        client.close = AsyncMock()
+        return client
+
+    collector = mod.MetricsCollector(known_servers=["deadbeef"], per_server_timeout=5.0)
+    with (
+        patch.object(mod, "database", fake_db),
+        patch.object(mod, "SQLServerRepository", return_value=fake_repo),
+        patch.object(mod, "PersistentRCONClient", side_effect=make_client),
+        patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 2))),
+    ):
+        metric = await collector.collect("deadbeef")
+
+    assert seen_hosts == ["127.0.0.1"]
+    assert metric.players == 2
+
