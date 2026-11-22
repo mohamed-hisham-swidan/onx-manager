@@ -517,3 +517,45 @@ describe("CreateServerPage advanced mode flag gating", () => {
     expect(await screen.findByText("Game Properties")).toBeInTheDocument();
   });
 });
+
+describe("CreateServerPage Install Modpack creation mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listSoftwareMock.mockResolvedValue([
+      { type: "vanilla", name: "Vanilla", description: "Official" },
+      { type: "paper", name: "Paper", description: "High performance" },
+      { type: "fabric", name: "Fabric", description: "Lightweight mod loader" },
+      { type: "neoforge", name: "NeoForge", description: "Modern mod loader" },
+    ]);
+    listSoftwareVersionsMock.mockResolvedValue(["1.21.1"]);
+    getAvailablePortMock.mockResolvedValue({ port: 25565 });
+    healthMock.mockResolvedValue({ docker: true });
+    getSetupStatusMock.mockResolvedValue({ advanced_mode_enabled: false });
+    mutateAsyncMock.mockResolvedValue({ server_id: "srv-modpack-1" });
+  });
+
+  it("filters loaders to modded servers and opens the modpack installer upon creation", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /Paper/i })).toBeInTheDocument();
+    await user.click(screen.getByTestId("creation-mode-modpack"));
+
+    expect(screen.queryByRole("button", { name: /^Vanilla/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Paper/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Fabric/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /NeoForge/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Fabric/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+    await user.type(await screen.findByPlaceholderText("My Awesome Server"), "Modpack Server");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    expect(await screen.findByTestId("open-modpack-installer-btn")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: "Install Modpack (.mrpack / CurseForge)" }),
+    ).toBeInTheDocument();
+  });
+});

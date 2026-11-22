@@ -69,7 +69,7 @@ export function BranchToolbar({
         >
           {branches.map((b) => (
             <option key={b.id} value={b.name}>
-              {b.name} {b.is_protected ? "🔒" : ""} {b.status === "archived" ? "(archived)" : ""}
+              {b.name}{b.is_protected ? " (protected)" : ""}{b.status === "archived" ? " (archived)" : ""}
             </option>
           ))}
         </select>

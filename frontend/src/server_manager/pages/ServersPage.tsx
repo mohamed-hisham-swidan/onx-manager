@@ -428,7 +428,7 @@ export function ServersPage() {
                                 >
                                   <span>:{s.port}</span>
                                   {copiedPortId === s.server_id && (
-                                    <span className="text-status-success font-semibold">✓</span>
+                                    <Icon name="check" size={12} className="text-status-success" />
                                   )}
                                 </button>
                               </div>

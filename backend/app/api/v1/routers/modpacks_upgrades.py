@@ -157,6 +157,19 @@ _UPLOAD_CHUNK_BYTES = 1024 * 1024
 _MAX_MANUAL_UPLOAD_BYTES = 512 * 1024 * 1024
 _REMINDER_OVERDUE_DELTA = timedelta(hours=72)
 _TERMINAL_UPGRADE_STATUSES = frozenset({"confirmed", "rolled_back", "failed", "cancelled"})
+MODPACK_SUPPORTED_LOADERS = frozenset({"fabric", "forge", "neoforge", "quilt"})
+
+
+def _assert_modpack_supported_loader(server: ServerModel) -> None:
+    """Ensure modpack endpoints are only invoked on modded server loaders."""
+    server_type = str(getattr(server, "server_type", "") or "").strip().lower()
+    if server_type not in MODPACK_SUPPORTED_LOADERS:
+        supported = ", ".join(sorted(MODPACK_SUPPORTED_LOADERS))
+        raise ValidationError(
+            f"Modpack installation is only supported for modded server loaders ({supported}); "
+            f"server '{server.id}' uses '{server_type or 'unknown'}'.",
+            field="server_type",
+        )
 
 
 def _utcnow() -> datetime:
@@ -803,6 +816,7 @@ async def inspect_modpack(
 
     async with database.session_factory() as session:
         srv = cast(Any, await _load_server(session, server_id))
+        _assert_modpack_supported_loader(srv)
         extra_hosts = _server_allowlist(srv)
         optional_flag = (
             install_optional_server_files
@@ -957,6 +971,7 @@ async def install_modpack(
     layout = ensure_host_state_layout(settings)
     async with database.session_factory() as session:
         server = await _load_server(session, server_id)
+        _assert_modpack_supported_loader(server)
         extra_hosts = _server_allowlist(server)
         server_mode = str(getattr(server, "mode", "simple") or "simple").lower()
         raw_root = getattr(server, "root_path", None)

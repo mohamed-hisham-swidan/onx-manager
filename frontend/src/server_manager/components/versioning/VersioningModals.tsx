@@ -125,8 +125,11 @@ export function CreateCommitModal({
     >
       <div className="space-y-4">
         {currentBranchObj?.status === "archived" && (
-          <div className="rounded-lg bg-surface-hover p-3 text-xs text-text-secondary">
-            ⚠️ Branch &lsquo;{selectedBranch}&rsquo; is archived and read-only. Committing is disabled.
+          <div className="flex items-center gap-2 rounded-lg bg-surface-hover p-3 text-xs text-text-secondary">
+            <Icon name="alert" size={14} className="shrink-0 text-status-warning" />
+            <span>
+              Branch &lsquo;{selectedBranch}&rsquo; is archived and read-only. Committing is disabled.
+            </span>
           </div>
         )}
 
@@ -250,8 +253,9 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
               </span>
               <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
                 {Object.keys(commit.manifest?.configs || {}).map((f) => (
-                  <div key={f} className="text-text-primary py-0.5">
-                    📄 {f}
+                  <div key={f} className="flex items-center gap-1.5 text-text-primary py-0.5">
+                    <Icon name="file" size={13} className="shrink-0 text-text-muted" />
+                    <span>{f}</span>
                   </div>
                 ))}
               </div>
@@ -263,8 +267,11 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
               </span>
               <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
                 {(commit.manifest?.mods || []).map((m) => (
-                  <div key={m.filename} className="text-text-primary py-0.5">
-                    📦 {m.filename} <span className="text-text-muted">({m.sha256.slice(0, 10)}...)</span>
+                  <div key={m.filename} className="flex items-center gap-1.5 text-text-primary py-0.5">
+                    <Icon name="mod" size={13} className="shrink-0 text-accent-primary" />
+                    <span>
+                      {m.filename} <span className="text-text-muted">({m.sha256.slice(0, 10)}...)</span>
+                    </span>
                   </div>
                 ))}
               </div>

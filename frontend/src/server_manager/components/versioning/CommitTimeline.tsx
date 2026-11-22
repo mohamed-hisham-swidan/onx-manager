@@ -142,9 +142,10 @@ export function CommitTimeline({
                     {commitTags.map((tag) => (
                       <span
                         key={tag.name}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent-primary/20 text-accent-primary border border-accent-primary/40"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent-primary/20 text-accent-primary border border-accent-primary/40"
                       >
-                        🏷️ {tag.name}
+                        <Icon name="tag" size={10} />
+                        {tag.name}
                       </span>
                     ))}
 

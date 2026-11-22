@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
+import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
 import { TestRunModal } from "@/server_manager/components/TestRunModal";
 import { BranchProtectionModal } from "@/server_manager/components/BranchProtectionModal";
 import { TestDefinitionsModal } from "@/server_manager/components/TestDefinitionsModal";
@@ -211,6 +212,7 @@ export function ServerVersioningPage() {
   const [isBranchPending, setIsBranchPending] = useState(false);
   const [isCommitPending, setIsCommitPending] = useState(false);
   const [isSettingsPending, setIsSettingsPending] = useState(false);
+  const [serverType, setServerType] = useState<string | null>(null);
 
   const currentBranchObj = useMemo(
     () => branches.find((b) => b.name === selectedBranch) || null,
@@ -225,6 +227,11 @@ export function ServerVersioningPage() {
   const allowForceBypass = Boolean(
     currentBranchObj?.protection_policy?.allow_force_bypass
   );
+
+  const resolvedServerType = serverType ?? commits[0]?.manifest?.server_type ?? null;
+  const supportsModpacks = resolvedServerType
+    ? isModpackSupportedLoader(resolvedServerType)
+    : false;
 
   const branchRuntimeStatus =
     branchRuntime?.runtime_status ?? currentBranchObj?.runtime_status ?? "stopped";
@@ -243,7 +250,7 @@ export function ServerVersioningPage() {
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData, templatesData, runtimeData, githubStatusData] =
+        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData, templatesData, runtimeData, githubStatusData, serverDetailData] =
           await Promise.all([
             api.getServerBranches(serverId),
             api.getServerCommits(serverId, undefined, undefined, selectedBranch),
@@ -262,6 +269,7 @@ export function ServerVersioningPage() {
               ? (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ?? Promise.resolve(null))
               : Promise.resolve(null),
             api.getGitHubStatus?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
+            api.getServer?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
           ]);
 
         if (!isMounted) return;
@@ -278,6 +286,7 @@ export function ServerVersioningPage() {
         setDataTemplates(Array.isArray(templatesData) ? templatesData : []);
         setBranchRuntime(runtimeData ?? null);
         setGithubStatus(githubStatusData ?? null);
+        setServerType(serverDetailData?.server_type ?? null);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
@@ -648,15 +657,17 @@ export function ServerVersioningPage() {
           <Icon name="database" size={13} />
           <span>Data Templates</span>
         </button>
-        <button
-          type="button"
-          data-testid="versioning-open-modpack-wizard-btn"
-          onClick={() => setIsP55ModpackWizardOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
-        >
-          <Icon name="download" size={13} />
-          <span>Install Modpack</span>
-        </button>
+        {supportsModpacks && (
+          <button
+            type="button"
+            data-testid="versioning-open-modpack-wizard-btn"
+            onClick={() => setIsP55ModpackWizardOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
+          >
+            <Icon name="download" size={13} />
+            <span>Install Modpack</span>
+          </button>
+        )}
         <button
           type="button"
           data-testid="versioning-open-safe-upgrade-wizard-btn"
@@ -1212,11 +1223,13 @@ export function ServerVersioningPage() {
 
       {serverId && (
         <>
-          <ModpackInstallWizardModal
-            serverId={serverId}
-            isOpen={isP55ModpackWizardOpen}
-            onClose={() => setIsP55ModpackWizardOpen(false)}
-          />
+          {supportsModpacks && (
+            <ModpackInstallWizardModal
+              serverId={serverId}
+              isOpen={isP55ModpackWizardOpen}
+              onClose={() => setIsP55ModpackWizardOpen(false)}
+            />
+          )}
           <SafeUpgradeWizardModal
             serverId={serverId}
             isOpen={isP55SafeUpgradeWizardOpen}

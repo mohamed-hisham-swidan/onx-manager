@@ -54,7 +54,7 @@ export function ServerSettingsPage() {
       {/* Settings Form */}
       <ServerSettingsSection serverId={serverId!} server={server} />
 
-      <ServerP55SettingsCard serverId={serverId!} />
+      <ServerP55SettingsCard serverId={serverId!} serverType={server.server_type} />
 
       <ServerModeConversionCard serverId={serverId!} server={server} />
 

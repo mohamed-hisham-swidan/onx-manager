@@ -394,4 +394,24 @@ describe("ServerDetailPage", () => {
     expect(pageRoot?.className).toContain("flex-1");
     expect(pageRoot?.className).toContain("min-h-0");
   });
+
+  it("hides Install Modpack action on non-modded servers and shows it on modded loaders", () => {
+    mockData = { ...mockServer, server_type: "vanilla" };
+    const { rerender } = renderPage();
+    expect(screen.queryByTestId("detail-open-modpack-wizard-btn")).not.toBeInTheDocument();
+    expect(screen.getByTestId("detail-open-safe-upgrade-wizard-btn")).toBeInTheDocument();
+
+    mockData = { ...mockServer, server_type: "fabric" };
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={["/servers/srv-1"]}>
+          <Routes>
+            <Route path="/servers/:serverId" element={<ServerDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("detail-open-modpack-wizard-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("detail-open-safe-upgrade-wizard-btn")).toBeInTheDocument();
+  });
 });

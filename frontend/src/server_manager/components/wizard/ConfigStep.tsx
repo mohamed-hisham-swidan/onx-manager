@@ -1,4 +1,5 @@
 import { type WizardData, RAM_PRESETS } from "./types";
+import { Icon } from "@/components/ui/Icon";
 import { ServerModeChooser } from "./ServerModeChooser";
 import { useHostResources } from "@/server_manager/hooks/useHostResources";
 import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
@@ -51,9 +52,10 @@ export function RamStepperField({
           type="button"
           onClick={() => stepBy(-512)}
           aria-label={`Decrease ${label} by 512 MB`}
-          className="flex items-center justify-center px-3 text-xs font-bold text-text-secondary bg-surface-card hover:bg-surface-hover active:opacity-75 border-r border-border-default transition-colors select-none cursor-pointer"
+          className="flex items-center justify-center gap-1 px-3 text-xs font-bold text-text-secondary bg-surface-card hover:bg-surface-hover active:opacity-75 border-r border-border-default transition-colors select-none cursor-pointer"
         >
-          <span className="text-text-muted mr-0.5">▼</span> -512
+          <Icon name="chevron-down" size={12} className="text-text-muted" />
+          <span>-512</span>
         </button>
         <div className="relative flex-1 flex items-center">
           <input
@@ -72,9 +74,10 @@ export function RamStepperField({
           type="button"
           onClick={() => stepBy(512)}
           aria-label={`Increase ${label} by 512 MB`}
-          className="flex items-center justify-center px-3 text-xs font-bold text-text-secondary bg-surface-card hover:bg-surface-hover active:opacity-75 border-l border-border-default transition-colors select-none cursor-pointer"
+          className="flex items-center justify-center gap-1 px-3 text-xs font-bold text-text-secondary bg-surface-card hover:bg-surface-hover active:opacity-75 border-l border-border-default transition-colors select-none cursor-pointer"
         >
-          +512 <span className="text-text-muted ml-0.5">▲</span>
+          <span>+512</span>
+          <Icon name="chevron-up" size={12} className="text-text-muted" />
         </button>
       </div>
     </div>

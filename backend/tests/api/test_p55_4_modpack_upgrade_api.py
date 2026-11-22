@@ -689,6 +689,53 @@ async def test_mrpack_inspect_and_install_simple_and_advanced_modes(p55_api: Any
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("loader_type", ["paper", "vanilla"])
+async def test_modpack_inspect_and_install_reject_non_modded_loaders(
+    p55_api: Any, loader_type: str
+) -> None:
+    api = p55_api
+    non_modded_id = f"srv-nonmod-{loader_type}"
+    async with database.session_factory() as session:
+        session.add(
+            ServerModel(
+                id=non_modded_id,
+                name=f"Non-modded {loader_type}",
+                server_type=loader_type,
+                minecraft_version="1.20.4",
+                status="STOPPED",
+                mode="simple",
+                provider="docker",
+                root_path=str(api.simple_root),
+                owner_id=api.user["user_id"],
+            )
+        )
+        await session.commit()
+
+    mrpack = _make_mrpack_bytes(
+        mc_version="1.20.4",
+        loader_key="fabric-loader",
+        loader_version="0.16.0",
+        files=[],
+    )
+
+    inspect_res = await api.client.post(
+        f"/api/v1/servers/{non_modded_id}/modpacks/inspect",
+        files={"file": ("pack.mrpack", mrpack, "application/zip")},
+        headers=api.headers,
+    )
+    assert inspect_res.status_code == 422, inspect_res.text
+    assert inspect_res.json()["code"] == "VALIDATION_ERROR"
+
+    install_res = await api.client.post(
+        f"/api/v1/servers/{non_modded_id}/modpacks/install",
+        json={"staged_pack_id": "staged-dummy"},
+        headers=api.headers,
+    )
+    assert install_res.status_code == 422, install_res.text
+    assert install_res.json()["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
 async def test_curseforge_missing_key_and_manual_download_unblock(
     p55_api: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

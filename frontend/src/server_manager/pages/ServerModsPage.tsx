@@ -1,6 +1,10 @@
 import { useState, useRef, useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
+import {
+  isModpackSupportedLoader,
+  isPluginLoader,
+} from "@/server_manager/utils/loaderCapabilities";
 import {
   usePluginsList,
   useUploadPluginOrMod,
@@ -238,6 +242,11 @@ export function ServerModsPage() {
         : selectedServerId;
 
   const activeServer = servers?.find((s) => s.server_id === effectiveServerId);
+  const activeServerType = activeServer?.server_type;
+  const supportsModpacks = activeServerType
+    ? isModpackSupportedLoader(activeServerType)
+    : true;
+  const isNonModdedServer = Boolean(activeServerType) && !supportsModpacks;
 
   const { data: mods, isLoading, error } = usePluginsList(effectiveServerId);
   const uploadMod = useUploadPluginOrMod(effectiveServerId);
@@ -339,15 +348,17 @@ export function ServerModsPage() {
         actions={
           effectiveServerId ? (
             <>
-              <button
-                type="button"
-                data-testid="open-modpack-wizard-btn"
-                onClick={() => setIsModpackWizardOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
-              >
-                <Icon name="download" size={16} />
-                Install Modpack (.mrpack / CurseForge)
-              </button>
+              {supportsModpacks && (
+                <button
+                  type="button"
+                  data-testid="open-modpack-wizard-btn"
+                  onClick={() => setIsModpackWizardOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+                >
+                  <Icon name="download" size={16} />
+                  Install Modpack (.mrpack / CurseForge)
+                </button>
+              )}
               <button
                 type="button"
                 data-testid="open-safe-upgrade-wizard-btn"
@@ -399,6 +410,30 @@ export function ServerModsPage() {
         />
       ) : (
         <>
+          {isNonModdedServer && (
+            <div
+              data-testid="non-modded-server-banner"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-info-border bg-status-info-bg px-4 py-3 text-sm text-text-primary"
+            >
+              <div className="flex items-center gap-2">
+                <Icon name="info" size={16} className="shrink-0 text-status-info" />
+                <span>
+                  This server runs <span className="font-semibold">{activeServerType}</span>, which
+                  does not support Forge/Fabric/NeoForge/Quilt mods or modpacks.
+                </span>
+              </div>
+              {isPluginLoader(activeServerType) && (
+                <Link
+                  to={`/servers/${effectiveServerId}/plugins`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover transition-colors"
+                >
+                  <Icon name="plugin" size={14} />
+                  Manage Plugins
+                </Link>
+              )}
+            </div>
+          )}
+
           {/* Upload Zone */}
           <ModUploadZone onUpload={handleUpload} isUploading={uploadMod.isPending} />
 
@@ -597,11 +632,13 @@ export function ServerModsPage() {
 
       {effectiveServerId && (
         <>
-          <ModpackInstallWizardModal
-            serverId={effectiveServerId}
-            isOpen={isModpackWizardOpen}
-            onClose={() => setIsModpackWizardOpen(false)}
-          />
+          {supportsModpacks && (
+            <ModpackInstallWizardModal
+              serverId={effectiveServerId}
+              isOpen={isModpackWizardOpen}
+              onClose={() => setIsModpackWizardOpen(false)}
+            />
+          )}
           <SafeUpgradeWizardModal
             serverId={effectiveServerId}
             isOpen={isSafeUpgradeWizardOpen}

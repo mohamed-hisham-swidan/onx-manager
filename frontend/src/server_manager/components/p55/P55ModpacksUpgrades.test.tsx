@@ -481,6 +481,29 @@ describe("ServerP55SettingsCard", () => {
     ).toBeInTheDocument();
     expect(mockApi.updateServerP55Settings).not.toHaveBeenCalled();
   });
+
+  it("gates optional server files to modded loaders and Paper builds to Paper/Purpur", async () => {
+    mockApi.getServerP55Settings.mockResolvedValue(P55_SETTINGS);
+    const { unmount } = renderWithProviders(
+      <ServerP55SettingsCard serverId="srv-p55" serverType="fabric" />,
+    );
+    expect(
+      await screen.findByRole("switch", { name: "Install Optional Server Files" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Allow Experimental Paper Builds" }),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    mockApi.getServerP55Settings.mockResolvedValue(P55_SETTINGS);
+    renderWithProviders(<ServerP55SettingsCard serverId="srv-p55" serverType="paper" />);
+    expect(
+      await screen.findByRole("switch", { name: "Allow Experimental Paper Builds" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Install Optional Server Files" }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("ModpackInstallWizardModal", () => {

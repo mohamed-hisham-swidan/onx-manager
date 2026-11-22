@@ -90,35 +90,36 @@ export function getHostTelemetry(
 export function getInitialDaemonLogs(servers: ServerResponse[]): DaemonLogEntry[] {
   const serverNames = servers.map((s) => s.name).join(", ") || "none";
   const ports = servers.map((s) => s.port).filter(Boolean).join(", ") || "none";
+  const timeStr = new Date().toTimeString().slice(0, 8);
 
   return [
     {
       id: "log-1",
-      timeStr: "15:42:01",
+      timeStr,
       source: "SYS",
-      message: "ONX Daemon v0.4.0 initialized on node (x86_64 Linux)",
+      message: "ONX Manager v0.1.0 control plane initialized",
     },
     {
       id: "log-2",
-      timeStr: "15:42:02",
+      timeStr,
       source: "DOCKER",
       message: "Socket connection established (/var/run/docker.sock)",
     },
     {
       id: "log-3",
-      timeStr: "15:42:02",
+      timeStr,
       source: "STATE",
       message: `Loaded ${servers.length} server configurations (${serverNames})`,
     },
     {
       id: "log-4",
-      timeStr: "15:42:05",
+      timeStr,
       source: "NET",
       message: `Allocated listener ports [${ports}] verified bound and available`,
     },
     {
       id: "log-5",
-      timeStr: "15:43:10",
+      timeStr,
       source: "WATCHER",
       message: servers.some((s) => s.status === "running")
         ? "Active server heartbeats detected · Telemetry streaming active"

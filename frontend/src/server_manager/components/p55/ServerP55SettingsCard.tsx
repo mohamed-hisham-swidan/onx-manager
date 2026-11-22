@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
+import {
+  isModpackSupportedLoader,
+  isPaperFamilyLoader,
+} from "@/server_manager/utils/loaderCapabilities";
 import type {
   ServerP55SettingsResponse,
   ServerP55SettingsUpdateRequest,
@@ -92,7 +96,17 @@ function ToggleRow({
   );
 }
 
-export function ServerP55SettingsCard({ serverId }: { serverId: string }) {
+export function ServerP55SettingsCard({
+  serverId,
+  serverType,
+}: {
+  serverId: string;
+  serverType?: string;
+}) {
+  const showModpackOptionalToggle =
+    serverType === undefined || isModpackSupportedLoader(serverType);
+  const showPaperExperimentalToggle =
+    serverType === undefined || isPaperFamilyLoader(serverType);
   const api = useMemo(() => createAuthenticatedApi(), []);
   const queryClient = useQueryClient();
   const hasSettingsApi = typeof api.getServerP55Settings === "function";
@@ -199,12 +213,17 @@ export function ServerP55SettingsCard({ serverId }: { serverId: string }) {
               <Icon name="modrinth" size={16} />
             </span>
             <h3 className="text-base font-bold text-text-primary">
-              Modpack & Upgrade Settings
+              {showModpackOptionalToggle
+                ? "Modpack & Upgrade Settings"
+                : "1-Click Upgrade Settings"}
             </h3>
           </div>
           <p className="text-xs text-text-muted max-w-2xl">
-            Tune the 1-Click Safe Upgrade Health Gate, optional server mod handling,
-            experimental Paper builds, and trusted download hosts for this server.
+            {showModpackOptionalToggle
+              ? "Tune the 1-Click Safe Upgrade Health Gate, optional server mod handling, and trusted download hosts for this server."
+              : showPaperExperimentalToggle
+                ? "Tune the 1-Click Safe Upgrade Health Gate and experimental Paper builds for this server."
+                : "Tune the 1-Click Safe Upgrade Health Gate and trusted download hosts for this server."}
           </p>
         </div>
         <Button
@@ -269,21 +288,25 @@ export function ServerP55SettingsCard({ serverId }: { serverId: string }) {
         </div>
       </div>
 
-      <ToggleRow
-        id="p55-install-optional"
-        label="Install Optional Server Files"
-        description="Include entries marked env.server = optional when inspecting modpacks. Disable to keep optional server-side mods out by default."
-        checked={current.install_optional_server_files}
-        onChange={(checked) => update({ install_optional_server_files: checked })}
-      />
+      {showModpackOptionalToggle && (
+        <ToggleRow
+          id="p55-install-optional"
+          label="Install Optional Server Files"
+          description="Include entries marked env.server = optional when inspecting modpacks. Disable to keep optional server-side mods out by default."
+          checked={current.install_optional_server_files}
+          onChange={(checked) => update({ install_optional_server_files: checked })}
+        />
+      )}
 
-      <ToggleRow
-        id="p55-experimental-paper"
-        label="Allow Experimental Paper Builds"
-        description="When no STABLE Paper Fill v3 build exists for the target Minecraft version, permit falling back to an EXPERIMENTAL build."
-        checked={current.allow_experimental_paper_builds}
-        onChange={(checked) => update({ allow_experimental_paper_builds: checked })}
-      />
+      {showPaperExperimentalToggle && (
+        <ToggleRow
+          id="p55-experimental-paper"
+          label="Allow Experimental Paper Builds"
+          description="When no STABLE Paper Fill v3 build exists for the target Minecraft version, permit falling back to an EXPERIMENTAL build."
+          checked={current.allow_experimental_paper_builds}
+          onChange={(checked) => update({ allow_experimental_paper_builds: checked })}
+        />
+      )}
 
       <div className="px-5 py-4 space-y-3">
         <div className="space-y-1">

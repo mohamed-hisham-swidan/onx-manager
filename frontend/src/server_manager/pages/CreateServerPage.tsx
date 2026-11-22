@@ -15,6 +15,8 @@ import {
 } from "@/server_manager/components/wizard/types";
 import { SoftwareInfo } from "@/server_manager/types";
 import { Icon } from "@/components/ui/Icon";
+import { ModpackInstallWizardModal } from "@/server_manager/components/p55";
+import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
 
 export function CreateServerPage() {
   const navigate = useNavigate();
@@ -38,6 +40,28 @@ export function CreateServerPage() {
   const [createdId, setCreatedId] = useState("");
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
   const [advancedEnabled, setAdvancedEnabled] = useState(false);
+  const [creationMode, setCreationMode] = useState<"standard" | "modpack">("standard");
+  const [isModpackWizardOpen, setIsModpackWizardOpen] = useState(false);
+  const [modpackInstalled, setModpackInstalled] = useState(false);
+
+  const visibleSoftwareList = useMemo(
+    () =>
+      creationMode === "modpack"
+        ? softwareList.filter((s) => isModpackSupportedLoader(s.type))
+        : softwareList,
+    [creationMode, softwareList]
+  );
+
+  const handleSelectCreationMode = (mode: "standard" | "modpack") => {
+    setCreationMode(mode);
+    if (
+      mode === "modpack" &&
+      data.serverType &&
+      !isModpackSupportedLoader(data.serverType)
+    ) {
+      setData((d) => ({ ...d, serverType: "", minecraftVersion: "" }));
+    }
+  };
 
   useEffect(() => {
     if (api.getSetupStatus) {
@@ -130,6 +154,9 @@ export function CreateServerPage() {
       });
       setCreatedId(result.server_id as string);
       setStep("done");
+      if (creationMode === "modpack") {
+        setIsModpackWizardOpen(true);
+      }
     } catch (e) {
       if (e instanceof ApiError) {
         if (e.code === "INFRASTRUCTURE_ERROR") {
@@ -210,14 +237,60 @@ export function CreateServerPage() {
       )}
 
       {step === "software" && (
-        <SoftwareStep
-          softwareList={softwareList}
-          selected={data.serverType}
-          onSelect={(t) => {
-            update({ serverType: t, minecraftVersion: "" });
-            setStep("version");
-          }}
-        />
+        <div className="space-y-4">
+          <div
+            data-testid="creation-mode-selector"
+            className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+          >
+            <button
+              type="button"
+              data-testid="creation-mode-standard"
+              aria-pressed={creationMode === "standard"}
+              onClick={() => handleSelectCreationMode("standard")}
+              className={`text-left rounded-xl border p-4 transition-colors cursor-pointer ${
+                creationMode === "standard"
+                  ? "border-accent-primary bg-accent-primary/10"
+                  : "border-border-default bg-surface-card hover:bg-surface-hover"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-semibold text-sm text-text-primary">
+                <Icon name="server" size={16} className="text-accent-primary" />
+                <span>Standard Server</span>
+              </div>
+              <p className="mt-1 text-xs text-text-muted">
+                Configure a new Minecraft server and pick any available server software manually.
+              </p>
+            </button>
+            <button
+              type="button"
+              data-testid="creation-mode-modpack"
+              aria-pressed={creationMode === "modpack"}
+              onClick={() => handleSelectCreationMode("modpack")}
+              className={`text-left rounded-xl border p-4 transition-colors cursor-pointer ${
+                creationMode === "modpack"
+                  ? "border-accent-primary bg-accent-primary/10"
+                  : "border-border-default bg-surface-card hover:bg-surface-hover"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-semibold text-sm text-text-primary">
+                <Icon name="modrinth" size={16} className="text-accent-primary" />
+                <span>Install Modpack</span>
+              </div>
+              <p className="mt-1 text-xs text-text-muted">
+                Provision a compatible modded server, then upload and install a .mrpack or zip archive automatically.
+              </p>
+            </button>
+          </div>
+
+          <SoftwareStep
+            softwareList={visibleSoftwareList}
+            selected={data.serverType}
+            onSelect={(t) => {
+              update({ serverType: t, minecraftVersion: "" });
+              setStep("version");
+            }}
+          />
+        </div>
       )}
 
       {step === "version" && (
@@ -267,11 +340,28 @@ export function CreateServerPage() {
       {step === "done" && (
         <div className="text-center py-12 bg-surface-card rounded-xl border border-border-default p-8 shadow-xs">
           <Icon name="check" size={36} className="mx-auto mb-4 text-status-success" />
-          <h3 className="text-lg font-semibold text-text-primary mb-2">Server Created</h3>
+          <h3 className="text-lg font-semibold text-text-primary mb-2">
+            {modpackInstalled ? "Server & Modpack Ready" : "Server Created"}
+          </h3>
           <p className="text-sm text-text-muted mb-6">
-            {data.name} is being set up. Server JAR has been downloaded and configured.
+            {creationMode === "modpack"
+              ? modpackInstalled
+                ? `${data.name} is set up and your modpack has been installed.`
+                : `${data.name} has been provisioned. Install your .mrpack or CurseForge modpack below.`
+              : `${data.name} is being set up. Server JAR has been downloaded and configured.`}
           </p>
-          <div className="flex justify-center space-x-3">
+          <div className="flex flex-wrap justify-center gap-3">
+            {creationMode === "modpack" && (
+              <button
+                type="button"
+                data-testid="open-modpack-installer-btn"
+                onClick={() => setIsModpackWizardOpen(true)}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary text-sm font-semibold transition-colors cursor-pointer"
+              >
+                <Icon name="download" size={16} />
+                {modpackInstalled ? "Re-run Modpack Installer" : "Install Modpack"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => navigate(`/servers/${createdId}/console`)}
@@ -287,6 +377,14 @@ export function CreateServerPage() {
               Back to List
             </button>
           </div>
+          {createdId && creationMode === "modpack" && (
+            <ModpackInstallWizardModal
+              serverId={createdId}
+              isOpen={isModpackWizardOpen}
+              onClose={() => setIsModpackWizardOpen(false)}
+              onInstalled={() => setModpackInstalled(true)}
+            />
+          )}
         </div>
       )}
     </div>

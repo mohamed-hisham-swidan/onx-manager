@@ -75,6 +75,9 @@ const mockMods = [
 ];
 
 let mockModsData = mockMods;
+let mockServersData: Array<{ server_id: string; name: string; server_type?: string }> = [
+  { server_id: "srv-mc-100", name: "Modded Server" },
+];
 let mockIsLoading = false;
 let mockError: Error | null = null;
 const mockUploadMutate = vi.fn();
@@ -83,7 +86,7 @@ const mockUninstallMutate = vi.fn();
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServersList: vi.fn(() => ({
-    data: [{ server_id: "srv-mc-100", name: "Modded Server" }],
+    data: mockServersData,
   })),
 }));
 
@@ -130,6 +133,7 @@ describe("ServerModsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockModsData = mockMods;
+    mockServersData = [{ server_id: "srv-mc-100", name: "Modded Server" }];
     mockIsLoading = false;
     mockError = null;
     useLastUsedServerStore.setState({ lastUsedServerId: "" });
@@ -275,6 +279,26 @@ describe("ServerModsPage", () => {
     const fileInput = screen.getByLabelText("Choose custom mod jar file");
     expect(fileInput).toBeInTheDocument();
     expect(fileInput).toHaveAttribute("type", "file");
+  });
+
+  it("hides Install Modpack and shows Manage Plugins banner on Paper servers", () => {
+    mockServersData = [{ server_id: "srv-paper-1", name: "Paper Server", server_type: "paper" }];
+    renderServerModsPage("/servers/srv-paper-1/mods");
+
+    expect(screen.queryByTestId("open-modpack-wizard-btn")).not.toBeInTheDocument();
+    expect(screen.getByTestId("open-safe-upgrade-wizard-btn")).toBeInTheDocument();
+    const banner = screen.getByTestId("non-modded-server-banner");
+    expect(banner).toHaveTextContent("paper");
+    const pluginsLink = screen.getByRole("link", { name: "Manage Plugins" });
+    expect(pluginsLink).toHaveAttribute("href", "/servers/srv-paper-1/plugins");
+  });
+
+  it("shows Install Modpack action on modded Fabric servers without non-modded banner", () => {
+    mockServersData = [{ server_id: "srv-fabric-1", name: "Fabric Server", server_type: "fabric" }];
+    renderServerModsPage("/servers/srv-fabric-1/mods");
+
+    expect(screen.getByTestId("open-modpack-wizard-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("non-modded-server-banner")).not.toBeInTheDocument();
   });
 });
 

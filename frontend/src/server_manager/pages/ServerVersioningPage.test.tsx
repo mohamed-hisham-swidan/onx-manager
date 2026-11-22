@@ -952,4 +952,23 @@ describe("ServerVersioningPage", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("gates Install Modpack action on server loader type (hidden on Paper, visible on Fabric)", async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId("versioning-open-safe-upgrade-wizard-btn")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("versioning-open-modpack-wizard-btn")).not.toBeInTheDocument();
+
+    mockApi.getServerCommits.mockResolvedValue([
+      {
+        ...mockCommits[0],
+        manifest: { ...mockCommits[0].manifest, server_type: "fabric" },
+      },
+    ]);
+    renderPage();
+    expect(
+      await screen.findByTestId("versioning-open-modpack-wizard-btn"),
+    ).toBeInTheDocument();
+  });
 });

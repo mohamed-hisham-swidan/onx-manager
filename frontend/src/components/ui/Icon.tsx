@@ -68,7 +68,8 @@ export type IconName =
   | "network"
   | "version-branch"
   | "grid"
-  | "list";
+  | "list"
+  | "tag";
 
 interface IconProps {
   name: IconName;
@@ -555,6 +556,12 @@ const PATHS: Record<IconName, JSX.Element> = {
       <line x1="3" y1="6" x2="3.01" y2="6" />
       <line x1="3" y1="12" x2="3.01" y2="12" />
       <line x1="3" y1="18" x2="3.01" y2="18" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
+      <path d="M7 7h.01" />
     </>
   ),
 };

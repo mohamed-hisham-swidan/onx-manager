@@ -2,6 +2,7 @@ import { useState, useMemo, type FormEvent } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createApiClient } from "@/services/api";
+import { Icon } from "@/components/ui/Icon";
 import { useAuthStore } from "@/stores/authStore";
 import { parseServerDate } from "@/server_manager/utils/format";
 
@@ -83,8 +84,8 @@ export function InvitePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-page px-4 py-8">
         <div className="w-full max-w-md bg-surface-card rounded-xl shadow-xs border border-border-default p-6 text-center space-y-4">
-          <div className="w-12 h-12 rounded-full bg-status-danger-bg text-status-danger flex items-center justify-center mx-auto text-xl font-bold">
-            ✕
+          <div className="w-12 h-12 rounded-full bg-status-danger-bg text-status-danger flex items-center justify-center mx-auto">
+            <Icon name="x" size={20} />
           </div>
           <h2 className="text-lg font-semibold text-text-primary">
             Invalid or Expired Invitation

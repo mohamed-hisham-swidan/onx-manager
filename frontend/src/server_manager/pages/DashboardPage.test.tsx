@@ -304,7 +304,7 @@ describe("DashboardPage Command Center", () => {
   it("renders daemon event stream with live system timeline and clear function", () => {
     renderPage();
     expect(screen.getByRole("heading", { name: "Daemon Event Stream" })).toBeInTheDocument();
-    expect(screen.getByText(/ONX Daemon v0\.4\.0 initialized/i)).toBeInTheDocument();
+    expect(screen.getByText(/ONX Manager v0\.1\.0 control plane initialized/i)).toBeInTheDocument();
     expect(screen.getByText(/Socket connection established/i)).toBeInTheDocument();
 
     const streamLog = screen.getByRole("log", { name: "System event logs" });

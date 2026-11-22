@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Icon } from "@/components/ui/Icon";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { resolveAccessAddress } from "@/server_manager/utils/accessAddress";
+import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
 import { Sparkline } from "@/server_manager/components/Sparkline";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
@@ -154,6 +155,7 @@ export function ServerDetailPage() {
     : String(server.port);
 
   const hasLiveTps = isRunning && currentMetric?.tps != null;
+  const supportsModpacks = isModpackSupportedLoader(server.server_type);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-5">
@@ -313,18 +315,24 @@ export function ServerDetailPage() {
             className="rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs space-y-2.5"
           >
             <h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-1.5">
-              <Icon name="modrinth" size={14} className="text-accent-primary" />
-              Modpack &amp; 1-Click Upgrade
+              <Icon
+                name={supportsModpacks ? "modrinth" : "restart"}
+                size={14}
+                className="text-accent-primary"
+              />
+              {supportsModpacks ? "Modpack & 1-Click Upgrade" : "1-Click Safe Upgrade"}
             </h3>
-            <button
-              type="button"
-              data-testid="detail-open-modpack-wizard-btn"
-              onClick={() => setIsModpackWizardOpen(true)}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
-            >
-              <Icon name="download" size={14} />
-              Install Modpack
-            </button>
+            {supportsModpacks && (
+              <button
+                type="button"
+                data-testid="detail-open-modpack-wizard-btn"
+                onClick={() => setIsModpackWizardOpen(true)}
+                className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+              >
+                <Icon name="download" size={14} />
+                Install Modpack
+              </button>
+            )}
             <button
               type="button"
               data-testid="detail-open-safe-upgrade-wizard-btn"
@@ -481,11 +489,13 @@ export function ServerDetailPage() {
         </div>
       </div>
 
-      <ModpackInstallWizardModal
-        serverId={serverId}
-        isOpen={isModpackWizardOpen}
-        onClose={() => setIsModpackWizardOpen(false)}
-      />
+      {supportsModpacks && (
+        <ModpackInstallWizardModal
+          serverId={serverId}
+          isOpen={isModpackWizardOpen}
+          onClose={() => setIsModpackWizardOpen(false)}
+        />
+      )}
       <SafeUpgradeWizardModal
         serverId={serverId}
         isOpen={isSafeUpgradeWizardOpen}
