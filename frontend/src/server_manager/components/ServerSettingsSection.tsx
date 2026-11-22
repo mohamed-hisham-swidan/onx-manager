@@ -2,6 +2,8 @@ import { useState, useMemo, useId } from "react";
 import { Link } from "react-router-dom";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useUpdateServer } from "@/server_manager/hooks/useServers";
+import { useHostResources } from "@/server_manager/hooks/useHostResources";
+import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
 import { toast } from "@/stores/toastStore";
 import type { ServerDetailResponse, ServerUpdateRequest } from "@/server_manager/types";
 
@@ -430,6 +432,7 @@ function BooleanSwitchRow({
 
 export function ServerSettingsSection({ serverId, server }: ServerSettingsSectionProps) {
   const updateServer = useUpdateServer();
+  const { data: hostBudget } = useHostResources();
   const formId = useId();
 
   // Active Category & Quick Search State
@@ -577,13 +580,20 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
     return customs;
   }, [server.raw_properties]);
 
+  const maxAllocRam = hostBudget?.allocatable_ram_mb ?? 262144;
+  const maxAllocCpus = hostBudget?.allocatable_cpus;
+
   // RAM Validation
   const ramError = useMemo(() => {
     if (minRam < 128) return "Min RAM must be at least 128 MB";
-    if (maxRam > 262144) return "Max RAM cannot exceed 262,144 MB (256 GB)";
+    if (maxRam > maxAllocRam) {
+      return hostBudget
+        ? `Max RAM cannot exceed ${hostBudget.allocatable_ram_mb} MB host allocatable ceiling`
+        : "Max RAM cannot exceed 262,144 MB (256 GB)";
+    }
     if (minRam > maxRam) return "Min RAM cannot exceed Max RAM";
     return null;
-  }, [minRam, maxRam]);
+  }, [minRam, maxRam, maxAllocRam, hostBudget]);
 
   // CPU Validation
   const cpuAffinityValid = useMemo(() => parseAffinity(cpuAffinity.trim()), [cpuAffinity]);
@@ -1053,6 +1063,14 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
 
           {/* Visual Memory Allocation Ratio Bar */}
           <div className="p-5 border-b border-border-subtle bg-surface-muted/30 space-y-3">
+            {hostBudget && (
+              <HostResourceBudgetBar
+                budget={hostBudget}
+                requestedRamMb={maxRam}
+                requestedCpuCores={cpuCores}
+                compact
+              />
+            )}
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-text-primary flex items-center gap-1.5">
@@ -1087,10 +1105,12 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
               </span>
               {RAM_PRESETS.map((preset) => {
                 const isSelected = minRam === preset.min && maxRam === preset.max;
+                const overCeiling = Boolean(hostBudget && preset.max > hostBudget.allocatable_ram_mb);
                 return (
                   <button
                     key={preset.label}
                     type="button"
+                    disabled={overCeiling}
                     onClick={() => {
                       setMinRam(preset.min);
                       setMaxRam(preset.max);
@@ -1101,10 +1121,12 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                         return next;
                       });
                     }}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all border cursor-pointer ${
-                      isSelected
-                        ? "bg-accent-primary text-accent-contrast-text border-accent-primary shadow-xs"
-                        : "bg-surface-card text-text-secondary border-border-default hover:bg-surface-hover"
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all border ${
+                      overCeiling
+                        ? "bg-surface-elevated text-text-muted border-border-subtle opacity-40 cursor-not-allowed"
+                        : isSelected
+                          ? "bg-accent-primary text-accent-contrast-text border-accent-primary shadow-xs cursor-pointer"
+                          : "bg-surface-card text-text-secondary border-border-default hover:bg-surface-hover cursor-pointer"
                     }`}
                   >
                     {preset.label}
@@ -1128,10 +1150,10 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                 value={minRam}
                 draftValue={rawDrafts["minRam"]}
                 onChange={(v) => handleNumericChange("minRam", v, setMinRam)}
-                onBlur={() => handleNumericBlur("minRam", minRam, setMinRam, 128, 262144)}
-                onStep={(delta) => handleStep("minRam", minRam, delta, setMinRam, 128, 262144)}
+                onBlur={() => handleNumericBlur("minRam", minRam, setMinRam, 128, maxAllocRam)}
+                onStep={(delta) => handleStep("minRam", minRam, delta, setMinRam, 128, maxAllocRam)}
                 min={128}
-                max={262144}
+                max={maxAllocRam}
                 step={128}
                 unit="MB"
               />
@@ -1151,10 +1173,10 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                   value={maxRam}
                   draftValue={rawDrafts["maxRam"]}
                   onChange={(v) => handleNumericChange("maxRam", v, setMaxRam)}
-                  onBlur={() => handleNumericBlur("maxRam", maxRam, setMaxRam, 128, 262144)}
-                  onStep={(delta) => handleStep("maxRam", maxRam, delta, setMaxRam, 128, 262144)}
+                  onBlur={() => handleNumericBlur("maxRam", maxRam, setMaxRam, 128, maxAllocRam)}
+                  onStep={(delta) => handleStep("maxRam", maxRam, delta, setMaxRam, 128, maxAllocRam)}
                   min={128}
-                  max={262144}
+                  max={maxAllocRam}
                   step={128}
                   unit="MB"
                 />
@@ -1179,9 +1201,27 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                 value={cpuCores}
                 draftValue={rawDrafts["cpuCores"]}
                 onChange={(v) => handleNumericChange("cpuCores", v, setCpuCores)}
-                onBlur={() => handleNumericBlur("cpuCores", cpuCores, setCpuCores, 0)}
-                onStep={(delta) => handleStep("cpuCores", cpuCores, delta, setCpuCores, 0)}
+                onBlur={() =>
+                  handleNumericBlur(
+                    "cpuCores",
+                    cpuCores,
+                    setCpuCores,
+                    0,
+                    maxAllocCpus ? Math.floor(maxAllocCpus) : undefined,
+                  )
+                }
+                onStep={(delta) =>
+                  handleStep(
+                    "cpuCores",
+                    cpuCores,
+                    delta,
+                    setCpuCores,
+                    0,
+                    maxAllocCpus ? Math.floor(maxAllocCpus) : undefined,
+                  )
+                }
                 min={0}
+                max={maxAllocCpus ? Math.floor(maxAllocCpus) : undefined}
                 step={1}
               />
             </SplitRow>

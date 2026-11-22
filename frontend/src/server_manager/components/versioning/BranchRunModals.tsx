@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
+import { useHostResources } from "@/server_manager/hooks/useHostResources";
+import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
 import type {
   BranchConsoleLogsResponse,
   DataTemplate,
@@ -167,6 +169,7 @@ function StartBranchRunBody({
   onClose,
 }: StartBranchRunBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const { data: hostBudget } = useHostResources();
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [allowPublicTestJoin, setAllowPublicTestJoin] = useState(false);
   const [includeQuery, setIncludeQuery] = useState(false);
@@ -376,6 +379,15 @@ function StartBranchRunBody({
         )}
       </div>
 
+      {hostBudget && (
+        <HostResourceBudgetBar
+          budget={hostBudget}
+          requestedRamMb={parseOptionalInteger(memoryMb)}
+          requestedCpuCores={parseOptionalInteger(cpuCores)}
+          compact
+        />
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label htmlFor="branch-run-memory" className={labelClass}>
@@ -385,6 +397,7 @@ function StartBranchRunBody({
             id="branch-run-memory"
             type="number"
             min={256}
+            max={hostBudget?.allocatable_ram_mb}
             value={memoryMb}
             onChange={(e) => setMemoryMb(e.target.value)}
             disabled={isPending}
@@ -400,6 +413,7 @@ function StartBranchRunBody({
             id="branch-run-cpu"
             type="number"
             min={1}
+            max={hostBudget?.allocatable_cpus ? Math.floor(hostBudget.allocatable_cpus) : undefined}
             value={cpuCores}
             onChange={(e) => setCpuCores(e.target.value)}
             disabled={isPending}

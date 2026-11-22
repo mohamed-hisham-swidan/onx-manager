@@ -72,6 +72,8 @@ _DEFAULTS: dict[str, Any] = {
     "stale_run_timeout_hours": 6.0,
     "server_startup_timeout_seconds": 120,
     "test_boot_timeout_seconds": 120,
+    "host_ram_reserve_mb": 0,
+    "host_cpu_reserve": 0.0,
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -116,6 +118,8 @@ class LiveSettings:
     stale_run_timeout_hours: float = 6.0
     server_startup_timeout_seconds: int = 120
     test_boot_timeout_seconds: int = 120
+    host_ram_reserve_mb: int = 0
+    host_cpu_reserve: float = 0.0
 
 
 _live: LiveSettings | None = None
@@ -158,6 +162,16 @@ def _coerce(field: str, value: Any) -> Any:
     if field == "post_running_grace_seconds":
         try:
             return round(max(1.0, min(300.0, float(value))), 1)
+        except (TypeError, ValueError):
+            return default
+    if field == "host_ram_reserve_mb":
+        try:
+            return max(0, min(1048576, int(value)))
+        except (TypeError, ValueError):
+            return default
+    if field == "host_cpu_reserve":
+        try:
+            return round(max(0.0, min(256.0, float(value))), 2)
         except (TypeError, ValueError):
             return default
     try:

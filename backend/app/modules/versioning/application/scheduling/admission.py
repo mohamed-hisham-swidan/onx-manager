@@ -738,6 +738,15 @@ class RuntimeAdmissionScheduler:
                         },
                     )
 
+                if self._headroom_probe is None:
+                    from app.core.resource_budget import ResourceBudgetService
+
+                    await ResourceBudgetService.check_admission(
+                        conn,
+                        requested_ram_mb=mem_max,
+                        requested_cpu_cores=float(req_cores),
+                    )
+
                 # Ports
                 resolved_port_set = port_set
                 if port_set is not None or allocate_ports:

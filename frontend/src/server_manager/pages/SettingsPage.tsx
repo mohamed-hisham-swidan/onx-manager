@@ -26,6 +26,8 @@ interface FormState {
   metrics_interval_seconds: number;
   server_startup_timeout_seconds: number;
   test_boot_timeout_seconds: number;
+  host_ram_reserve_mb: number;
+  host_cpu_reserve: number;
 }
 
 type TabType =
@@ -355,6 +357,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     metrics_interval_seconds: settings.metrics_interval_seconds ?? 0.2,
     server_startup_timeout_seconds: settings.server_startup_timeout_seconds ?? 120,
     test_boot_timeout_seconds: settings.test_boot_timeout_seconds ?? 120,
+    host_ram_reserve_mb: settings.host_ram_reserve_mb ?? 0,
+    host_cpu_reserve: settings.host_cpu_reserve ?? 0,
   });
 
   // Local string drafts for numeric editing ergonomics (unblocks typing & backspace)
@@ -389,6 +393,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     if (Number(formData.metrics_interval_seconds) !== (settings.metrics_interval_seconds ?? 0.2)) count++;
     if (Number(formData.server_startup_timeout_seconds) !== (settings.server_startup_timeout_seconds ?? 120)) count++;
     if (Number(formData.test_boot_timeout_seconds) !== (settings.test_boot_timeout_seconds ?? 120)) count++;
+    if (Number(formData.host_ram_reserve_mb) !== (settings.host_ram_reserve_mb ?? 0)) count++;
+    if (Number(formData.host_cpu_reserve) !== (settings.host_cpu_reserve ?? 0)) count++;
     return count;
   }, [formData, settings]);
 
@@ -468,6 +474,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       metrics_interval_seconds: settings.metrics_interval_seconds ?? 0.2,
       server_startup_timeout_seconds: settings.server_startup_timeout_seconds ?? 120,
       test_boot_timeout_seconds: settings.test_boot_timeout_seconds ?? 120,
+      host_ram_reserve_mb: settings.host_ram_reserve_mb ?? 0,
+      host_cpu_reserve: settings.host_cpu_reserve ?? 0,
     });
     setRawDrafts({});
     setSaveError(null);
@@ -492,6 +500,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       metrics_interval_seconds: Number(rawDrafts["metrics_interval_seconds"] !== undefined && rawDrafts["metrics_interval_seconds"] !== "" ? rawDrafts["metrics_interval_seconds"] : formData.metrics_interval_seconds),
       server_startup_timeout_seconds: Number(rawDrafts["server_startup_timeout_seconds"] !== undefined && rawDrafts["server_startup_timeout_seconds"] !== "" ? rawDrafts["server_startup_timeout_seconds"] : formData.server_startup_timeout_seconds),
       test_boot_timeout_seconds: Number(rawDrafts["test_boot_timeout_seconds"] !== undefined && rawDrafts["test_boot_timeout_seconds"] !== "" ? rawDrafts["test_boot_timeout_seconds"] : formData.test_boot_timeout_seconds),
+      host_ram_reserve_mb: Number(rawDrafts["host_ram_reserve_mb"] !== undefined && rawDrafts["host_ram_reserve_mb"] !== "" ? rawDrafts["host_ram_reserve_mb"] : formData.host_ram_reserve_mb),
+      host_cpu_reserve: Number(rawDrafts["host_cpu_reserve"] !== undefined && rawDrafts["host_cpu_reserve"] !== "" ? rawDrafts["host_cpu_reserve"] : formData.host_cpu_reserve),
     };
 
     try {
@@ -532,7 +542,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       matches[4] =
         "event bus & sagas background tasks operations retry attempts timeout distributed rollback async domain".includes(q);
       matches[5] =
-        "monitoring & performance cpu ram sampling interval real-time metrics frequency overhead".includes(q);
+        "monitoring & performance cpu ram sampling interval real-time metrics frequency overhead host os memory reserve cores".includes(q);
       matches[6] =
         "startup & boot timeouts server startup timeout test boot timeout containers verification".includes(q);
     }
@@ -1107,6 +1117,54 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
                 max={60}
                 step={0.1}
                 unit="sec"
+              />
+            </SplitSettingRow>
+
+            {/* Host RAM Reserve Override */}
+            <SplitSettingRow
+              id="host_ram_reserve_mb"
+              label="Host OS Memory Reserve (MB)"
+              description="Protected RAM withheld from Minecraft containers so the OS and panel stay responsive (0 = Automatic based on deployment profile)."
+              propertyKey="host_ram_reserve_mb"
+              tooltip="0 = automatic (25% / min 4 GB in local desktop mode, 15% / min 1 GB in VPS mode)."
+            >
+              <NumberStepper
+                id="host_ram_reserve_mb"
+                name="host_ram_reserve_mb"
+                label="Host OS Memory Reserve (MB)"
+                value={formData.host_ram_reserve_mb}
+                draftValue={rawDrafts["host_ram_reserve_mb"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("host_ram_reserve_mb", 0, 1048576)}
+                onStep={(delta) => handleNumberStep("host_ram_reserve_mb", delta, 0, 1048576)}
+                min={0}
+                max={1048576}
+                step={512}
+                unit="MB"
+              />
+            </SplitSettingRow>
+
+            {/* Host CPU Reserve Override */}
+            <SplitSettingRow
+              id="host_cpu_reserve"
+              label="Host OS CPU Core Reserve"
+              description="Logical CPU cores withheld from server allocation caps (0 = Automatic based on deployment profile)."
+              propertyKey="host_cpu_reserve"
+              tooltip="0 = automatic profile default."
+            >
+              <NumberStepper
+                id="host_cpu_reserve"
+                name="host_cpu_reserve"
+                label="Host OS CPU Core Reserve"
+                value={formData.host_cpu_reserve}
+                draftValue={rawDrafts["host_cpu_reserve"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("host_cpu_reserve", 0, 256)}
+                onStep={(delta) => handleNumberStep("host_cpu_reserve", delta, 0, 256)}
+                min={0}
+                max={256}
+                step={0.5}
+                unit="cores"
               />
             </SplitSettingRow>
           </div>

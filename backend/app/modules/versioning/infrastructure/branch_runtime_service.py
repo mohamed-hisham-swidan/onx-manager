@@ -192,6 +192,8 @@ def build_branch_docker_create_args(*args: Any, **kwargs: Any) -> list[str]:
         [
             "--memory",
             f"{int(memory_max_mb) + 512}m",
+            "--memory-swap",
+            f"{int(memory_max_mb) + 512}m",
             "--cpus",
             str(cpu_cores),
         ]

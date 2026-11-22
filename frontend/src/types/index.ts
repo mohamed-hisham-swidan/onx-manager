@@ -264,7 +264,35 @@ export interface SettingsResponse {
   metrics_interval_seconds?: number;
   server_startup_timeout_seconds?: number;
   test_boot_timeout_seconds?: number;
+  host_ram_reserve_mb?: number;
+  host_cpu_reserve?: number;
   requires_restart?: string[];
+}
+
+export interface HostResourceAllocation {
+  id: string;
+  name: string;
+  kind: "server" | "branch_runtime" | "test_run";
+  status: string;
+  ram_mb: number;
+  cpu_cores: number;
+}
+
+export interface HostResourceBudget {
+  total_ram_mb: number;
+  os_reserve_ram_mb: number;
+  allocatable_ram_mb: number;
+  allocated_ram_mb: number;
+  available_ram_mb: number;
+  total_cpus: number;
+  reserved_cpus: number;
+  allocatable_cpus: number;
+  allocated_cpus: number;
+  available_cpus: number;
+  profile: "local" | "vps" | string;
+  ram_reserve_override_mb: number;
+  cpu_reserve_override: number;
+  allocations: HostResourceAllocation[];
 }
 
 export interface SettingsUpdateRequest {
@@ -280,6 +308,8 @@ export interface SettingsUpdateRequest {
   metrics_interval_seconds?: number;
   server_startup_timeout_seconds?: number;
   test_boot_timeout_seconds?: number;
+  host_ram_reserve_mb?: number;
+  host_cpu_reserve?: number;
 }
 
 export interface SettingsUpdateResponse {

@@ -14,6 +14,7 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import MCSError, ProvisioningError
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.core.resource_budget import ResourceBudgetService
 from app.modules.server.application.services.identity_writer import write_server_identity
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
@@ -188,6 +189,10 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
         if command.server_type == "forge":
             # OD-v8.4-9: reject outside 1.17.1 .. 1.20.1 immediately (HTTP 422).
             validate_forge_supported_version(command.minecraft_version)
+
+        ResourceBudgetService.check_config_ceiling(
+            requested_ram_mb=command.max_memory_mb,
+        )
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)

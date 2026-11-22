@@ -1,10 +1,13 @@
 import { type WizardData, RAM_PRESETS } from "./types";
 import { ServerModeChooser } from "./ServerModeChooser";
+import { useHostResources } from "@/server_manager/hooks/useHostResources";
+import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
 
 interface RamStepperFieldProps {
   label: string;
   value: number | "";
   placeholder: string;
+  maxMb?: number;
   onChange: (val: number | "") => void;
 }
 
@@ -12,6 +15,7 @@ export function RamStepperField({
   label,
   value,
   placeholder,
+  maxMb,
   onChange,
 }: RamStepperFieldProps) {
   const gbDisplay =
@@ -23,7 +27,10 @@ export function RamStepperField({
 
   const stepBy = (delta: number) => {
     const base = typeof value === "number" && value > 0 ? value : Number(placeholder) || 1024;
-    const next = Math.max(512, base + delta);
+    let next = Math.max(512, base + delta);
+    if (maxMb && maxMb >= 512) {
+      next = Math.min(maxMb, next);
+    }
     onChange(next);
   };
 
@@ -91,6 +98,10 @@ export function ConfigStep({
   onNext,
   onBack,
 }: ConfigStepProps) {
+  const { data: hostBudget } = useHostResources();
+  const allocatableMaxRam = hostBudget?.allocatable_ram_mb ?? 262144;
+  const maxRamNum = typeof data.maxMemoryMb === "number" ? data.maxMemoryMb : 0;
+  const exceedsBudget = Boolean(hostBudget && maxRamNum > hostBudget.allocatable_ram_mb);
   return (
     <div>
       <h3 className="text-lg font-semibold text-text-primary mb-4">Server Configuration</h3>
@@ -184,17 +195,26 @@ export function ConfigStep({
         </div>
 
         <div className="rounded-xl border border-border-default bg-surface-card p-4 space-y-3.5">
+          {hostBudget && (
+            <HostResourceBudgetBar
+              budget={hostBudget}
+              requestedRamMb={typeof data.maxMemoryMb === "number" ? data.maxMemoryMb : null}
+              compact
+            />
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <RamStepperField
               label="Min RAM"
               value={data.minMemoryMb}
               placeholder="1024"
+              maxMb={allocatableMaxRam}
               onChange={(v) => onChange({ minMemoryMb: v })}
             />
             <RamStepperField
               label="Max RAM"
               value={data.maxMemoryMb}
               placeholder="2048"
+              maxMb={allocatableMaxRam}
               onChange={(v) => onChange({ maxMemoryMb: v })}
             />
           </div>
@@ -205,15 +225,24 @@ export function ConfigStep({
             <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-1.5">
               {RAM_PRESETS.map((preset) => {
                 const isActive = data.minMemoryMb === preset.min && data.maxMemoryMb === preset.max;
+                const overCeiling = Boolean(hostBudget && preset.max > hostBudget.allocatable_ram_mb);
                 return (
                   <button
                     type="button"
                     key={preset.label}
+                    disabled={overCeiling}
+                    title={
+                      overCeiling
+                        ? `Exceeds ${hostBudget?.allocatable_ram_mb} MB host allocatable limit`
+                        : undefined
+                    }
                     onClick={() => onChange({ minMemoryMb: preset.min, maxMemoryMb: preset.max })}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all text-center cursor-pointer ${
-                      isActive
-                        ? "bg-accent-primary text-white border-accent-primary shadow-xs ring-2 ring-accent-primary/30"
-                        : "bg-surface-page border-border-default text-text-primary hover:border-accent-primary hover:bg-surface-hover"
+                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all text-center ${
+                      overCeiling
+                        ? "bg-surface-elevated border-border-subtle text-text-muted opacity-40 cursor-not-allowed"
+                        : isActive
+                          ? "bg-accent-primary text-white border-accent-primary shadow-xs ring-2 ring-accent-primary/30 cursor-pointer"
+                          : "bg-surface-page border-border-default text-text-primary hover:border-accent-primary hover:bg-surface-hover cursor-pointer"
                     }`}
                   >
                     {preset.label}
@@ -245,7 +274,7 @@ export function ConfigStep({
         <button
           type="button"
           onClick={onNext}
-          disabled={!data.name.trim()}
+          disabled={!data.name.trim() || exceedsBudget}
           className="px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-white text-sm font-medium disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
         >
           Next

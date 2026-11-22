@@ -1629,3 +1629,41 @@ class PasswordRequiredForExposureError(MCSError):
             http_status=403,
             details=merged,
         )
+
+
+class InsufficientHostResourcesError(MCSError):
+    """Host RAM or CPU budget is exhausted after reserving OS overhead."""
+
+    code = "INSUFFICIENT_HOST_RESOURCES"
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        requested_ram_mb: int = 0,
+        available_ram_mb: int = 0,
+        requested_cpu_cores: float = 0.0,
+        available_cpus: float = 0.0,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = {
+            "requested_ram_mb": int(requested_ram_mb),
+            "available_ram_mb": int(available_ram_mb),
+            "requested_cpu_cores": float(requested_cpu_cores),
+            "available_cpus": float(available_cpus),
+            **(details or {}),
+        }
+        default_msg = (
+            f"Insufficient host resources: requested {requested_ram_mb} MB RAM"
+            + (f", {requested_cpu_cores:g} CPU cores" if requested_cpu_cores > 0 else "")
+            + f", but only {available_ram_mb} MB RAM"
+            + (f" and {available_cpus:g} CPU cores are" if requested_cpu_cores > 0 else " is")
+            + " available after OS reserve."
+        )
+        super().__init__(
+            message or default_msg,
+            code="INSUFFICIENT_HOST_RESOURCES",
+            http_status=409,
+            details=merged,
+        )

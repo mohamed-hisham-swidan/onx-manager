@@ -70,6 +70,8 @@ class AppSettings(BaseSettings):
     test_boot_timeout_seconds: int = 120
     advanced_mode_enabled: bool = Field(default_factory=lambda: os.name == "posix")
     deployment_profile: Literal["local", "vps"] = "vps"
+    host_ram_reserve_mb: int = 0
+    host_cpu_reserve: float = 0.0
     static_dir: str = ""
     allow_legacy_run_sh: bool = False
 

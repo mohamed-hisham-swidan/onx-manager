@@ -13,6 +13,7 @@ from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.core.resource_budget import ResourceBudgetService
 from app.core.settings_store import get_live_settings
 from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
 from app.modules.plugin.application.services.plugin_deletion_service import (
@@ -227,13 +228,20 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     sid,
                 )
 
-            await RuntimeSupervisor.stop_for(sid)
-            server.start()
-            await repo.save(server)
-            for event in server.collect_events():
-                uow.add_event(event)
-                logger.info("EVENT %s", format_event(event, server.name))
-            await uow.commit()
+            async with ResourceBudgetService.admission_lock():
+                await ResourceBudgetService.check_admission(
+                    uow.session,
+                    requested_ram_mb=server.memory.max_mb,
+                    requested_cpu_cores=float(server.cpu.cores or 0),
+                    exclude_server_id=sid,
+                )
+                await RuntimeSupervisor.stop_for(sid)
+                server.start()
+                await repo.save(server)
+                for event in server.collect_events():
+                    uow.add_event(event)
+                    logger.info("EVENT %s", format_event(event, server.name))
+                await uow.commit()
 
         server_name = server.name
         port = server.properties.port.value

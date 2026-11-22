@@ -18,7 +18,7 @@ import type {
   SettingsResponse,
   SettingsUpdateRequest,
   SettingsUpdateResponse,
-
+  HostResourceBudget,
   UpdateUserRequest,
   UserResponse,
   VerifyBackupResponse,
@@ -1392,6 +1392,7 @@ export function createApiClient(
         method: "POST",
         headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       }),
+    getHostResources: () => request<HostResourceBudget>("/api/v1/monitoring/host-resources"),
   };
 }
 

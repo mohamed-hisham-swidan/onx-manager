@@ -582,9 +582,16 @@ class DockerProvider(ServerProvider):
 
             create_args.extend(["-p", f"127.0.0.1:{rcon_port}:{container_rcon_port}"])
 
-        # Resource limits: memory limit with 512MB headroom (Spec §6)
+        # Resource limits: memory limit + equal swap limit with 512MB headroom (Spec §6)
         container_mem_mb = memory_max + 512
-        create_args.extend(["--memory", f"{container_mem_mb}m"])
+        create_args.extend(
+            [
+                "--memory",
+                f"{container_mem_mb}m",
+                "--memory-swap",
+                f"{container_mem_mb}m",
+            ]
+        )
 
         # CPU allocation & pinning (Decision 4)
         if cpu_cores > 0:

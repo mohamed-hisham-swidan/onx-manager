@@ -15,6 +15,7 @@ from app.api.deps import (
 from app.api.errors import check_command_result
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
+from app.core.resource_budget import ResourceBudgetService
 from app.core.timeutil import format_datetime_utc, normalize_iso_timestamp
 from app.modules.monitoring.application import (
     CreateAlertRuleCommand,
@@ -109,6 +110,15 @@ async def list_alerts(
         }
         for r in rules
     ]
+
+
+@router.get("/host-resources", response_model=dict)
+async def get_host_resources(
+    session: AsyncSession = Depends(get_db),
+    _current_user: dict = Depends(get_current_user),
+) -> dict:
+    budget = await ResourceBudgetService.get_budget(session)
+    return budget.to_dict()
 
 
 @router.delete("/alerts/{alert_rule_id}", status_code=204)

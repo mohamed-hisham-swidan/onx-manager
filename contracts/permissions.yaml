@@ -267,6 +267,7 @@ route_permissions:
   "DELETE /api/v1/users/{user_id}": {permission: "user:delete", status: enforced}
 
   # monitoring
+  "GET /api/v1/monitoring/host-resources": {permission: null, status: missing, note: "authenticated read-only host RAM/CPU budget snapshot"}
   "POST /api/v1/monitoring/alerts/{server_id}": {permission: "server.{id}.settings", status: enforced}
   "DELETE /api/v1/monitoring/alerts/{alert_rule_id}": {permission: "global.settings", status: enforced}
 

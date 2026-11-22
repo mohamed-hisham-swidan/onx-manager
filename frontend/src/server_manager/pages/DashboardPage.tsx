@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
+import { useHostResources } from "@/server_manager/hooks/useHostResources";
+import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
 import { ErrorState, Skeleton } from "@/components/ui/States";
 import { Icon } from "@/components/ui/Icon";
 import { CommandCenterKpiGrid } from "@/server_manager/components/CommandCenterKpiGrid";
@@ -14,6 +16,7 @@ import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 
 export function DashboardPage() {
   const { data: servers, isLoading, error } = useServersList();
+  const { data: hostBudget } = useHostResources();
   const { isLocal, showFullControls } = useDeploymentProfile();
 
   const serverList = useMemo(() => servers ?? [], [servers]);
@@ -204,6 +207,8 @@ export function DashboardPage() {
             totalServers={totalCount}
             telemetry={telemetry}
           />
+
+          {hostBudget && <HostResourceBudgetBar budget={hostBudget} compact />}
 
           {/* C. Row 2: Main Split Workspace (12-Column Grid) */}
           <div className="grid grid-cols-1 items-stretch gap-5 @5xl:grid-cols-12">

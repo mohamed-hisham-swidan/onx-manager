@@ -55,6 +55,8 @@ async def get_settings_endpoint(
         "metrics_interval_seconds": live.metrics_interval_seconds,
         "server_startup_timeout_seconds": live.server_startup_timeout_seconds,
         "test_boot_timeout_seconds": live.test_boot_timeout_seconds,
+        "host_ram_reserve_mb": live.host_ram_reserve_mb,
+        "host_cpu_reserve": live.host_cpu_reserve,
         "requires_restart": sorted(list(RESTART_REQUIRED_FIELDS)),
     }
 
@@ -121,6 +123,8 @@ async def update_settings(
             "metrics_interval_seconds": live.metrics_interval_seconds,
             "server_startup_timeout_seconds": live.server_startup_timeout_seconds,
             "test_boot_timeout_seconds": live.test_boot_timeout_seconds,
+            "host_ram_reserve_mb": live.host_ram_reserve_mb,
+            "host_cpu_reserve": live.host_cpu_reserve,
         },
     }
 
