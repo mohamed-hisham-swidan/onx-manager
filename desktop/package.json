@@ -6,9 +6,11 @@
   "private": true,
   "main": "src/main.js",
   "scripts": {
+    "prestart": "node scripts/ensure-electron.js",
     "start": "electron .",
+    "predev": "node scripts/ensure-electron.js",
     "dev": "electron . --dev",
-    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/backendManager.js && node --check src/connectionsStore.js && node --check src/launcher.js",
+    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/backendManager.js && node --check src/connectionsStore.js && node --check src/launcher.js && node --check scripts/ensure-electron.js",
     "test": "node --test src/test/*.test.mjs",
     "build": "electron-builder",
     "build:win": "electron-builder --win nsis",
@@ -16,7 +18,7 @@
   },
   "devDependencies": {
     "electron": "^35.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "io.onxmanager.desktop",
@@ -40,5 +42,8 @@
       ],
       "category": "Game"
     }
+  },
+  "allowScripts": {
+    "electron@35.7.5": true
   }
 }

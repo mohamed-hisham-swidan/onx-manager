@@ -1,0 +1,14 @@
+{
+  "name": "onx-manager",
+  "version": "0.1.0",
+  "description": "ONX Manager — Minecraft server management panel and desktop shell",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "desktop": "node -e \"const fs=require('node:fs'),cp=require('node:child_process');if(!fs.existsSync('desktop/node_modules/electron/package.json')){cp.execSync('npm --prefix desktop install',{stdio:'inherit'})}\" && npm --prefix desktop start",
+    "desktop:install": "npm --prefix desktop install",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "desktop:lint": "npm --prefix desktop run lint",
+    "desktop:test": "npm --prefix desktop test"
+  }
+}

@@ -110,6 +110,9 @@ A lightweight, single-window Electron wrapper with system tray controls and zero
 cd desktop
 npm install
 npm start
+
+# Or directly from the repository root:
+npm run desktop
 ```
 
 Build native installers (`desktop/dist/`) with `npm run build:win` (Windows NSIS `.exe`) or `npm run build:linux` (Linux `AppImage`). See [desktop/README.md](desktop/README.md).

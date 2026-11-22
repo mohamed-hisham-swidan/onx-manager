@@ -17,10 +17,22 @@ For **Local Mode**, install the local backend environment first using the reposi
 ```bash
 cd desktop
 npm install
-npm run lint     # Syntax checks across all main/preload/helper scripts
+npm run lint     # Syntax checks across all main/preload/helper/setup scripts
 npm test         # Unit tests via Node's built-in test runner
-npm start        # Launch the Electron desktop shell
+npm start        # Self-heals Electron binary if needed and launches the desktop shell
 ```
+
+Or launch directly from the repository root (auto-installs `desktop/` packages if missing):
+
+```bash
+npm run desktop
+```
+
+### Automatic Electron Self-Healing & npm `allowScripts`
+
+Modern npm versions block package `postinstall` scripts (including `electron`'s binary installer) unless approved via `allowScripts`. Even if `node_modules/electron/dist` or `path.txt` is missing after `npm install`, `npm start` / `npm run dev` runs `scripts/ensure-electron.js` via `prestart`/`predev` to automatically restore the binary via `install.js` or cached archive extraction and verify POSIX execute permissions.
+
+If `desktop/node_modules` lives on a filesystem mounted with `noexec` (`EACCES`), `ensure-electron.js` prints instructions to copy `dist/` to an executable folder and set `ELECTRON_OVERRIDE_DIST_PATH`.
 
 Press `Ctrl+Shift+K` (`Cmd+Shift+K` on macOS) or use **Connection → Switch Connection** at any time to switch between Local Mode and saved Remote servers.
 
