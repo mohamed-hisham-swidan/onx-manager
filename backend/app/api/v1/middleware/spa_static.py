@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -108,7 +109,21 @@ class SpaStaticMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if "\x00" in raw_path or ".." in raw_path.split("/"):
+        raw_wire_bytes = scope.get("raw_path") or b""
+        raw_wire = (
+            raw_wire_bytes.decode("latin-1", errors="ignore")
+            if isinstance(raw_wire_bytes, (bytes, bytearray))
+            else str(raw_wire_bytes)
+        )
+        decoded_path = unquote(raw_path)
+        decoded_wire = unquote(raw_wire)
+        if (
+            "\x00" in decoded_path
+            or "\x00" in decoded_wire
+            or ".." in decoded_path.split("/")
+            or ".." in decoded_wire.split("/")
+            or "\\" in decoded_path
+        ):
             resp = JSONResponse({"detail": "Not found"}, status_code=404)
             await resp(scope, receive, send)
             return
