@@ -1,3 +1,5 @@
+# Authoritative dependency list lives in backend/pyproject.toml ([project].dependencies).
+# Keep this file synchronized for Docker and pip-based CI workflows.
 aiohttp>=3.9.0
 aioboto3>=15.5.0
 aiosqlite>=0.20.0

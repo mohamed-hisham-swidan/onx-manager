@@ -1,32 +1,39 @@
 # Development & Verification Scripts
 
-Authoritative scripts for quality gates, preflight cleanup, and development tasks.
+Authoritative developer utilities and CI quality gates for ONX Manager.
+
+> **End-User Installation vs. Developer Scripts:**
+> - **End Users:** Use `install.sh` (Linux/macOS), `install.ps1` (Windows), `docker compose up -d`, or the `desktop/` app.
+> - **Developers & CI:** Use the tools below under `scripts/`.
 
 ## CI & Verification Gates
 
 | Script | Purpose |
 |---|---|
-| `scripts/check-version-propagation` | Verifies `pyproject.toml`, `package.json`, and runtime version match (`0.1.0`) |
-| `scripts/check-db-revision` | Verifies current database schema matches minimum compatibility revision (`b1e2100000023`) |
-| `scripts/check-ruff-baseline` | Enforces zero-regression lint gate against `backend/ruff-baseline.json` baseline |
-| `scripts/check-route-contract` | Validates all 155 live FastAPI routes against `contracts/permissions.yaml` contract |
-| `scripts/check-ps1-bom` | Verifies all `.ps1` files contain valid UTF-8 BOM encoding |
-| `scripts/check-stray-db` | Verifies no stray SQLite files (*.db, *.db-wal, *.db-shm) exist at repo or backend root |
+| `scripts/check-version-propagation` | Verifies `backend/pyproject.toml`, `frontend/package.json`, and runtime version match (`0.1.0`) |
+| `scripts/check-db-revision` | Verifies Alembic migration head matches release compatibility floor (`b1e2100000032`) |
+| `scripts/check-ruff-baseline` | Enforces zero-regression Ruff lint gate against `backend/ruff-baseline.json` |
+| `scripts/check-route-contract` | Validates all 213 live FastAPI routes against `contracts/permissions.yaml` |
+| `scripts/check-ps1-bom` | Verifies all tracked `.ps1` files contain a UTF-8 BOM (`EF BB BF`) |
+| `scripts/check-stray-db` | Verifies no stray SQLite files (`*.db`, `*.db-wal`, `*.db-shm`) exist at repo or backend root |
 | `scripts/reverify` / `reverify.ps1` | Runs the full local CI verification cadence (Linux / Windows) |
+| `scripts/pre-push-check.sh` | Pre-push hygiene and CI gate sanity check |
 
-## Runtime & Preflight Utilities
+## Developer & Preflight Utilities
 
 | Script | Platform | Purpose |
 |---|---|---|
 | `scripts/preflight.sh` | Linux / macOS | Smart preflight process reconciliation, zombie cleanup, and lock validation |
 | `scripts/preflight.py` | Cross-Platform / Windows | Python preflight runner with protected PID scanning and ASCII fallback |
-| `scripts/bootstrap` | Linux / macOS | One-step virtualenv creation, dependency installation, and migration runner |
-| `scripts/check` / `check.ps1` | Linux / Windows | Runs lint -> typecheck -> test |
+| `scripts/bootstrap` | Linux / macOS | Developer virtualenv creation (`.venv`, Python 3.12), dependency install, and migration runner |
+| `scripts/start.ps1` | Windows | Developer PowerShell bootstrap helper (`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1`) |
+| `scripts/check` / `check.ps1` | Linux / Windows | Runs lint → typecheck → test |
 | `scripts/lint` | Cross-Platform | Runs `ruff check` |
 | `scripts/format` | Cross-Platform | Runs `ruff format` |
 | `scripts/typecheck` | Cross-Platform | Runs `pyright` |
 | `scripts/test` / `test.ps1` | Linux / Windows | Runs `pytest` |
 | `scripts/build` | Cross-Platform | Builds production Docker image |
+| `scripts/release` | Linux / macOS | Tags and builds release Docker image |
 
 ## Running Quality Gates
 

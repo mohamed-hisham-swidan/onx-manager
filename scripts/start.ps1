@@ -1,9 +1,10 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    onx-manager Windows Launcher — PowerShell bootstrap
+    onx-manager Windows Developer Launcher — PowerShell bootstrap
 .DESCRIPTION
-    Invoked by start.bat (or wrapped by executors/start-debug.ps1).
+    Developer-only PowerShell bootstrap helper (`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1`).
+    End users should use the root `install.ps1` installer instead.
     Lives in scripts/start.ps1; derives $repoRoot from $PSScriptRoot parent.
     Handles:
       1. Python 3.12 detection across common candidates
@@ -45,7 +46,7 @@
               stdout/stderr streaming avoiding threadpool runspace crashes,
               unbuffered output via PYTHONUNBUFFERED=1, Ctrl+C tree cleanup,
               and diagnostic logging).
-      Confirmed correct: -NoProfile -ExecutionPolicy Bypass (set in start.bat).
+      Confirmed correct: -NoProfile -ExecutionPolicy Bypass (when invoked via powershell.exe).
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -553,7 +554,7 @@ function Start-OnxBootstrap {
             }
 
             if (-not $reprobeSuccess) {
-                throw "Python 3.12.x was not found or could not be installed. onx-manager requires exactly Python 3.12. Install Python 3.12 using 'winget install Python.Python.3.12' or the python.org $pythonInstallerVersion installer, then re-run start.bat."
+                throw "Python 3.12.x was not found or could not be installed. onx-manager requires exactly Python 3.12. Install Python 3.12 using 'winget install Python.Python.3.12' or the python.org $pythonInstallerVersion installer, then re-run scripts\start.ps1 (or install.ps1)."
             }
         }
 

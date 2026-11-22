@@ -11,7 +11,7 @@ if [ -e .venv/bin/python ] || [ -L .venv/bin/python ]; then
     if [ -x .venv/bin/python ] && .venv/bin/python -c "$PYTHON_EXACT_PROBE" &>/dev/null; then
         :
     else
-        echo "Error: backend/.venv is not Python 3.12. Run 'python launcher.py' or './start.sh' to recreate it." >&2
+        echo "Error: backend/.venv is not Python 3.12. Run 'python launcher.py' or './install.sh' to recreate it." >&2
         exit 1
     fi
 else

@@ -9,6 +9,8 @@
 !.env.example
 *.pem
 *.key
+*.bin
+uv.lock
 
 # Python artifacts
 __pycache__/

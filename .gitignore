@@ -2,6 +2,7 @@
 # Python
 # ──────────────────────────────────────────────
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
@@ -11,11 +12,16 @@ venv/
 env/
 
 # ──────────────────────────────────────────────
-# Node / Frontend
+# Node / Frontend / Desktop Wrapper
 # ──────────────────────────────────────────────
 node_modules/
+frontend/node_modules/
 frontend/dist/
 frontend/build/
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+desktop/out/
 .vite/
 *.local
 
@@ -101,7 +107,6 @@ coverage/
 # ──────────────────────────────────────────────
 dist/
 build/
-*.egg-info/
 *.exe
 
 # ──────────────────────────────────────────────
@@ -110,15 +115,10 @@ build/
 .docker/
 
 # ──────────────────────────────────────────────
-# Server runtime data (worlds, JARs, plugins)
+# Server runtime data (worlds, JARs, plugins, DBs, staging)
 # ──────────────────────────────────────────────
-backend/data/servers/
-backend/data/staging/
-backend/data/host-state/
-
-# ──────────────────────────────────────────────
-# Test / dev server sandbox
-# ──────────────────────────────────────────────
+backend/data/*
+!backend/data/servers_test/
 backend/data/servers_test/*
 !backend/data/servers_test/TEST_DB.md
 !backend/data/servers_test/README.md
@@ -138,12 +138,7 @@ openapi.yaml
 *.db.*
 
 # ──────────────────────────────────────────────
-# Runtime secrets / config (JWT key, encryption key)
-# ──────────────────────────────────────────────
-backend/config/
-
-# ──────────────────────────────────────────────
-# Encrypted backup artifacts (runtime data)
+# Runtime / encrypted backup artifacts
 # ──────────────────────────────────────────────
 backend/data/backups/
 backend/data/artifacts/

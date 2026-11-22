@@ -9,6 +9,7 @@
 !.env.example
 *.pem
 *.key
+*.bin
 
 # Python artifacts
 __pycache__/
@@ -30,11 +31,15 @@ htmlcov/
 .coverage
 .coverage.*
 
-# Node / frontend artifacts
+# Node / frontend / desktop / build artifacts
 node_modules/
 **/node_modules/
 frontend/
+desktop/
+build/
 .npm/
+uv.lock
+backend/uv.lock
 
 # Database and runtime server data
 *.db
@@ -55,7 +60,7 @@ backend/config/
 *.swo
 *~
 
-# Documentation & AI agent control directory
+# Documentation & contracts
 docs/
 contracts/
 
