@@ -23,8 +23,7 @@ version: 1.6
 # permission in the `permissions:` catalog are folded onto the closest existing
 # resource:action permission (e.g. per-server reads -> server:read, global
 # cron/config writes -> settings:write). No new permission names are introduced
-# in Phase 1; a finer-grained model belongs to the Phase 2 redesign. See
-# docs/PERMISSIONS_FUTURE_IDEAS.md.
+# in Phase 1; a finer-grained model belongs to a future redesign.
 # ─────────────────────────────────────────────────────────────────────────────
 
 permissions:
@@ -259,7 +258,7 @@ route_permissions:
   "DELETE /api/v1/auth/api-keys/{api_key_id}": {permission: "user:write", status: enforced}
 
   # users
-  "POST /api/v1/users": {permission: null, status: not-applicable-public, note: "intentionally open registration (AuthMiddleware._public_post_only, app/api/v1/middleware/auth.py:25-27). First-user bootstrap fix investigated 2026-08-02 and DEFERRED — docs/API.md:471 + docs/getting-started.md:55 rely on open registration, User.create assigns no roles (no implicit-admin mechanism exists), and tests would need broad changes. See docs/PERMISSIONS_FUTURE_IDEAS.md §5."}
+  "POST /api/v1/users": {permission: null, status: not-applicable-public, note: "intentionally open registration (AuthMiddleware._public_post_only, app/api/v1/middleware/auth.py:25-27). First-user bootstrap fix investigated 2026-08-02 and DEFERRED — docs/API.md + docs/getting-started.md rely on open registration, User.create assigns no roles (no implicit-admin mechanism exists), and tests would need broad changes."}
   "PATCH /api/v1/users/{user_id}": {permission: "user:write", status: enforced}
   "DELETE /api/v1/users/{user_id}": {permission: "user:delete", status: enforced}
 
