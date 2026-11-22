@@ -1,5 +1,6 @@
 "use strict";
 
+const fs = require("node:fs");
 const path = require("node:path");
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } = require("electron");
 
@@ -25,18 +26,29 @@ function getStorePath() {
   return path.join(app.getPath("userData"), "connections.json");
 }
 
-function getIconPath() {
-  return path.resolve(__dirname, "..", "assets", "icon.svg");
+function getBrandIconPath() {
+  const assetsDir = path.resolve(__dirname, "..", "assets");
+  const preferred =
+    process.platform === "win32"
+      ? path.join(assetsDir, "icon.ico")
+      : path.join(assetsDir, "icon.png");
+  if (fs.existsSync(preferred)) {
+    return preferred;
+  }
+  return path.join(assetsDir, "icon.svg");
 }
 
 function createWindow() {
+  const iconPath = getBrandIconPath();
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 640,
     title: "ONX Manager",
-    backgroundColor: "#0e1116",
+    icon: iconPath,
+    autoHideMenuBar: true,
+    backgroundColor: "#0b0e14",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -48,9 +60,35 @@ function createWindow() {
     },
   });
 
+  mainWindow.setMenuBarVisibility(false);
+
   mainWindow.once("ready-to-show", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
+    }
+  });
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const mod = input.control || input.meta;
+    const key = String(input.key || "").toLowerCase();
+    if (mod && input.shift && key === "k") {
+      event.preventDefault();
+      loadLauncherScreen();
+    } else if (mod && !input.shift && key === "r") {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.reload();
+      }
+    } else if (key === "f12" || (mod && input.shift && key === "i")) {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.toggleDevTools();
+      }
+    } else if (mod && key === "q") {
+      event.preventDefault();
+      isQuitting = true;
+      app.quit();
     }
   });
 
@@ -75,55 +113,8 @@ function createWindow() {
   return mainWindow;
 }
 
-function buildAppMenu() {
-  const template = [
-    {
-      label: "Connection",
-      submenu: [
-        {
-          label: "Switch Connection (Local / Remote)...",
-          accelerator: "CmdOrCtrl+Shift+K",
-          click: () => loadLauncherScreen(),
-        },
-        {
-          label: "Connect to Local Server",
-          click: () => connectLocal(),
-        },
-        { type: "separator" },
-        {
-          label: "Restart Local Backend",
-          click: () => restartLocalBackend(),
-        },
-        { type: "separator" },
-        {
-          label: "Quit",
-          accelerator: "CmdOrCtrl+Q",
-          click: () => {
-            isQuitting = true;
-            app.quit();
-          },
-        },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { role: "togglefullscreen" },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
 function buildTray() {
-  let icon = nativeImage.createFromPath(getIconPath());
+  let icon = nativeImage.createFromPath(getBrandIconPath());
   if (icon.isEmpty()) {
     icon = nativeImage.createEmpty();
   } else {
@@ -261,7 +252,7 @@ if (!gotSingleInstanceLock) {
       onStatusChange: () => broadcastStatus(),
     });
     registerIpc();
-    buildAppMenu();
+    Menu.setApplicationMenu(null);
     buildTray();
     createWindow();
 

@@ -6,6 +6,7 @@
 
   const backendDot = document.getElementById("backend-dot");
   const backendStatusText = document.getElementById("backend-status-text");
+  const localSplash = document.getElementById("local-splash");
   const localError = document.getElementById("local-error");
   const backendLogs = document.getElementById("backend-logs");
   const btnConnectLocal = document.getElementById("btn-connect-local");
@@ -26,12 +27,26 @@
     backendDot.className = `dot ${backend.status}`;
     if (backend.status === "running") {
       backendStatusText.textContent = `Running on 127.0.0.1:${backend.port}`;
+      if (localSplash) {
+        localSplash.style.display = "none";
+      }
     } else if (backend.status === "starting") {
       backendStatusText.textContent = "Starting local backend...";
+      if (localSplash) {
+        localSplash.style.display = "block";
+        localSplash.textContent =
+          "Launching local ONX panel service and preparing your dashboard...";
+      }
     } else if (backend.status === "error") {
       backendStatusText.textContent = "Backend failed to start";
+      if (localSplash) {
+        localSplash.style.display = "none";
+      }
     } else {
       backendStatusText.textContent = "Stopped";
+      if (localSplash) {
+        localSplash.style.display = "none";
+      }
     }
 
     if (backend.error) {
@@ -145,9 +160,16 @@
     try {
       const res = await api.probeRemote(url);
       if (res.ok) {
+        const authLabel =
+          res.authMode === "local_zero_login"
+            ? "Passwordless Local"
+            : res.authMode === "jwt"
+              ? "JWT Login"
+              : null;
         const meta = [
           res.version ? `v${res.version}` : null,
           res.deploymentProfile ? `${res.deploymentProfile.toUpperCase()} profile` : null,
+          authLabel,
         ]
           .filter(Boolean)
           .join(" · ");
