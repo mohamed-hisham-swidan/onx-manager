@@ -395,9 +395,12 @@ export function ServerShell() {
                 : "border-border-subtle bg-surface-card shadow-2xs"
             }`}
           >
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div
+              data-testid="server-header-primary-row"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3"
+            >
               {/* Left: Identity & Metadata */}
-              <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex items-center gap-3.5 min-w-0 max-w-full">
                 <div
                   className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-all ${
                     isRunning
@@ -551,7 +554,10 @@ export function ServerShell() {
               )}
 
               {/* Far-Right: Power Lifecycle Button Group */}
-              <div className="flex items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t border-border-subtle lg:border-t-0">
+              <div
+                data-testid="server-header-power-actions"
+                className="flex items-center gap-2 shrink-0"
+              >
                 {canStop ? (
                   <>
                     {isRunning && (

@@ -395,6 +395,18 @@ describe("ServerShell", () => {
     expect(quickNavContainer?.className).toContain("lg:hidden");
   });
 
+  it("keeps power actions aligned on the same wrappable row as server identity rather than stacking below lg", () => {
+    renderServerShell("/servers/srv-123/console");
+    const primaryRow = screen.getByTestId("server-header-primary-row");
+    expect(primaryRow.className).toContain("flex-wrap");
+    expect(primaryRow.className).toContain("justify-between");
+    expect(primaryRow.className).not.toContain("flex-col");
+
+    const powerActions = screen.getByTestId("server-header-power-actions");
+    expect(powerActions.className).toContain("shrink-0");
+    expect(powerActions.className).not.toContain("border-t");
+  });
+
   it("renders viewport flex column chain on main workspace and inner container", () => {
     renderServerShell("/servers/srv-123/console");
     const main = document.getElementById("main-content");
