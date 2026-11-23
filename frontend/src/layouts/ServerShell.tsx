@@ -194,11 +194,6 @@ export function ServerShell() {
 
   const effectiveServerId = serverId || "";
   const serverName = server?.name || effectiveServerId || "Server";
-  const maxPlayers = String(
-    (server as unknown as { env?: { MAX_PLAYERS?: string | number } })?.env?.MAX_PLAYERS ??
-    server?.max_players ??
-    20
-  );
 
   const availableServers = useMemo(() => {
     const list = [...servers];
@@ -329,18 +324,18 @@ export function ServerShell() {
           >
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               {/* Left: Identity & Metadata */}
-              <div className="flex flex-wrap items-center gap-3.5 min-w-0">
+              <div className="flex items-center gap-3.5 min-w-0">
                 <div
                   className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-all ${
                     isRunning
                       ? "bg-status-success-bg text-status-success shadow-xs ring-2 ring-status-success/20 ring-offset-2 ring-offset-surface-card"
-                      : "bg-accent-primary/10 text-accent-primary shadow-2xs"
+                      : "bg-surface-muted text-text-muted shadow-2xs"
                   }`}
                 >
                   <Icon name="server" size={24} />
                 </div>
 
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="truncate text-xl font-bold tracking-tight text-text-primary">
                       {serverName}
@@ -358,7 +353,7 @@ export function ServerShell() {
                             navigate(`/servers/${targetId}/${currentSubPath}${location.search}`);
                           }
                         }}
-                        className="appearance-none bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary text-xs font-medium py-1 pl-2.5 pr-7 rounded-lg border border-border-default cursor-pointer transition-colors focus:outline-hidden focus:ring-1 focus:ring-border-focus"
+                        className="appearance-none bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary text-xs font-medium py-1 pl-2.5 pr-7 rounded-lg border border-border-subtle hover:border-border-hover cursor-pointer transition-colors focus:outline-hidden focus:ring-1 focus:ring-border-focus"
                       >
                         {availableServers.length > 0 ? (
                           availableServers.map((s) => (
@@ -389,7 +384,7 @@ export function ServerShell() {
                           data-testid="branch-switcher-select"
                           value={selectedBranch}
                           onChange={(e) => selectBranch(e.target.value)}
-                          className="appearance-none bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary text-xs font-medium py-1 pl-2.5 pr-7 rounded-lg border border-border-default cursor-pointer transition-colors focus:outline-hidden focus:ring-1 focus:ring-border-focus"
+                          className="appearance-none bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary text-xs font-medium py-1 pl-2.5 pr-7 rounded-lg border border-border-subtle hover:border-border-hover cursor-pointer transition-colors focus:outline-hidden focus:ring-1 focus:ring-border-focus"
                         >
                           {branches.map((branch) => (
                             <option key={branch.name} value={branch.name}>
@@ -426,91 +421,48 @@ export function ServerShell() {
                     )}
                   </div>
 
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-xs text-text-muted">
-                    {/* Prominent High-Contrast Status Capsule */}
-                    {isStatusRunning ? (
-                      <span
-                        data-testid="server-status-capsule"
-                        className="inline-flex items-center gap-1.5 rounded-full bg-status-success-bg px-3 py-1 font-mono text-xs font-bold text-status-success shadow-2xs"
-                      >
-                        <span className="text-[10px] leading-none" aria-hidden="true">●</span>
-                        <span>ONLINE · PORT {server?.port ?? 25565}</span>
+                  {server && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-xs text-text-muted">
+                      <span className="font-mono">
+                        <strong className="text-text-secondary">MC:</strong> {server.minecraft_version}
                       </span>
-                    ) : isStatusStarting ? (
+                      <span className="text-border-subtle">•</span>
                       <span
-                        data-testid="server-status-capsule"
-                        className="inline-flex items-center gap-1.5 rounded-full bg-status-warning-bg px-3 py-1 font-mono text-xs font-bold text-status-warning shadow-2xs"
+                        data-testid="server-header-copy-address"
+                        onClick={handleCopyAddress}
+                        className="inline-flex items-center gap-1 cursor-pointer"
                       >
-                        <span className="text-[10px] leading-none" aria-hidden="true">◐</span>
-                        <span>STARTING · PORT {server?.port ?? 25565}</span>
-                      </span>
-                    ) : (
-                      <span
-                        data-testid="server-status-capsule"
-                        className="inline-flex items-center gap-1.5 rounded-full bg-surface-elevated px-3 py-1 font-mono text-xs font-bold text-text-secondary shadow-2xs"
-                      >
-                        <span className="text-[10px] leading-none" aria-hidden="true">○</span>
-                        <span>OFFLINE · CONTAINER HALTED</span>
-                      </span>
-                    )}
-
-                    {/* Active Player Counter Badge */}
-                    <div
-                      data-testid="server-active-players-badge"
-                      className="inline-flex items-center gap-1.5 rounded-full bg-surface-elevated px-3 py-1 font-mono text-xs font-semibold text-text-secondary"
-                    >
-                      <Icon name="users" size={13} className="text-text-muted" />
-                      <span>0 / {maxPlayers} Players</span>
-                    </div>
-
-                    {server && (
-                      <>
-                        <span className="font-mono">
-                          <strong className="text-text-secondary">MC:</strong> {server.minecraft_version}
-                        </span>
-                        <span className="text-border-subtle">•</span>
-                        <span className="font-mono">
-                          <strong className="text-text-secondary">Port:</strong>{" "}
-                          {effectiveHost || server.port}
-                        </span>
-                        <span className="text-border-subtle">•</span>
-                        <span
-                          data-testid="server-header-copy-address"
+                        <strong className="text-text-secondary">Address:</strong>
+                        <Chip
+                          label={copiedAddress ? "Copied!" : headerDisplayIpOrFallback}
+                          size="xs"
+                          variant="inset"
                           onClick={handleCopyAddress}
-                          className="inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <strong className="text-text-secondary">Address:</strong>
-                          <Chip
-                            label={copiedAddress ? "Copied!" : headerDisplayIpOrFallback}
-                            size="xs"
-                            variant="inset"
-                            onClick={handleCopyAddress}
-                            className="font-mono text-[11px] cursor-pointer"
-                          />
-                        </span>
-                      </>
-                    )}
-                  </div>
+                          className="font-mono text-[11px] cursor-pointer"
+                        />
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Center-Right: Instance Allocation Summary */}
               {server && (
-                <div className="hidden xl:flex items-center gap-3 rounded-lg bg-surface-elevated/70 px-3.5 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Heap</span>
-                    <span className="font-mono text-xs tabular-nums text-text-primary">
+                <div className="hidden xl:flex shrink-0 items-center gap-3 rounded-lg border border-border-subtle bg-surface-muted/80 px-3.5 py-2">
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted whitespace-nowrap">Heap</span>
+                    <span className="font-mono text-xs tabular-nums text-text-primary whitespace-nowrap">
                       {server.min_memory_mb && server.max_memory_mb
                         ? `${server.min_memory_mb}–${server.max_memory_mb} MB`
                         : `${server.max_memory_mb || 2048} MB`}
                     </span>
                   </div>
 
-                  <div className="h-4 w-px bg-border-subtle" />
+                  <div className="h-4 w-px bg-border-subtle shrink-0" />
 
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">View Dist</span>
-                    <span className="font-mono text-xs font-semibold tabular-nums text-text-primary">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted whitespace-nowrap">View Dist</span>
+                    <span className="font-mono text-xs font-semibold tabular-nums text-text-primary whitespace-nowrap">
                       {server.view_distance ?? 10} chunks
                     </span>
                   </div>
@@ -569,7 +521,7 @@ export function ServerShell() {
                       className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
                         isActive
                           ? "bg-accent-primary text-accent-contrast-text shadow-xs font-semibold"
-                          : "bg-surface-elevated text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-border-default"
+                          : "bg-surface-elevated text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-border-subtle hover:border-border-hover"
                       }`}
                     >
                       <Icon name={pill.icon} size={13} />

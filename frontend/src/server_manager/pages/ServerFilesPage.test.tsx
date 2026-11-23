@@ -497,4 +497,24 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     await user.click(screen.getByRole("button", { name: "Save Live State" }));
     await waitFor(() => expect(api.writeLiveStateFileContent).toHaveBeenCalledWith("srv-1", expect.objectContaining({ path: "/whitelist.json", content: "whitelist content", reload_command: null })));
   });
+
+  it("only shows selection checkboxes on child files and not on folder rows", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    expect(await screen.findByText("world")).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("checkbox", { name: "Select server.properties" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: "Select world" }),
+    ).not.toBeInTheDocument();
+
+    const selectAllCheckbox = screen.getByRole("checkbox", { name: "Select all" });
+    await user.click(selectAllCheckbox);
+
+    expect(screen.getByRole("button", { name: /delete selected \(1\)/i })).toBeInTheDocument();
+  });
 });

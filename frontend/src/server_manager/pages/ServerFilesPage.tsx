@@ -422,7 +422,7 @@ export function ServerFilesPage() {
   }, [filteredFiles, currentPage]);
 
   const allSelectablePaths = useMemo(
-    () => paginatedFiles.map((f) => f.path),
+    () => paginatedFiles.filter((f) => !f.is_dir).map((f) => f.path),
     [paginatedFiles],
   );
   const isAllSelected =
@@ -473,7 +473,7 @@ export function ServerFilesPage() {
 
   if (editingFile) {
     return (
-      <div className="flex flex-col h-full bg-surface-card rounded-xl shadow-sm border border-border-default overflow-hidden">
+      <div className="flex flex-col h-full bg-surface-card rounded-xl shadow-xs border border-border-subtle overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-border-subtle bg-surface-card">
           <div className="flex items-center gap-3">
             <button
@@ -492,7 +492,7 @@ export function ServerFilesPage() {
                 <button
                   type="button"
                   onClick={() => navigateToDirectory("")}
-                  className="hover:text-accent-primary hover:underline cursor-pointer"
+                  className="hover:text-text-primary hover:underline cursor-pointer"
                 >
                   root
                 </button>
@@ -500,18 +500,18 @@ export function ServerFilesPage() {
                   const pathUpTo = editorPathParts.slice(0, index + 1).join("/");
                   return (
                     <span key={pathUpTo} className="flex items-center gap-1.5">
-                      <span className="text-border-default">/</span>
+                      <span className="text-border-subtle">/</span>
                       <button
                         type="button"
                         onClick={() => navigateToDirectory(pathUpTo)}
-                        className="hover:text-accent-primary hover:underline cursor-pointer"
+                        className="hover:text-text-primary hover:underline cursor-pointer"
                       >
                         {part}
                       </button>
                     </span>
                   );
                 })}
-                <span className="text-border-default">/</span>
+                <span className="text-border-subtle">/</span>
                 <span className="text-text-primary font-medium">
                   {editingFile.name}
                 </span>
@@ -525,7 +525,7 @@ export function ServerFilesPage() {
             <button
               type="button"
               onClick={handleCloseEditor}
-              className="px-3 py-1.5 text-sm font-medium text-text-secondary bg-surface-page border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+              className="px-3 py-1.5 text-sm font-medium text-text-secondary bg-surface-card border border-border-subtle hover:border-border-hover rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -536,7 +536,7 @@ export function ServerFilesPage() {
                     aria-label="RCON Reload Command"
                     value={reloadCommand}
                     onChange={(e) => setReloadCommand(e.target.value)}
-                    className="rounded-lg border border-border-default bg-surface-card px-2 py-1.5 text-sm"
+                    className="rounded-lg border border-border-subtle hover:border-border-hover bg-surface-card px-2 py-1.5 text-sm"
                   >
                     <option value="">Auto</option>
                     <option value="whitelist reload">whitelist reload</option>
@@ -561,7 +561,7 @@ export function ServerFilesPage() {
           {effectiveContentLoading ? (
             <div className="h-64 flex items-center justify-center text-text-muted">Loading content...</div>
           ) : effectiveContentError ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-default rounded-xl">
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-subtle rounded-xl">
               <Icon name="alert" size={48} className="text-status-danger mb-3" />
               <h3 className="text-base font-semibold text-text-primary mb-1">
                 Failed to load file
@@ -572,13 +572,13 @@ export function ServerFilesPage() {
               <button
                 type="button"
                 onClick={handleCloseEditor}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+                className="px-4 py-2 text-sm font-medium text-text-secondary bg-surface-card border border-border-subtle hover:border-border-hover rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
               >
                 Back to Files
               </button>
             </div>
           ) : isBinary ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-default rounded-xl">
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-subtle rounded-xl">
               <Icon name="file" size={48} className="text-text-muted mb-3" />
               <h3 className="text-base font-semibold text-text-primary mb-1">Binary File</h3>
               <p className="text-sm text-text-muted mb-4 max-w-sm">
@@ -616,14 +616,14 @@ export function ServerFilesPage() {
           <button
             type="button"
             onClick={() => switchView("branch")}
-            className={`px-3 py-1.5 text-sm rounded-lg border ${viewMode === "branch" ? "bg-accent-primary text-white" : "bg-surface-card"}`}
+            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${viewMode === "branch" ? "bg-accent-primary text-accent-contrast-text border-transparent shadow-2xs" : "bg-surface-card border-border-subtle hover:border-border-hover hover:bg-surface-hover"}`}
           >
             Branch Config Files (Class B)
           </button>
           <button
             type="button"
             onClick={() => switchView("live-state")}
-            className={`px-3 py-1.5 text-sm rounded-lg border ${viewMode === "live-state" ? "bg-accent-primary text-white" : "bg-surface-card"}`}
+            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${viewMode === "live-state" ? "bg-accent-primary text-accent-contrast-text border-transparent shadow-2xs" : "bg-surface-card border-border-subtle hover:border-border-hover hover:bg-surface-hover"}`}
           >
             Live State Files (Class C)
           </button>
@@ -631,7 +631,7 @@ export function ServerFilesPage() {
       )}
 
       {isLiveState && (
-        <div data-testid="live-state-banner" className="rounded-xl border border-border-default bg-surface-card px-4 py-3 text-sm text-text-secondary">
+        <div data-testid="live-state-banner" className="rounded-xl border border-border-subtle bg-surface-card px-4 py-3 text-sm text-text-secondary shadow-2xs">
           Live State edits apply directly to Class-C runtime files on the live server directory. If the server is RUNNING, saving triggers an automatic RCON save-all flush + reload; if STOPPED, saving writes atomically after checking world/session.lock.
         </div>
       )}
@@ -641,9 +641,9 @@ export function ServerFilesPage() {
       {!isLiveState && activeBranch && (
         <div
           data-testid="branch-context-banner"
-          className="flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-card px-4 py-2.5 text-xs text-text-secondary"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-border-subtle bg-surface-card px-4 py-2.5 text-xs text-text-secondary shadow-2xs"
         >
-          <Icon name="backup" size={14} className="text-accent-primary" />
+          <Icon name="backup" size={14} className="text-text-muted" />
           <span>
             Branch: <strong className="font-mono text-text-primary">{activeBranch}</strong>
           </span>
@@ -659,24 +659,24 @@ export function ServerFilesPage() {
       )}
 
       {/* Toolbar & Breadcrumbs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-card rounded-xl shadow-sm border border-border-default">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-card rounded-xl shadow-xs border border-border-subtle">
         <div className="flex items-center overflow-x-auto whitespace-nowrap text-sm font-medium text-text-secondary">
           {breadcrumbs.map((crumb, idx) => (
             <React.Fragment key={crumb.path}>
               <button
                 type="button"
                 onClick={() => updateCurrentPath(crumb.path)}
-                className={`flex items-center gap-1 hover:text-accent-primary transition-colors cursor-pointer ${
+                className={`flex items-center gap-1 hover:text-text-primary transition-colors cursor-pointer ${
                   idx === breadcrumbs.length - 1
                     ? "font-semibold text-text-primary"
                     : ""
                 }`}
               >
-                {idx === 0 && <Icon name="folder" size={16} className="text-accent-primary" />}
+                {idx === 0 && <Icon name="folder" size={16} className="text-text-muted" />}
                 <span>{crumb.name}</span>
               </button>
               {idx < breadcrumbs.length - 1 && (
-                <span className="mx-2 text-border-default">/</span>
+                <span className="mx-2 text-border-subtle">/</span>
               )}
             </React.Fragment>
           ))}
@@ -697,7 +697,7 @@ export function ServerFilesPage() {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-lg border border-border-default bg-surface-page py-1.5 ps-9 pe-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+              className="w-full rounded-lg border border-border-subtle hover:border-border-hover bg-surface-page py-1.5 ps-9 pe-3 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus transition-colors"
             />
           </div>
 
@@ -755,7 +755,7 @@ export function ServerFilesPage() {
       </div>
 
       {showNewFolder && (
-        <div className="flex items-center gap-2 p-4 bg-surface-card rounded-xl shadow-sm border border-border-default">
+        <div className="flex items-center gap-2 p-4 bg-surface-card rounded-xl shadow-xs border border-border-subtle">
           <Icon name="folder" className="text-text-muted" />
           <input
             type="text"
@@ -763,7 +763,7 @@ export function ServerFilesPage() {
             aria-label="Folder name"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            className="flex-1 px-3 py-1.5 text-sm border border-border-default rounded-lg focus:outline-none focus:ring-1 focus:ring-accent-primary bg-surface-page text-text-primary placeholder:text-text-muted"
+            className="flex-1 px-3 py-1.5 text-sm border border-border-subtle hover:border-border-hover rounded-lg focus:outline-none focus:ring-1 focus:ring-border-focus focus:border-border-focus bg-surface-page text-text-primary placeholder:text-text-muted transition-colors"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === "Enter" && newFolderName) mkdirMutation.mutate(newFolderName);
@@ -803,7 +803,7 @@ export function ServerFilesPage() {
                 if (f.is_dir) updateCurrentPath(f.path);
                 else openFileEditor({ name: f.name, path: f.path, is_dir: false, size: f.size });
               }}
-              className="flex items-center justify-between rounded-lg border border-border-default bg-surface-card px-4 py-2 text-sm"
+              className="flex items-center justify-between rounded-lg border border-border-subtle hover:border-border-hover hover:bg-surface-hover bg-surface-card px-4 py-2 text-sm shadow-2xs transition-colors"
             >
               <span>{f.name}</span>
               <span className="text-xs text-text-muted">
@@ -818,7 +818,7 @@ export function ServerFilesPage() {
 
       {!isLiveState && (
       /* File Browser Table */
-      <div className="flex flex-col flex-1 min-h-0 bg-surface-card rounded-xl shadow-xs border border-border-default overflow-hidden">
+      <div className="flex flex-col flex-1 min-h-0 bg-surface-card rounded-xl shadow-xs border border-border-subtle overflow-hidden">
         {files?.length === 0 && !currentPath ? (
           <EmptyState
             title="Empty Directory"
@@ -846,16 +846,18 @@ export function ServerFilesPage() {
         ) : (
           <div className="overflow-x-auto flex-1 min-h-0 overflow-y-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase bg-surface-page/50 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
+              <thead className="text-xs uppercase bg-surface-muted/60 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
                 <tr>
                   <th scope="col" className="w-10 px-4 py-2.5">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all"
-                      checked={isAllSelected}
-                      onChange={toggleSelectAll}
-                      className="rounded border-border-default accent-accent-primary cursor-pointer"
-                    />
+                    {allSelectablePaths.length > 0 && (
+                      <input
+                        type="checkbox"
+                        aria-label="Select all"
+                        checked={isAllSelected}
+                        onChange={toggleSelectAll}
+                        className="onx-checkbox"
+                      />
+                    )}
                   </th>
                   <th scope="col" className="px-4 py-2.5">Name</th>
                   <th scope="col" className="px-4 py-2.5 w-32">Size</th>
@@ -873,7 +875,7 @@ export function ServerFilesPage() {
                         className="flex items-center gap-2.5 cursor-pointer text-left focus:outline-hidden focus-visible:ring-1 focus-visible:ring-border-focus rounded font-medium text-text-primary"
                         aria-label="Navigate to parent directory"
                       >
-                        <Icon name="folder" className="text-accent-primary" size={16} />
+                        <Icon name="folder" className="text-text-muted" size={16} />
                         <span>..</span>
                       </button>
                     </td>
@@ -887,13 +889,15 @@ export function ServerFilesPage() {
                     className="hover:bg-surface-hover/50 transition-colors group"
                   >
                     <td className="w-10 px-4 py-2">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${file.name}`}
-                        checked={selectedPaths.has(file.path)}
-                        onChange={() => toggleSelect(file.path)}
-                        className="rounded border-border-default accent-accent-primary cursor-pointer"
-                      />
+                      {!file.is_dir && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${file.name}`}
+                          checked={selectedPaths.has(file.path)}
+                          onChange={() => toggleSelect(file.path)}
+                          className="onx-checkbox"
+                        />
+                      )}
                     </td>
                     <td className="px-4 py-2">
                       <button
@@ -912,9 +916,9 @@ export function ServerFilesPage() {
                         <Icon
                           name={file.is_dir ? "folder" : "file"}
                           size={16}
-                          className={file.is_dir ? "text-accent-primary" : "text-text-muted"}
+                          className="text-text-muted"
                         />
-                        <span className="font-medium text-text-primary truncate max-w-[200px] sm:max-w-xs md:max-w-sm hover:text-accent-primary transition-colors">
+                        <span className="font-medium text-text-primary truncate max-w-[200px] sm:max-w-xs md:max-w-sm hover:text-text-accent transition-colors">
                           {file.name}
                         </span>
                       </button>
@@ -1038,7 +1042,7 @@ export function ServerFilesPage() {
             autoFocus
             maxLength={500}
             disabled={commitMutation.isPending}
-            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+            className="w-full rounded-lg border border-border-subtle hover:border-border-hover bg-surface-page px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus transition-colors"
           />
           <div className="mt-4 flex justify-end gap-2">
             <Button

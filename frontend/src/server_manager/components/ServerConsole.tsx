@@ -21,6 +21,7 @@ interface ServerConsoleProps {
   provider?: string | null;
   host?: string | null;
   port?: number | null;
+  compactHeader?: boolean;
 }
 
 const containerBadgeClass =
@@ -63,6 +64,7 @@ export function ServerConsole({
   provider,
   host,
   port,
+  compactHeader = false,
 }: ServerConsoleProps) {
   const isContainer = provider === "docker" || provider === "container";
   const displayAddress = host ? (port ? `${host}:${port}` : host) : null;
@@ -250,69 +252,73 @@ export function ServerConsole({
             />
             <span>Server Console</span>
 
-            {/* High-Contrast Status Capsule */}
-            {isRunning ? (
-              <span
-                data-testid="console-status-capsule"
-                className="inline-flex items-center gap-1.5 rounded-full border border-status-success/40 bg-status-success-bg px-2.5 py-0.5 font-mono text-[11px] font-bold text-status-success shadow-xs"
-              >
-                <span className="text-[9px] leading-none" aria-hidden="true">●</span>
-                <span>ONLINE · PORT {port ?? 25565}</span>
-              </span>
-            ) : (
-              <span
-                data-testid="console-status-capsule"
-                className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-2.5 py-0.5 font-mono text-[11px] font-bold text-text-secondary shadow-xs"
-              >
-                <span className="text-[9px] leading-none" aria-hidden="true">○</span>
-                <span>OFFLINE · CONTAINER HALTED</span>
-              </span>
-            )}
+            {!compactHeader && (
+              <>
+                {/* High-Contrast Status Capsule */}
+                {isRunning ? (
+                  <span
+                    data-testid="console-status-capsule"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-status-success/40 bg-status-success-bg px-2.5 py-0.5 font-mono text-[11px] font-bold text-status-success shadow-xs"
+                  >
+                    <span className="text-[9px] leading-none" aria-hidden="true">●</span>
+                    <span>ONLINE · PORT {port ?? 25565}</span>
+                  </span>
+                ) : (
+                  <span
+                    data-testid="console-status-capsule"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-2.5 py-0.5 font-mono text-[11px] font-bold text-text-secondary shadow-xs"
+                  >
+                    <span className="text-[9px] leading-none" aria-hidden="true">○</span>
+                    <span>OFFLINE · CONTAINER HALTED</span>
+                  </span>
+                )}
 
-            {/* Active Player Counter Badge */}
-            <div
-              data-testid="console-player-counter-capsule"
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-elevated border border-border-default text-[11px] text-text-secondary font-mono"
-              title="Active Players"
-            >
-              <Icon name="users" size={12} className="text-text-muted" />
-              <span>{livePlayers ?? 0} / 20 Players</span>
-            </div>
-            {isContainer ? (
-              <span
-                data-testid="console-provider-badge"
-                className={containerBadgeClass}
-                title="Runtime: Docker Container"
-              >
-                <Icon name="server" size={11} className="text-status-info" />
-                <span>Container</span>
-              </span>
-            ) : (
-              <span
-                data-testid="console-provider-badge"
-                className={hostBadgeClass}
-                title="Runtime: Host Filesystem / Process"
-              >
-                <Icon name="folder" size={11} className="text-accent-primary" />
-                <span>File / Host</span>
-              </span>
-            )}
-            {displayAddress && (
-              <span
-                data-testid="console-ip-badge"
-                className={
-                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +
-                  "font-medium bg-surface-muted text-text-secondary border border-border-default font-sans"
-                }
-                title={
-                  isContainer
-                    ? `Container IP: ${displayAddress}`
-                    : `Host IP: ${displayAddress}`
-                }
-              >
-                <Icon name="globe" size={10} className="text-text-muted" />
-                <span className="font-mono">{displayAddress}</span>
-              </span>
+                {/* Active Player Counter Badge */}
+                <div
+                  data-testid="console-player-counter-capsule"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-elevated border border-border-default text-[11px] text-text-secondary font-mono"
+                  title="Active Players"
+                >
+                  <Icon name="users" size={12} className="text-text-muted" />
+                  <span>{livePlayers ?? 0} / 20 Players</span>
+                </div>
+                {isContainer ? (
+                  <span
+                    data-testid="console-provider-badge"
+                    className={containerBadgeClass}
+                    title="Runtime: Docker Container"
+                  >
+                    <Icon name="server" size={11} className="text-status-info" />
+                    <span>Container</span>
+                  </span>
+                ) : (
+                  <span
+                    data-testid="console-provider-badge"
+                    className={hostBadgeClass}
+                    title="Runtime: Host Filesystem / Process"
+                  >
+                    <Icon name="folder" size={11} className="text-accent-primary" />
+                    <span>File / Host</span>
+                  </span>
+                )}
+                {displayAddress && (
+                  <span
+                    data-testid="console-ip-badge"
+                    className={
+                      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +
+                      "font-medium bg-surface-muted text-text-secondary border border-border-default font-sans"
+                    }
+                    title={
+                      isContainer
+                        ? `Container IP: ${displayAddress}`
+                        : `Host IP: ${displayAddress}`
+                    }
+                  >
+                    <Icon name="globe" size={10} className="text-text-muted" />
+                    <span className="font-mono">{displayAddress}</span>
+                  </span>
+                )}
+              </>
             )}
           </div>
 

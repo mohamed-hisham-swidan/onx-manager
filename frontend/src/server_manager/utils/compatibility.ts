@@ -133,6 +133,96 @@ export function groupGameVersions(versions: string[]): string[] {
   return [...pills, ...sortedNonNumeric];
 }
 
+export function isSnapshotOrPreRelease(version: string): boolean {
+  return parseGameVersion(version) === null;
+}
+
+export function splitReleaseAndSnapshotVersions(versions: string[]): {
+  releases: string[];
+  snapshots: string[];
+} {
+  const releases: string[] = [];
+  const snapshots: string[] = [];
+  for (const v of versions) {
+    const trimmed = v.trim();
+    if (!trimmed) continue;
+    if (isSnapshotOrPreRelease(trimmed)) {
+      snapshots.push(trimmed);
+    } else {
+      releases.push(trimmed);
+    }
+  }
+  return { releases, snapshots };
+}
+
+export function groupReleaseVersions(versions: string[]): {
+  releasePills: string[];
+  snapshots: string[];
+} {
+  const { releases, snapshots } = splitReleaseAndSnapshotVersions(versions);
+  const releasePills = groupGameVersions(releases);
+  const uniqueSnapshots = [...new Set(snapshots)].sort().reverse();
+  return { releasePills, snapshots: uniqueSnapshots };
+}
+
+const POPULAR_MC_VERSIONS = new Set([
+  "1.21.4",
+  "1.21.1",
+  "1.20.4",
+  "1.20.1",
+  "1.19.4",
+  "1.19.2",
+  "1.18.2",
+  "1.17.1",
+  "1.16.5",
+  "1.12.2",
+  "1.8.9",
+]);
+
+export function categorizeServerVersions(
+  versions: string[],
+  selected?: string,
+): {
+  mainVersions: string[];
+  snapshotAndDropVersions: string[];
+  allVersions: string[];
+} {
+  const latestByMinor = new Map<number, ParsedVersion>();
+
+  for (const v of versions) {
+    const parsed = parseGameVersion(v);
+    if (!parsed || parsed.major !== 1) continue;
+    const prev = latestByMinor.get(parsed.minor);
+    if (!prev || parsed.patch > prev.patch) {
+      latestByMinor.set(parsed.minor, parsed);
+    }
+  }
+
+  const mainVersions: string[] = [];
+  const snapshotAndDropVersions: string[] = [];
+
+  for (const v of versions) {
+    const parsed = parseGameVersion(v);
+    if (!parsed || parsed.major >= 26) {
+      snapshotAndDropVersions.push(v);
+      continue;
+    }
+    if (parsed.major === 1) {
+      const latestForMinor = latestByMinor.get(parsed.minor);
+      const isLatest = latestForMinor?.raw === parsed.raw;
+      if (isLatest || POPULAR_MC_VERSIONS.has(parsed.raw) || (selected && v === selected)) {
+        mainVersions.push(v);
+      }
+    }
+  }
+
+  return {
+    mainVersions,
+    snapshotAndDropVersions,
+    allVersions: versions,
+  };
+}
+
 export function environmentLabels(clientSide?: string | null, serverSide?: string | null): string[] {
   const labels: string[] = [];
   if (clientSide === "required" || clientSide === "optional") labels.push("Client-side");

@@ -6,10 +6,12 @@ import { SoftwareStep } from "@/server_manager/components/wizard/SoftwareStep";
 import { VersionStep } from "@/server_manager/components/wizard/VersionStep";
 import { ConfigStep } from "@/server_manager/components/wizard/ConfigStep";
 import { PropertiesStep } from "@/server_manager/components/wizard/PropertiesStep";
+import { AddonsStep } from "@/server_manager/components/wizard/AddonsStep";
 import { ReviewStep } from "@/server_manager/components/wizard/ReviewStep";
 import {
-  STEPS,
   INITIAL_DATA,
+  generateNextServerName,
+  getWizardSteps,
   type Step,
   type WizardData,
 } from "@/server_manager/components/wizard/types";
@@ -43,6 +45,14 @@ export function CreateServerPage() {
   const [creationMode, setCreationMode] = useState<"standard" | "modpack">("standard");
   const [isModpackWizardOpen, setIsModpackWizardOpen] = useState(false);
   const [modpackInstalled, setModpackInstalled] = useState(false);
+  const [installingAddons, setInstallingAddons] = useState(false);
+  const [addonInstallStatus, setAddonInstallStatus] = useState<string | null>(null);
+  const [installedAddonTitles, setInstalledAddonTitles] = useState<string[]>([]);
+  const [failedAddonTitles, setFailedAddonTitles] = useState<{ title: string; error: string }[]>([]);
+  const nameTouchedRef = useRef(false);
+
+  const wizardSteps = useMemo(() => getWizardSteps(data.serverType), [data.serverType]);
+  const hasAddonsStep = wizardSteps.some((s) => s.key === "addons");
 
   const visibleSoftwareList = useMemo(
     () =>
@@ -59,9 +69,26 @@ export function CreateServerPage() {
       data.serverType &&
       !isModpackSupportedLoader(data.serverType)
     ) {
-      setData((d) => ({ ...d, serverType: "", minecraftVersion: "" }));
+      setData((d) => ({ ...d, serverType: "", minecraftVersion: "", selectedAddons: [] }));
     }
   };
+
+  useEffect(() => {
+    if (!api.listServers) return;
+    let cancelled = false;
+    api
+      .listServers()
+      .then((list) => {
+        if (cancelled || nameTouchedRef.current) return;
+        const names = (Array.isArray(list) ? list : []).map((s) => s.name).filter(Boolean);
+        const suggested = generateNextServerName(names);
+        setData((d) => (nameTouchedRef.current ? d : { ...d, name: suggested }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   useEffect(() => {
     if (api.getSetupStatus) {
@@ -124,10 +151,18 @@ export function CreateServerPage() {
     }
   }, [api, step]);
 
-  const update = (partial: Partial<WizardData>) => setData((d) => ({ ...d, ...partial }));
+  const update = (partial: Partial<WizardData>) => {
+    if ("name" in partial) {
+      nameTouchedRef.current = true;
+    }
+    setData((d) => ({ ...d, ...partial }));
+  };
 
   const handleCreate = async () => {
     setError("");
+    setInstalledAddonTitles([]);
+    setFailedAddonTitles([]);
+    setAddonInstallStatus(null);
     try {
       const minMem = Math.max(512, Number(data.minMemoryMb) || 1024);
       const maxMem = Math.max(minMem, Number(data.maxMemoryMb) || 2048);
@@ -152,7 +187,37 @@ export function CreateServerPage() {
         provider: "docker",
         mode: data.mode,
       });
-      setCreatedId(result.server_id as string);
+      const newServerId = result.server_id as string;
+      setCreatedId(newServerId);
+
+      if (data.selectedAddons.length > 0 && api.installFromMarketplace) {
+        setInstallingAddons(true);
+        const installed: string[] = [];
+        const failed: { title: string; error: string }[] = [];
+        for (let i = 0; i < data.selectedAddons.length; i += 1) {
+          const addon = data.selectedAddons[i];
+          setAddonInstallStatus(
+            `Installing ${addon.project_type === "mod" ? "mods" : "plugins"} (${i + 1}/${data.selectedAddons.length}): ${addon.title}...`,
+          );
+          try {
+            await api.installFromMarketplace(newServerId, {
+              project_id: addon.project_id,
+              minecraft_version: data.minecraftVersion || undefined,
+            });
+            installed.push(addon.title);
+          } catch (addonErr) {
+            failed.push({
+              title: addon.title,
+              error: addonErr instanceof Error ? addonErr.message : "Install failed",
+            });
+          }
+        }
+        setInstalledAddonTitles(installed);
+        setFailedAddonTitles(failed);
+        setInstallingAddons(false);
+        setAddonInstallStatus(null);
+      }
+
       setStep("done");
       if (creationMode === "modpack") {
         setIsModpackWizardOpen(true);
@@ -206,28 +271,62 @@ export function CreateServerPage() {
       </div>
 
       {step !== "done" && (
-        <div className="flex mb-8 space-x-1">
-          {STEPS.map((s, i) => {
-            const idx = STEPS.findIndex((x) => x.key === step);
-            const isActive = s.key === step;
-            const isDone = idx >= i;
-            return (
-              <div key={s.key} className="flex-1">
-                <div
-                  className={`text-xs font-medium text-center py-1.5 rounded transition-colors ${
-                    isActive
-                      ? "bg-accent-primary text-white shadow-xs"
-                      : isDone
-                        ? "bg-accent-primary/20 text-accent-primary"
-                        : "bg-surface-hover text-text-muted"
-                  }`}
-                >
-                  {s.label}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <nav aria-label="Server creation steps" className="mb-8 rounded-xl border border-border-default bg-surface-card p-4 shadow-2xs">
+          <ol className="flex items-start justify-between">
+            {wizardSteps.map((s, i) => {
+              const activeIdx = wizardSteps.findIndex((x) => x.key === step);
+              const isActive = s.key === step;
+              const isCompleted = activeIdx > i;
+              const isLast = i === wizardSteps.length - 1;
+              return (
+                <li key={s.key} className={`flex items-start ${isLast ? "" : "flex-1"}`}>
+                  <button
+                    type="button"
+                    disabled={!isCompleted}
+                    aria-current={isActive ? "step" : undefined}
+                    onClick={() => {
+                      if (isCompleted) setStep(s.key);
+                    }}
+                    className={`flex flex-col items-center gap-1.5 text-center group shrink-0 ${
+                      isCompleted ? "cursor-pointer" : "cursor-default"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition-all ${
+                        isActive
+                          ? "border-accent-primary bg-accent-primary text-white ring-4 ring-accent-primary/20"
+                          : isCompleted
+                            ? "border-accent-primary bg-accent-primary/15 text-accent-primary group-hover:bg-accent-primary/25"
+                            : "border-border-default bg-surface-page text-text-muted"
+                      }`}
+                    >
+                      {isCompleted ? <Icon name="check" size={14} /> : i + 1}
+                    </span>
+                    <span
+                      className={`text-[11px] font-medium whitespace-nowrap transition-colors ${
+                        isActive
+                          ? "text-text-primary font-semibold"
+                          : isCompleted
+                            ? "text-text-secondary group-hover:text-text-primary"
+                            : "text-text-muted"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                  </button>
+                  {!isLast && (
+                    <div
+                      aria-hidden="true"
+                      className={`mt-3.5 h-0.5 flex-1 mx-2 rounded-full transition-colors ${
+                        activeIdx > i ? "bg-accent-primary" : "bg-border-subtle"
+                      }`}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
       )}
 
       {error && (
@@ -286,7 +385,11 @@ export function CreateServerPage() {
             softwareList={visibleSoftwareList}
             selected={data.serverType}
             onSelect={(t) => {
-              update({ serverType: t, minecraftVersion: "" });
+              update({
+                serverType: t,
+                minecraftVersion: "",
+                ...(data.serverType !== t ? { selectedAddons: [] } : {}),
+              });
               setStep("version");
             }}
           />
@@ -323,17 +426,36 @@ export function CreateServerPage() {
         <PropertiesStep
           data={data}
           onChange={update}
-          onNext={() => setStep("review")}
+          onNext={() => setStep(hasAddonsStep ? "addons" : "review")}
           onBack={() => setStep("config")}
+        />
+      )}
+
+      {step === "addons" && (
+        <AddonsStep
+          serverType={data.serverType}
+          minecraftVersion={data.minecraftVersion}
+          selectedAddons={data.selectedAddons}
+          installModpack={creationMode === "modpack"}
+          onToggleModpack={(enabled) => setCreationMode(enabled ? "modpack" : "standard")}
+          onChangeAddons={(selectedAddons) => update({ selectedAddons })}
+          onNext={() => setStep("review")}
+          onSkip={() => {
+            update({ selectedAddons: [] });
+            setStep("review");
+          }}
+          onBack={() => setStep("properties")}
         />
       )}
 
       {step === "review" && (
         <ReviewStep
           data={data}
-          creating={createServer.isPending}
+          creating={createServer.isPending || installingAddons}
+          installModpack={creationMode === "modpack"}
+          statusMessage={addonInstallStatus}
           onCreate={handleCreate}
-          onBack={() => setStep("properties")}
+          onBack={() => setStep(hasAddonsStep ? "addons" : "properties")}
         />
       )}
 
@@ -348,8 +470,27 @@ export function CreateServerPage() {
               ? modpackInstalled
                 ? `${data.name} is set up and your modpack has been installed.`
                 : `${data.name} has been provisioned. Install your .mrpack or CurseForge modpack below.`
-              : `${data.name} is being set up. Server JAR has been downloaded and configured.`}
+              : installedAddonTitles.length > 0
+                ? `${data.name} is ready with ${installedAddonTitles.length} installed (${installedAddonTitles.join(", ")}).`
+                : `${data.name} is being set up. Server JAR has been downloaded and configured.`}
           </p>
+          {failedAddonTitles.length > 0 && (
+            <div
+              role="alert"
+              className="mx-auto mb-5 max-w-lg rounded-xl border border-status-warning/30 bg-status-warning-bg px-4 py-3 text-left text-xs text-status-warning"
+            >
+              <div className="font-semibold mb-1">
+                Some optional add-ons could not be installed automatically:
+              </div>
+              <ul className="list-disc list-inside space-y-0.5">
+                {failedAddonTitles.map((f) => (
+                  <li key={f.title}>
+                    {f.title}: {f.error}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="flex flex-wrap justify-center gap-3">
             {creationMode === "modpack" && (
               <button

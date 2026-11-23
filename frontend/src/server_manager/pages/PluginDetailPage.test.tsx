@@ -298,4 +298,32 @@ describe("PluginDetailPage", () => {
       document.querySelector("a[href^='javascript:']"),
     ).not.toBeInTheDocument();
   });
+
+  it("renders inline code without backticks, styled details disclosures, and center alignment", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        body:
+          "<div align=\"center\">\n\n| Command | Permission |\n|---|---|\n| /veinminer blocks | `veinminer.blocks` |\n\n</div>\n\n" +
+          "<details><summary>General Settings</summary>\n\nEnable vein mining globally.\n\n</details>",
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+
+    const markdownRoot = document.querySelector(".onx-markdown");
+    expect(markdownRoot).not.toBeNull();
+    expect(markdownRoot).toHaveClass("prose-code:before:content-none", "prose-code:after:content-none");
+
+    const codeEl = screen.getByText("veinminer.blocks");
+    expect(codeEl.tagName.toLowerCase()).toBe("code");
+    expect(codeEl).toHaveClass("font-mono", "bg-surface-muted");
+
+    const summary = screen.getByText("General Settings");
+    expect(summary.tagName.toLowerCase()).toBe("summary");
+    expect(summary.closest("details")).toHaveClass("rounded-lg", "border");
+    expect(document.querySelector('[align="center"]')).not.toBeNull();
+  });
 });

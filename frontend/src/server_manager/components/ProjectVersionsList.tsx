@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   MARKETPLACE_PAGE_SIZE,
@@ -9,7 +9,10 @@ import { useServersList } from "@/server_manager/hooks/useServers";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { formatBytes, formatDateTime } from "@/server_manager/utils/format";
 import { selectRecommendedVersion } from "@/server_manager/utils/versionMatching";
-import { getLoaderDisplay } from "@/server_manager/utils/compatibility";
+import {
+  getLoaderDisplay,
+  groupReleaseVersions,
+} from "@/server_manager/utils/compatibility";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/ui/Icon";
@@ -50,13 +53,23 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
     );
   }, [lastUsedServer, versions]);
 
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set());
+  const toggleExpanded = (versionId: string) => {
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(versionId)) next.delete(versionId);
+      else next.add(versionId);
+      return next;
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-3" data-testid="project-versions-loading">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-xl border border-border-default bg-surface-card p-4 space-y-2"
+            className="rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs space-y-2"
           >
             <div className="flex items-center justify-between">
               <Skeleton className="h-5 w-32" />
@@ -83,7 +96,7 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
   if (totalVersions === 0) {
     return (
       <div
-        className="rounded-xl border border-border-default bg-surface-card p-8 text-center"
+        className="rounded-xl border border-border-subtle bg-surface-card p-8 shadow-2xs text-center"
         data-testid="no-versions-state"
       >
         <p className="text-sm text-text-muted">
@@ -99,6 +112,12 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
         {versions.map((v) => {
           const isRecommended = recommendedVersion?.version_id === v.version_id;
           const primary = v.files.find((f) => f.primary) ?? v.files[0];
+          const { releasePills, snapshots } = groupReleaseVersions(v.game_versions);
+          const primaryList = releasePills.length > 0 ? releasePills : snapshots;
+          const isExpanded = expandedCards.has(v.version_id);
+          const visiblePrimary = isExpanded ? primaryList : primaryList.slice(0, 5);
+          const hiddenReleaseCount = Math.max(0, primaryList.length - 5);
+          const hasHiddenSnapshots = releasePills.length > 0 && snapshots.length > 0;
 
           return (
             <div
@@ -106,8 +125,8 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
               data-testid={`version-card-${v.version_id}`}
               className={`rounded-xl border p-4 transition-colors ${
                 isRecommended
-                  ? "border-accent-primary bg-accent-primary/10"
-                  : "border-border-default bg-surface-card"
+                  ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                  : "border-border-subtle bg-surface-card shadow-2xs"
               }`}
             >
               <div className="flex items-start justify-between gap-4">
@@ -147,8 +166,8 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
                       );
                     })}
 
-                    {/* Game versions (raw) */}
-                    {v.game_versions.map((gv) => (
+                    {/* Grouped game versions (releases first; snapshots expandable) */}
+                    {visiblePrimary.map((gv) => (
                       <span
                         key={gv}
                         className="rounded-md bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary"
@@ -156,6 +175,31 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
                         {gv}
                       </span>
                     ))}
+                    {isExpanded &&
+                      hasHiddenSnapshots &&
+                      snapshots.map((snap) => (
+                        <span
+                          key={snap}
+                          className="rounded-md border border-border-subtle bg-surface-muted/70 px-2 py-0.5 text-xs font-medium text-text-muted"
+                        >
+                          {snap}
+                        </span>
+                      ))}
+                    {(hiddenReleaseCount > 0 || hasHiddenSnapshots) && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(v.version_id)}
+                        className="rounded-md border border-border-subtle px-2 py-0.5 text-xs font-medium text-text-muted hover:border-border-hover hover:text-text-primary transition-colors cursor-pointer"
+                      >
+                        {isExpanded
+                          ? "Show less"
+                          : hiddenReleaseCount > 0 && hasHiddenSnapshots
+                            ? `+${hiddenReleaseCount} more · +${snapshots.length} snapshots`
+                            : hiddenReleaseCount > 0
+                              ? `+${hiddenReleaseCount} more`
+                              : `+${snapshots.length} snapshots`}
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">

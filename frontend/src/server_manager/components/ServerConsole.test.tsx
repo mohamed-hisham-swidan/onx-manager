@@ -45,6 +45,7 @@ function renderConsole(
     provider?: string | null;
     host?: string | null;
     port?: number | null;
+    compactHeader?: boolean;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -63,6 +64,7 @@ function renderConsole(
         provider={props.provider}
         host={props.host}
         port={props.port}
+        compactHeader={props.compactHeader}
       />
     </QueryClientProvider>,
   );
@@ -435,5 +437,21 @@ describe("ServerConsole Component", () => {
     expect(logContainer?.className).toContain("calc(100dvh-33rem)");
     expect(logContainer?.className).not.toMatch(/(^|\s)h-\[420px\]/);
     expect(logContainer?.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
+  });
+
+  it("hides duplicated status, player, provider, and IP capsules when compactHeader is enabled", async () => {
+    renderConsole({
+      serverStatus: "stopped",
+      provider: "docker",
+      host: "127.0.0.1",
+      port: 25565,
+      compactHeader: true,
+    });
+    expect(screen.getByText("Server Console")).toBeInTheDocument();
+    expect(screen.getByTestId("console-tps-badge")).toBeInTheDocument();
+    expect(screen.queryByTestId("console-status-capsule")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("console-player-counter-capsule")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("console-provider-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("console-ip-badge")).not.toBeInTheDocument();
   });
 });

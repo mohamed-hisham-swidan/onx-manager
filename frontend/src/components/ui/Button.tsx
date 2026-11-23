@@ -13,9 +13,9 @@ const variantStyles: Record<NonNullable<ButtonProps["variant"]>, string> = {
   primary:
     "bg-accent-primary text-accent-contrast-text hover:bg-accent-hover active:bg-accent-active border-transparent shadow-xs",
   secondary:
-    "bg-surface-card text-text-primary hover:bg-surface-hover border-border-default active:bg-surface-active",
+    "bg-surface-card text-text-primary hover:bg-surface-hover border-border-subtle hover:border-border-hover active:bg-surface-active shadow-2xs",
   outline:
-    "bg-transparent text-text-primary hover:bg-surface-hover border-border-default active:bg-surface-active",
+    "bg-transparent text-text-primary hover:bg-surface-hover border-border-subtle hover:border-border-hover active:bg-surface-active",
   ghost:
     "bg-transparent text-text-secondary hover:bg-surface-hover hover:text-text-primary border-transparent",
   danger:

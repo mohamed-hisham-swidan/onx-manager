@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useServerDetail, useServerRuntime } from "@/server_manager/hooks/useServers";
+import {
+  useServerDetail,
+  useServerRuntime,
+  useRetryProvisioningServer,
+} from "@/server_manager/hooks/useServers";
 import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
@@ -64,6 +68,7 @@ export function ServerDetailPage() {
   const { data: runtime } = useServerRuntime(serverId ?? "");
   const { data: metrics } = useServerMetrics(serverId ?? "");
   const { exposure } = useServerExposure(serverId ?? "");
+  const retryProvisioning = useRetryProvisioningServer();
   const { copy } = useClipboard();
 
   const [infoExpanded, setInfoExpanded] = useState(false);
@@ -170,6 +175,35 @@ export function ServerDetailPage() {
         />
       )}
 
+      {server.status === "provisioning_failed" && (
+        <div
+          data-testid="provisioning-failed-banner"
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg px-4 py-3 text-sm"
+        >
+          <div className="flex items-start gap-2.5 min-w-0">
+            <Icon name="alert" size={18} className="mt-0.5 shrink-0 text-status-danger" />
+            <div className="min-w-0">
+              <p className="font-semibold text-status-danger">Server Installation Failed</p>
+              <p className="text-xs text-text-secondary break-words">
+                {server.provisioning_error ||
+                  "The server installer did not finish cleanly. Retry provisioning to resume setup."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid="detail-retry-provisioning-btn"
+            disabled={retryProvisioning.isPending}
+            onClick={() => retryProvisioning.mutate(serverId)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-status-danger px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer shrink-0"
+          >
+            <Icon name="restart" size={14} />
+            {retryProvisioning.isPending ? "Retrying..." : "Retry Provisioning"}
+          </button>
+        </div>
+      )}
+
       {/* 12-Column Terminal Workspace Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 lg:items-stretch">
         {/* Left (col-span-8 or 9 on wide monitors): IDE-Grade Terminal Emulator */}
@@ -183,6 +217,7 @@ export function ServerDetailPage() {
               provider={server.provider}
               host={server.deployment_host}
               port={server.deployment_port ?? server.port}
+              compactHeader
             />
           </div>
 
@@ -327,7 +362,7 @@ export function ServerDetailPage() {
                 type="button"
                 data-testid="detail-open-modpack-wizard-btn"
                 onClick={() => setIsModpackWizardOpen(true)}
-                className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+                className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-subtle bg-surface-card px-3 py-2 text-xs font-medium text-text-primary shadow-2xs transition-colors hover:border-border-hover hover:bg-surface-hover cursor-pointer"
               >
                 <Icon name="download" size={14} />
                 Install Modpack
@@ -337,7 +372,7 @@ export function ServerDetailPage() {
               type="button"
               data-testid="detail-open-safe-upgrade-wizard-btn"
               onClick={() => setIsSafeUpgradeWizardOpen(true)}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-subtle bg-surface-card px-3 py-2 text-xs font-medium text-text-primary shadow-2xs transition-colors hover:border-border-hover hover:bg-surface-hover cursor-pointer"
             >
               <Icon name="restart" size={14} />
               1-Click Safe Upgrade

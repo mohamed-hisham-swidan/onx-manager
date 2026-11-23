@@ -19,6 +19,7 @@ import { ServerP55SettingsCard } from "./ServerP55SettingsCard";
 import { ModpackInstallWizardModal } from "./ModpackInstallWizardModal";
 import { SafeUpgradeWizardModal } from "./SafeUpgradeWizardModal";
 import { UpgradePinnedBanner } from "./UpgradePinnedBanner";
+import { useOperationStore } from "@/operations/stores/operationStore";
 
 const mockApi = {
   getCurseForgeIntegrationStatus: vi.fn(),
@@ -31,6 +32,7 @@ const mockApi = {
   updateServerP55Settings: vi.fn(),
   inspectModpack: vi.fn(),
   installModpack: vi.fn(),
+  getOperation: vi.fn(),
   listServerUpgrades: vi.fn(),
   getServerUpgrade: vi.fn(),
   planServerUpgrade: vi.fn(),
@@ -683,6 +685,198 @@ describe("ModpackInstallWizardModal", () => {
         "CurseForge requires a manual download. Upload the newly blocked file below to continue.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("renders skipped path notes in a collapsed neutral disclosure instead of a warning banner", async () => {
+    const user = userEvent.setup();
+    mockApi.inspectModpack.mockResolvedValue({
+      ...INSPECTION,
+      plan: {
+        ...PLAN,
+        warnings: [
+          "skipped_path:config/fancymenu/README.md",
+          "skipped_path:config/fancymenu/assets/bg.png",
+        ],
+      },
+    });
+
+    renderWithProviders(
+      <ModpackInstallWizardModal serverId="srv-p55" isOpen onClose={vi.fn()} />,
+    );
+
+    await user.upload(
+      screen.getByTestId("modpack-file-input"),
+      new File(["archive"], "pack.mrpack", { type: "application/zip" }),
+    );
+    await user.click(screen.getByTestId("inspect-modpack-btn"));
+
+    const details = await screen.findByTestId("modpack-skipped-paths-details");
+    expect(details).toBeInTheDocument();
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.queryByText("Inspection warnings")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Skipped non-server paths & notes (2)"),
+    ).toBeInTheDocument();
+  });
+
+  it("opens operation drawer and shows live progress, current file, and logs in background mode", async () => {
+    const user = userEvent.setup();
+    useOperationStore.setState({
+      operations: {},
+      activeDrawerId: null,
+      logs: {},
+      gapDetectedOperations: {},
+    });
+    mockApi.inspectModpack.mockResolvedValue(INSPECTION);
+    mockApi.installModpack.mockResolvedValue({
+      server_id: "srv-p55",
+      upgrade_id: "staged-pack-1",
+      status: "installing",
+      mc_version: "1.21.4",
+      loader_id: "fabric",
+      loader_version: "0.16.9",
+      lec_key: null,
+      files_installed: 0,
+      base_overrides_count: 0,
+      commit_sha: null,
+      operation_id: "op-bg-1",
+    });
+    mockApi.getOperation.mockResolvedValue({
+      id: "op-bg-1",
+      type: "MODPACK_INSTALL",
+      target_type: "server",
+      target_id: "srv-p55",
+      actor_id: "local-admin",
+      status: "RUNNING",
+      idempotency_key: null,
+      current_step_id: "INSTALL_MODPACK",
+      last_event_seq: 1,
+      failure_code: null,
+      error_message: null,
+      cancellation_requested: false,
+      timeout_seconds: 600,
+      created_at: "2026-01-01T00:00:00Z",
+      started_at: "2026-01-01T00:00:00Z",
+      finished_at: null,
+      elapsed_ms: 1200,
+      steps: [
+        {
+          id: "step-1",
+          step_id: "INSTALL_MODPACK",
+          sequence: 1,
+          status: "IN_PROGRESS",
+          progress: 45,
+          elapsed_ms: 1200,
+          message_key: "Downloading modpack files (1/2)...",
+          safe_to_retry: false,
+          context: { current_file: "mods/example-mod.jar", total: 2 },
+          started_at: "2026-01-01T00:00:00Z",
+          completed_at: null,
+        },
+      ],
+      metadata: {},
+    });
+    useOperationStore
+      .getState()
+      .appendLog("op-bg-1", "info", "Downloading [1/2]: mods/example-mod.jar");
+
+    renderWithProviders(
+      <ModpackInstallWizardModal serverId="srv-p55" isOpen onClose={vi.fn()} />,
+    );
+
+    await user.upload(
+      screen.getByTestId("modpack-file-input"),
+      new File(["archive"], "pack.mrpack", { type: "application/zip" }),
+    );
+    await user.click(screen.getByTestId("inspect-modpack-btn"));
+    await screen.findByText("Test Pack 1.0");
+
+    await user.click(screen.getByTestId("modpack-async-checkbox"));
+    await user.click(screen.getByTestId("confirm-install-modpack-btn"));
+
+    await waitFor(() =>
+      expect(mockApi.installModpack).toHaveBeenCalledWith("srv-p55", {
+        staged_pack_id: "staged-pack-1",
+        build_lec: false,
+        async_mode: true,
+      }),
+    );
+
+    expect(useOperationStore.getState().activeDrawerId).toBe("op-bg-1");
+    const progress = await screen.findByTestId("modpack-live-progress");
+    expect(progress).toHaveTextContent("Downloading modpack files (1/2)...");
+    expect(progress).toHaveTextContent("RUNNING · 45%");
+    expect(progress).toHaveTextContent("Downloading: mods/example-mod.jar");
+    expect(screen.getByTestId("modpack-live-logs")).toHaveTextContent(
+      "Downloading [1/2]: mods/example-mod.jar",
+    );
+    expect(
+      screen.queryByText(/Modpack installed successfully/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("displays operation error banner when background modpack install fails", async () => {
+    const user = userEvent.setup();
+    useOperationStore.setState({
+      operations: {},
+      activeDrawerId: null,
+      logs: {},
+      gapDetectedOperations: {},
+    });
+    mockApi.inspectModpack.mockResolvedValue(INSPECTION);
+    mockApi.installModpack.mockResolvedValue({
+      server_id: "srv-p55",
+      upgrade_id: "staged-pack-1",
+      status: "installing",
+      mc_version: "1.21.4",
+      loader_id: "fabric",
+      loader_version: "0.16.9",
+      lec_key: null,
+      files_installed: 0,
+      base_overrides_count: 0,
+      commit_sha: null,
+      operation_id: "op-bg-fail",
+    });
+    mockApi.getOperation.mockResolvedValue({
+      id: "op-bg-fail",
+      type: "MODPACK_INSTALL",
+      target_type: "server",
+      target_id: "srv-p55",
+      actor_id: "local-admin",
+      status: "FAILED",
+      idempotency_key: null,
+      current_step_id: "INSTALL_MODPACK",
+      last_event_seq: 2,
+      failure_code: "INFRASTRUCTURE_ERROR",
+      error_message: "Download failed: HTTP 0 — Download timed out",
+      cancellation_requested: false,
+      timeout_seconds: 600,
+      created_at: "2026-01-01T00:00:00Z",
+      started_at: "2026-01-01T00:00:00Z",
+      finished_at: "2026-01-01T00:00:10Z",
+      elapsed_ms: 10000,
+      steps: [],
+      metadata: {},
+    });
+
+    renderWithProviders(
+      <ModpackInstallWizardModal serverId="srv-p55" isOpen onClose={vi.fn()} />,
+    );
+
+    await user.upload(
+      screen.getByTestId("modpack-file-input"),
+      new File(["archive"], "pack.mrpack", { type: "application/zip" }),
+    );
+    await user.click(screen.getByTestId("inspect-modpack-btn"));
+    await screen.findByText("Test Pack 1.0");
+
+    await user.click(screen.getByTestId("modpack-async-checkbox"));
+    await user.click(screen.getByTestId("confirm-install-modpack-btn"));
+
+    expect(
+      await screen.findByText("Download failed: HTTP 0 — Download timed out"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("confirm-install-modpack-btn")).toBeEnabled();
   });
 });
 

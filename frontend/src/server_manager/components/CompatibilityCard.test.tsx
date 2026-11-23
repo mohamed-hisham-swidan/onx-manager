@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { CompatibilityCard } from "./CompatibilityCard";
-import { groupGameVersions, environmentLabels } from "@/server_manager/utils/compatibility";
+import {
+  groupGameVersions,
+  groupReleaseVersions,
+  categorizeServerVersions,
+  environmentLabels,
+} from "@/server_manager/utils/compatibility";
 import { platformProjectType } from "@/server_manager/data/platforms";
 
 describe("groupGameVersions", () => {
@@ -188,5 +193,54 @@ describe("CompatibilityCard", () => {
     );
 
     expect(screen.queryByTestId("supported-environments-section")).not.toBeInTheDocument();
+  });
+
+  it("collapses snapshots behind a toggle button while keeping release pills visible", () => {
+    render(
+      <MemoryRouter>
+        <CompatibilityCard
+          gameVersions={["1.21", "1.21.1", "1.21.4", "26.1-snapshot-1", "24w14potato"]}
+          loaders={["fabric"]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("1.21.x")).toBeInTheDocument();
+    expect(screen.queryByText("26.1-snapshot-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("24w14potato")).not.toBeInTheDocument();
+
+    const toggle = screen.getByTestId("toggle-snapshots-btn");
+    expect(toggle).toHaveTextContent("+2 snapshots");
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("26.1-snapshot-1")).toBeInTheDocument();
+    expect(screen.getByText("24w14potato")).toBeInTheDocument();
+    expect(toggle).toHaveTextContent("Hide snapshots");
+  });
+});
+
+describe("groupReleaseVersions & categorizeServerVersions", () => {
+  it("separates grouped numeric releases from snapshots", () => {
+    expect(
+      groupReleaseVersions(["1.21", "1.21.1", "26.2-rc-1", "24w14potato"]),
+    ).toEqual({
+      releasePills: ["1.21.x"],
+      snapshots: ["26.2-rc-1", "24w14potato"],
+    });
+  });
+
+  it("curates popular and latest minor server versions into mainVersions", () => {
+    const result = categorizeServerVersions([
+      "26.1-snapshot-1",
+      "26.0",
+      "1.21.5",
+      "1.21.4",
+      "1.21.2",
+      "1.21.1",
+      "1.20.4",
+    ]);
+    expect(result.mainVersions).toEqual(["1.21.5", "1.21.4", "1.21.1", "1.20.4"]);
+    expect(result.snapshotAndDropVersions).toEqual(["26.1-snapshot-1", "26.0"]);
+    expect(result.allVersions).toHaveLength(7);
   });
 });

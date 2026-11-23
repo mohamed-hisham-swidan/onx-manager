@@ -12,7 +12,7 @@ export interface StatCardProps {
 }
 
 const variantStyles: Record<NonNullable<StatCardProps["variant"]>, string> = {
-  default: "border border-border-default bg-surface-card shadow-xs",
+  default: "border border-border-subtle bg-surface-card shadow-xs",
   inset: "bg-surface-muted",
   flush: "bg-surface-muted",
 };

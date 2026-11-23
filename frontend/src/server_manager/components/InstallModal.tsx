@@ -18,6 +18,7 @@ import type {
 } from "@/types";
 
 import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
+import { groupReleaseVersions } from "@/server_manager/utils/compatibility";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
@@ -207,7 +208,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
               </div>
 
               {isChangingServer ? (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-xl border border-border-default p-2">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-xl border border-border-subtle p-2">
                   {compatibleServers.map((s) => (
                     <button
                       key={s.server_id}
@@ -232,7 +233,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                   ))}
                 </div>
               ) : (
-                <div className="flex items-center justify-between rounded-xl border border-border-default bg-surface-muted p-3 text-xs">
+                <div className="flex items-center justify-between rounded-xl border border-border-subtle bg-surface-muted p-3 text-xs">
                   <div className="flex items-center gap-2 min-w-0">
                     <Icon name="server" size={16} className="text-text-muted shrink-0" />
                     <span className="font-semibold text-text-primary truncate">
@@ -265,7 +266,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                     type="button"
                     onClick={() => setIsVersionDropdownOpen(!isVersionDropdownOpen)}
                     disabled={install.isPending}
-                    className="w-full flex items-center justify-between rounded-xl border border-border-default bg-surface-card p-3 text-xs font-medium text-text-primary shadow-xs transition-colors hover:bg-surface-hover focus:border-border-focus focus:outline-none disabled:opacity-50"
+                    className="w-full flex items-center justify-between rounded-xl border border-border-subtle hover:border-border-hover bg-surface-card p-3 text-xs font-medium text-text-primary shadow-xs transition-colors hover:bg-surface-hover focus:border-border-focus focus:outline-none disabled:opacity-50"
                   >
                     <div className="flex items-center gap-2 truncate">
                       {activeVersion ? (
@@ -276,11 +277,18 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                               Recommended
                             </span>
                           )}
-                          {activeVersion.game_versions.length > 0 && (
-                            <span className="text-text-muted">
-                              (MC {activeVersion.game_versions.slice(0, 2).join(", ")})
-                            </span>
-                          )}
+                          {activeVersion.game_versions.length > 0 && (() => {
+                            const { releasePills, snapshots } = groupReleaseVersions(
+                              activeVersion.game_versions,
+                            );
+                            const summary = releasePills.length > 0 ? releasePills : snapshots;
+                            return (
+                              <span className="text-text-muted">
+                                (MC {summary.slice(0, 2).join(", ")}
+                                {summary.length > 2 ? ` +${summary.length - 2}` : ""})
+                              </span>
+                            );
+                          })()}
                         </>
                       ) : (
                         <span className="text-text-muted">Select version...</span>
@@ -294,7 +302,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                   </button>
 
                   {isVersionDropdownOpen && versionsResponse && (
-                    <div className="mt-2 max-h-60 overflow-y-auto rounded-xl border border-border-default bg-surface-card p-2 shadow-lg">
+                    <div className="mt-2 max-h-60 overflow-y-auto rounded-xl border border-border-subtle bg-surface-card p-2 shadow-lg">
                       <VersionList
                         versions={versionsResponse.versions}
                         selectedVersion={activeVersion}

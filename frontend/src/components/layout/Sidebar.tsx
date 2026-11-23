@@ -134,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                 Back to Servers
               </Link>
               <div className="mt-2 flex items-center gap-2">
-                <Icon name="server" size={16} className="text-accent-primary shrink-0" />
+                <Icon name="server" size={16} className="text-text-muted shrink-0" />
                 <span className="truncate text-xs font-semibold uppercase tracking-wider text-text-secondary">
                   Server Management
                 </span>

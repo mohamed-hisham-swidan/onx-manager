@@ -16,6 +16,42 @@ import type { PluginSearchResultResponse } from "@/types";
 
 type DetailTab = "description" | "changelog" | "versions";
 
+const ALIGN_TAGS = [
+  "div",
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "td",
+  "th",
+  "img",
+] as const;
+
+const markdownSanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "center"],
+  attributes: {
+    ...(defaultSchema.attributes ?? {}),
+    ...Object.fromEntries(
+      ALIGN_TAGS.map((tag) => [
+        tag,
+        [
+          ...(defaultSchema.attributes?.[tag] ?? []),
+          "align",
+          ...(tag === "img" ? ["width", "height"] : []),
+        ],
+      ]),
+    ),
+  },
+};
+
 // Stable component overrides for ReactMarkdown. Defined at module scope so the
 // object identity does not change on every render.
 const markdownComponents: Components = {
@@ -24,14 +60,14 @@ const markdownComponents: Components = {
       {...props}
       alt={alt ?? ""}
       loading="lazy"
-      className="my-4 max-w-full rounded-lg border border-border-default"
+      className="my-1.5 inline-block max-w-full h-auto rounded-lg align-middle"
     />
   ),
   table: ({ node: _node, children, ...props }) => (
-    <div className="my-4 w-full overflow-x-auto rounded-lg border border-border-default">
+    <div className="my-4 w-full overflow-x-auto rounded-lg border border-border-subtle shadow-2xs">
       <table
         {...props}
-        className="w-full border-collapse text-sm"
+        className="my-0 w-full border-collapse text-sm"
       >
         {children}
       </table>
@@ -40,13 +76,13 @@ const markdownComponents: Components = {
   thead: ({ node: _node, ...props }) => (
     <thead
       {...props}
-      className="bg-surface-muted text-left"
+      className="bg-surface-muted/70 text-left"
     />
   ),
   th: ({ node: _node, ...props }) => (
     <th
       {...props}
-      className="border-b-2 border-border-default px-3.5 py-3 text-xs font-bold uppercase tracking-wide text-text-secondary"
+      className="border-b border-border-subtle px-3.5 py-2.5 text-xs font-bold uppercase tracking-wide text-text-secondary"
     />
   ),
   tr: ({ node: _node, ...props }) => (
@@ -55,9 +91,56 @@ const markdownComponents: Components = {
   td: ({ node: _node, ...props }) => (
     <td
       {...props}
-      className="px-3.5 py-2.5 align-top text-text-primary"
+      className="px-3.5 py-2.5 align-middle text-text-primary"
     />
   ),
+  pre: ({ node: _node, ...props }) => (
+    <pre
+      {...props}
+      className="my-4 overflow-x-auto rounded-lg border border-border-subtle bg-terminal-bg p-4 text-xs text-terminal-text [&>code]:border-0 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-inherit"
+    />
+  ),
+  code: ({ node: _node, className = "", ...props }) => (
+    <code
+      {...props}
+      className={`rounded-md border border-border-subtle bg-surface-muted px-1.5 py-0.5 font-mono text-[0.85em] font-medium text-text-primary break-words ${className}`}
+    />
+  ),
+  details: ({ node: _node, ...props }) => (
+    <details
+      {...props}
+      className="my-3 rounded-lg border border-border-subtle bg-surface-page/50 px-4 py-2.5"
+    />
+  ),
+  summary: ({ node: _node, ...props }) => (
+    <summary
+      {...props}
+      className="cursor-pointer select-none py-1 text-sm font-semibold text-text-primary hover:text-text-accent transition-colors"
+    />
+  ),
+  blockquote: ({ node: _node, ...props }) => (
+    <blockquote
+      {...props}
+      className="my-4 border-l-4 border-border-strong bg-surface-muted/40 px-4 py-2 rounded-r-lg text-text-secondary"
+    />
+  ),
+  hr: ({ node: _node, ...props }) => (
+    <hr {...props} className="my-6 border-border-subtle" />
+  ),
+  a: ({ node: _node, href, children, ...props }) => {
+    const isExternal = typeof href === "string" && /^https?:\/\//i.test(href);
+    return (
+      <a
+        {...props}
+        href={href}
+        target={isExternal ? "_blank" : undefined}
+        rel={isExternal ? "noopener noreferrer" : undefined}
+        className="text-text-accent hover:underline break-words"
+      >
+        {children}
+      </a>
+    );
+  },
 };
 
 function fmtDownloads(n: number): string {
@@ -337,7 +420,7 @@ export function PluginDetailPage() {
               href={project.wiki_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary shadow-2xs transition-colors hover:border-border-hover hover:bg-surface-hover"
             >
               Wiki
             </a>
@@ -347,7 +430,7 @@ export function PluginDetailPage() {
               href={project.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary shadow-2xs transition-colors hover:border-border-hover hover:bg-surface-hover"
             >
               Source Code
             </a>
@@ -356,7 +439,7 @@ export function PluginDetailPage() {
             href={modrinthUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary shadow-2xs transition-colors hover:border-border-hover hover:bg-surface-hover"
           >
             <Icon name="modrinth" size={14} />
             Modrinth
@@ -388,16 +471,15 @@ export function PluginDetailPage() {
                 <div className="border-t border-border-subtle pt-4">
                   {/* react-markdown v10 no longer accepts a className prop; the
                       prose styles live on the wrapping div. */}
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                  <div className="onx-markdown prose prose-sm max-w-none dark:prose-invert prose-code:before:content-none prose-code:after:content-none">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       rehypePlugins={[
                         rehypeRaw,
-                        // defaultSchema already allows img/details/summary/br/table/
-                        // code while stripping scripts, onclick handlers and style
-                        // attributes — required so Modrinth's HTML bodies render
-                        // (inline images load, details blocks open).
-                        [rehypeSanitize, defaultSchema],
+                        // markdownSanitizeSchema preserves defaultSchema XSS protections
+                        // (strips script, on*, style, javascript:) while permitting safe
+                        // alignment tags/attributes used by Modrinth readmes.
+                        [rehypeSanitize, markdownSanitizeSchema],
                       ]}
                       components={markdownComponents}
                     >

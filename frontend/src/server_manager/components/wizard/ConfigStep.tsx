@@ -110,11 +110,14 @@ export function ConfigStep({
       <h3 className="text-lg font-semibold text-text-primary mb-4">Server Configuration</h3>
       <div className="space-y-5">
         <div>
-          <label className="block text-sm font-medium text-text-secondary mb-1">Server Name</label>
+          <label htmlFor="server-name-input" className="block text-sm font-medium text-text-secondary mb-1">
+            Server Name
+          </label>
           <input
+            id="server-name-input"
             value={data.name}
             onChange={(e) => onChange({ name: e.target.value })}
-            placeholder="My Awesome Server"
+            placeholder="Server"
             required
             className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
           />

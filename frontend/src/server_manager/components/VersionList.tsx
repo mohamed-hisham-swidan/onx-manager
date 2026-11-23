@@ -1,5 +1,6 @@
 import { Icon } from "@/components/ui/Icon";
 import { formatBytes } from "@/server_manager/utils/format";
+import { groupReleaseVersions } from "@/server_manager/utils/compatibility";
 import type { PluginVersionResponse } from "@/types";
 
 export interface VersionListProps {
@@ -40,6 +41,8 @@ export function VersionList({
         {versions.map((v) => {
           const isRecommended = selectedVersion?.version_id === v.version_id;
           const primary = v.files.find((f) => f.primary) ?? v.files[0];
+          const { releasePills, snapshots } = groupReleaseVersions(v.game_versions);
+          const summaryVersions = releasePills.length > 0 ? releasePills : snapshots;
 
           return (
             <div
@@ -47,7 +50,7 @@ export function VersionList({
               className={`flex items-center justify-between gap-4 rounded-xl border p-4 transition-colors ${
                 isRecommended
                   ? "border-accent-primary bg-accent-primary/10"
-                  : "border-border-default bg-surface-card hover:bg-surface-hover"
+                  : "border-border-subtle bg-surface-card hover:bg-surface-hover"
               }`}
             >
               <div className="min-w-0 flex-1">
@@ -68,8 +71,11 @@ export function VersionList({
                 </div>
 
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-                  {v.game_versions.length > 0 && (
-                    <span>MC {v.game_versions.slice(0, 3).join(", ")}{v.game_versions.length > 3 ? ` +${v.game_versions.length - 3}` : ""}</span>
+                  {summaryVersions.length > 0 && (
+                    <span>
+                      MC {summaryVersions.slice(0, 3).join(", ")}
+                      {summaryVersions.length > 3 ? ` +${summaryVersions.length - 3}` : ""}
+                    </span>
                   )}
                   {v.loaders.length > 0 && (
                     <span>{v.loaders.join(", ")}</span>

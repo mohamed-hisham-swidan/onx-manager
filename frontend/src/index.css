@@ -19,6 +19,7 @@
   --color-text-accent: var(--text-accent);
 
   --color-border-subtle: var(--border-subtle);
+  --color-border-hover: var(--border-hover);
   --color-border-default: var(--border-default);
   --color-border-strong: var(--border-strong);
   --color-border-focus: var(--border-focus);
@@ -66,6 +67,8 @@
 }
 
 :root {
+  color-scheme: light;
+
   /* Global CSS variable aliases */
   --bg-canvas: var(--surface-page);
   --bg-surface: var(--surface-card);
@@ -74,10 +77,10 @@
   --surface-page: #f8fafc;
   --surface-card: #ffffff;
   --surface-hover: #f1f5f9;
-  --surface-active: #e2e8f0;
+  --surface-active: #e4e4e7;
   --surface-elevated: #ffffff;
   --surface-overlay: rgba(15, 23, 42, 0.5);
-  --surface-muted: #f1f5f9;
+  --surface-muted: #f4f4f5;
 
   --text-primary: #0f172a;
   --text-secondary: #334155;
@@ -85,10 +88,14 @@
   --text-inverse: #ffffff;
   --text-accent: #2563eb;
 
-  --border-subtle: #e2e8f0;
-  --border-default: #cbd5e1;
-  --border-strong: #94a3b8;
+  --border-subtle: #e4e4e7;
+  --border-hover: #d4d4d8;
+  --border-default: #d4d4d8;
+  --border-strong: #a1a1aa;
   --border-focus: #3b82f6;
+
+  --shadow-2xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
 
   --accent-primary: #2563eb;
   --accent-hover: #1d4ed8;
@@ -143,6 +150,8 @@
 /* Dark mode fallback: preserve existing dark styling while tokens migrate */
 .dark,
 [data-mode="dark"] {
+  color-scheme: dark;
+
   --surface-page: #0f172a;
   --surface-card: #1e293b;
   --surface-hover: #334155;
@@ -158,9 +167,13 @@
   --text-accent: #60a5fa;
 
   --border-subtle: #334155;
+  --border-hover: #475569;
   --border-default: #475569;
   --border-strong: #64748b;
   --border-focus: #60a5fa;
+
+  --shadow-2xs: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
 
   --accent-primary: #3b82f6;
   --accent-hover: #2563eb;
@@ -206,6 +219,7 @@
   --text-accent: #60a5fa;
 
   --border-subtle: #1e2436;
+  --border-hover: #2e3750;
   --border-default: #64748b;
   --border-strong: #94a3b8;
   --border-focus: #3b82f6;
@@ -230,13 +244,13 @@
 }
 
 [data-skin="graphite"][data-mode="light"] {
-  --surface-page: #f5f7fa;
+  --surface-page: #f4f4f5;
   --surface-card: #ffffff;
-  --surface-hover: #eef2f6;
-  --surface-active: #e2e8f0;
+  --surface-hover: #ededf0;
+  --surface-active: #e4e4e7;
   --surface-elevated: #ffffff;
   --surface-overlay: rgba(8, 9, 14, 0.5);
-  --surface-muted: #f1f5f9;
+  --surface-muted: #f4f4f5;
 
   --text-primary: #0f172a;
   --text-secondary: #334155;
@@ -244,9 +258,10 @@
   --text-inverse: #ffffff;
   --text-accent: #2563eb;
 
-  --border-subtle: #e2e8f0;
-  --border-default: #64748b;
-  --border-strong: #475569;
+  --border-subtle: #e4e4e7;
+  --border-hover: #d4d4d8;
+  --border-default: #85858e;
+  --border-strong: #52525b;
   --border-focus: #2563eb;
 
   --accent-primary: #2563eb;
@@ -789,7 +804,15 @@
 }
 
 /* Base styles */
+[data-mode="light"] {
+  color-scheme: light;
+}
+
 @layer base {
+  html {
+    font-size: 90%;
+  }
+
   :focus-visible {
     outline: 2px solid var(--border-focus);
     outline-offset: 2px;
@@ -805,6 +828,81 @@
     -moz-appearance: textfield;
     appearance: textfield;
   }
+}
+
+.onx-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border-default);
+  background-color: var(--surface-page);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  vertical-align: middle;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.onx-checkbox:hover {
+  border-color: var(--border-strong);
+  background-color: var(--surface-hover);
+}
+
+[data-mode="light"] .onx-checkbox {
+  border-color: var(--border-hover);
+  background-color: var(--surface-card);
+}
+
+[data-mode="light"] .onx-checkbox:hover {
+  border-color: var(--border-default);
+  background-color: var(--surface-hover);
+}
+
+.onx-checkbox:checked {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-primary);
+}
+
+.onx-checkbox:checked::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background-color: var(--accent-contrast-text);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.onx-checkbox:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.onx-markdown code::before,
+.onx-markdown code::after {
+  content: none !important;
+}
+
+.onx-markdown table {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.onx-markdown details > :not(summary) {
+  margin-top: 0.75rem;
+}
+
+.onx-markdown p > a > img,
+.onx-markdown p > img {
+  display: inline-block;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  vertical-align: middle;
+}
+
+.onx-markdown [align="center"],
+.onx-markdown center {
+  text-align: center;
 }
 
 /* Reduced motion preference */

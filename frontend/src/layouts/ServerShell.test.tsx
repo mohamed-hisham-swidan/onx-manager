@@ -275,6 +275,8 @@ describe("ServerShell", () => {
     const badge = screen.getByTestId("server-provider-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("Container");
+    expect(screen.queryByTestId("server-status-capsule")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("server-active-players-badge")).not.toBeInTheDocument();
   });
 
   it("renders File / Host provider badge when provider is local_process", () => {

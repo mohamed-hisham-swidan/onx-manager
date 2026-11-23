@@ -1,6 +1,17 @@
 import type { ServerMode } from "../../types";
+import { isModpackSupportedLoader, isPluginLoader } from "@/server_manager/utils/loaderCapabilities";
 
-export type Step = "software" | "version" | "config" | "properties" | "review" | "done";
+export type Step = "software" | "version" | "config" | "properties" | "addons" | "review" | "done";
+
+export interface SelectedWizardAddon {
+  project_id: string;
+  title: string;
+  author: string;
+  description: string;
+  icon_url: string | null;
+  downloads: number;
+  project_type: "mod" | "plugin";
+}
 
 export const STEPS: { key: Step; label: string }[] = [
   { key: "software", label: "Software" },
@@ -9,6 +20,36 @@ export const STEPS: { key: Step; label: string }[] = [
   { key: "properties", label: "Properties" },
   { key: "review", label: "Review" },
 ];
+
+export function getWizardSteps(serverType: string): { key: Step; label: string }[] {
+  const modded = isModpackSupportedLoader(serverType);
+  const pluginBased = isPluginLoader(serverType);
+  if (!modded && !pluginBased) {
+    return STEPS;
+  }
+  const addonsLabel = modded ? "Mods & Modpack" : "Plugins";
+  return [
+    { key: "software", label: "Software" },
+    { key: "version", label: "Version" },
+    { key: "config", label: "Configuration" },
+    { key: "properties", label: "Properties" },
+    { key: "addons", label: addonsLabel },
+    { key: "review", label: "Review" },
+  ];
+}
+
+export function generateNextServerName(existingNames: string[], baseName = "Server"): string {
+  const trimmedBase = baseName.trim() || "Server";
+  const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()).filter(Boolean));
+  if (!taken.has(trimmedBase.toLowerCase())) {
+    return trimmedBase;
+  }
+  let counter = 2;
+  while (taken.has(`${trimmedBase} ${counter}`.toLowerCase())) {
+    counter += 1;
+  }
+  return `${trimmedBase} ${counter}`;
+}
 
 export interface WizardData {
   serverType: string;
@@ -30,12 +71,13 @@ export interface WizardData {
   viewDistance: number | "";
   simulationDistance: number | "";
   provider: string;
+  selectedAddons: SelectedWizardAddon[];
 }
 
 export const INITIAL_DATA: WizardData = {
   serverType: "",
   minecraftVersion: "",
-  name: "",
+  name: "Server",
   mode: "simple",
   port: 25565,
   maxPlayers: 20,
@@ -52,6 +94,7 @@ export const INITIAL_DATA: WizardData = {
   viewDistance: 10,
   simulationDistance: 10,
   provider: "docker",
+  selectedAddons: [],
 };
 
 export const RAM_PRESETS = [

@@ -244,4 +244,41 @@ describe("ProjectVersionsList", () => {
       expect(vi.mocked(useMarketplaceProjectVersions)).toHaveBeenLastCalledWith("proj-1", { offset: 20 });
     });
   });
+
+  it("groups many raw game_versions into compact release pills and collapses snapshots", () => {
+    vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
+      data: {
+        project_id: "proj-1",
+        versions: [
+          {
+            ...mockVersions[1],
+            version_id: "v-wide",
+            version_number: "3.0.0",
+            game_versions: [
+              "1.21",
+              "1.21.1",
+              "1.21.2",
+              "1.21.3",
+              "1.21.4",
+              "26.1-snapshot-1",
+              "24w14potato",
+            ],
+          },
+        ],
+        selected: null,
+        notice: "",
+        notice_kind: "",
+        total: 1,
+      } as PluginVersionsResponse,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useMarketplaceProjectVersions>);
+
+    renderList();
+
+    expect(screen.getByText("1.21.x")).toBeInTheDocument();
+    expect(screen.queryByText("1.21.2")).not.toBeInTheDocument();
+    expect(screen.queryByText("24w14potato")).not.toBeInTheDocument();
+    expect(screen.getByText("+2 snapshots")).toBeInTheDocument();
+  });
 });

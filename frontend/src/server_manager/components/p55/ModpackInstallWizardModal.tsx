@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Modal } from "@/components/ui/Modal";
+import { useOperationStore } from "@/operations/stores/operationStore";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
 import type {
   ManualDownloadBlockerItem,
@@ -157,9 +158,84 @@ function ModpackInstallWizardModalInner({
   const [isInstalling, setIsInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [installResult, setInstallResult] = useState<ModpackInstallResponse | null>(null);
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
+  const pendingAsyncBaseRef = useRef<ModpackInstallResponse | null>(null);
+
+  const openOperationDrawer = useOperationStore((s) => s.openDrawer);
+  const setOperation = useOperationStore((s) => s.setOperation);
+  const activeOperation = useOperationStore((s) =>
+    activeOperationId ? s.operations[activeOperationId] : undefined,
+  );
+  const activeOperationLogs = useOperationStore((s) =>
+    activeOperationId ? s.logs[activeOperationId] : undefined,
+  );
 
   const plan = inspection?.plan ?? null;
   const blockers = plan?.manual_blockers ?? [];
+
+  useEffect(() => {
+    if (!activeOperationId || typeof api.getOperation !== "function") return;
+    let cancelled = false;
+
+    async function pollOperation() {
+      if (cancelled || !activeOperationId || typeof api.getOperation !== "function") {
+        return;
+      }
+      try {
+        const detail = await api.getOperation(activeOperationId);
+        if (cancelled) return;
+        setOperation(detail);
+
+        if (detail.status === "COMPLETED") {
+          const base = pendingAsyncBaseRef.current;
+          const stepTotal = detail.steps?.[0]?.context?.total;
+          const completedResult: ModpackInstallResponse = {
+            server_id: base?.server_id ?? serverId,
+            upgrade_id: base?.upgrade_id ?? inspection?.staged_pack_id ?? "",
+            status: "confirmed",
+            mc_version: base?.mc_version ?? inspection?.mc_version ?? "",
+            loader_id: base?.loader_id ?? inspection?.loader_id ?? "",
+            loader_version: base?.loader_version ?? inspection?.loader_version ?? "",
+            lec_key: base?.lec_key ?? null,
+            files_installed:
+              typeof stepTotal === "number" ? stepTotal : (plan?.files.length ?? 0),
+            base_overrides_count: plan?.overrides.length ?? 0,
+            commit_sha: base?.commit_sha ?? null,
+            operation_id: activeOperationId,
+          };
+          pendingAsyncBaseRef.current = null;
+          setActiveOperationId(null);
+          setIsInstalling(false);
+          setInstallResult(completedResult);
+          onInstalled?.(completedResult);
+        } else if (
+          detail.status === "FAILED" ||
+          detail.status === "CANCELLED" ||
+          detail.status === "TIMED_OUT"
+        ) {
+          pendingAsyncBaseRef.current = null;
+          setActiveOperationId(null);
+          setIsInstalling(false);
+          setInstallError(
+            detail.error_message ||
+              `Modpack installation ${detail.status.toLowerCase()}`,
+          );
+        }
+      } catch {
+        // Keep polling while WebSocket or subsequent poll recovers.
+      }
+    }
+
+    void pollOperation();
+    const timer = setInterval(() => {
+      void pollOperation();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeOperationId, api, serverId, inspection, plan, setOperation, onInstalled]);
 
   function blockerResolved(blocker: ManualDownloadBlockerItem): boolean {
     return blocker.resolved || Boolean(resolvedBlockers[blockerKey(blocker)]);
@@ -182,6 +258,8 @@ function ModpackInstallWizardModalInner({
       setResolvedBlockers({});
       setInstallResult(null);
       setInstallError(null);
+      pendingAsyncBaseRef.current = null;
+      setActiveOperationId(null);
     } catch (error) {
       if (error instanceof ApiError) {
         setInspectError(error);
@@ -234,12 +312,27 @@ function ModpackInstallWizardModalInner({
     setIsInstalling(true);
     setInstallError(null);
     setManualError(null);
+    let keepInstalling = false;
     try {
       const result = await api.installModpack(serverId, {
         staged_pack_id: inspection.staged_pack_id,
         build_lec: buildLec,
         async_mode: asyncMode,
       });
+      const isBackgroundStarted =
+        Boolean(result.operation_id) &&
+        (result.status === "installing" ||
+          result.status === "queued" ||
+          result.status === "running");
+
+      if (isBackgroundStarted && result.operation_id) {
+        keepInstalling = true;
+        pendingAsyncBaseRef.current = result;
+        setActiveOperationId(result.operation_id);
+        openOperationDrawer(result.operation_id);
+        return;
+      }
+
       setInstallResult(result);
       onInstalled?.(result);
     } catch (error) {
@@ -270,9 +363,13 @@ function ModpackInstallWizardModalInner({
         setInstallError(error instanceof ApiError ? error.message : "Modpack installation failed");
       }
     } finally {
-      setIsInstalling(false);
+      if (!keepInstalling) {
+        setIsInstalling(false);
+      }
     }
   }
+
+  const blockModalDismiss = isInspecting || (isInstalling && !activeOperationId);
 
   return (
     <Modal
@@ -281,12 +378,12 @@ function ModpackInstallWizardModalInner({
       size="2xl"
       title="Install Modpack (.mrpack / CurseForge)"
       description="Inspect the archive and resolve manual downloads before anything is written to this server."
-      closeOnBackdrop={!isInspecting && !isInstalling}
-      closeOnEscape={!isInspecting && !isInstalling}
+      closeOnBackdrop={!blockModalDismiss}
+      closeOnEscape={!blockModalDismiss}
     >
-      <div className="space-y-5 max-h-[72vh] overflow-y-auto pr-1">
+      <div className="flex flex-col max-h-[76vh] min-w-0 overflow-x-hidden">
         {installResult ? (
-          <div className="space-y-4">
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden pr-1 space-y-4">
             <Banner
               variant="success"
               title={
@@ -350,7 +447,7 @@ function ModpackInstallWizardModalInner({
             </div>
           </div>
         ) : !inspection ? (
-          <>
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden pr-1 space-y-5">
             <StepHeader step={1} title="Upload & Inspect Archive" />
 
             <div className="rounded-xl border border-dashed border-border-default bg-surface-page/60 p-5 space-y-3">
@@ -370,7 +467,7 @@ function ModpackInstallWizardModalInner({
                   onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                   className="sr-only"
                 />
-                <span className="text-xs text-text-muted">
+                <span className="text-xs text-text-muted break-all">
                   {file ? `${file.name} (${formatBytes(file.size)})` : "No archive selected yet."}
                 </span>
               </div>
@@ -410,7 +507,7 @@ function ModpackInstallWizardModalInner({
               <InspectErrorCallout error={inspectError} onDismiss={() => setInspectError(null)} />
             )}
 
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-text-muted">
                 Inspection stages the archive and computes a hash-only plan; the live
                 server is untouched.
@@ -427,9 +524,10 @@ function ModpackInstallWizardModalInner({
                 Inspect Modpack
               </Button>
             </div>
-          </>
+          </div>
         ) : (
           <>
+            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden pr-1 space-y-4">
             <StepHeader step={2} title="Inspect Plan Preview & Manual Download Unblock" />
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -490,11 +588,25 @@ function ModpackInstallWizardModalInner({
             </div>
 
             {plan && plan.warnings.length > 0 && (
-              <Banner
-                variant="warning"
-                title="Inspection warnings"
-                description={plan.warnings.join(" · ")}
-              />
+              <details
+                data-testid="modpack-skipped-paths-details"
+                className="rounded-xl border border-border-subtle bg-surface-card"
+              >
+                <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-text-secondary flex items-center justify-between gap-2 select-none">
+                  <span>Skipped non-server paths &amp; notes ({plan.warnings.length})</span>
+                  <span className="text-[11px] text-text-muted">Click to inspect</span>
+                </summary>
+                <ul className="max-h-36 overflow-y-auto overflow-x-hidden border-t border-border-subtle divide-y divide-border-subtle/60 text-left">
+                  {plan.warnings.map((warning, idx) => (
+                    <li
+                      key={`${idx}-${warning}`}
+                      className="px-4 py-1.5 font-mono text-[11px] text-text-muted break-all"
+                    >
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
 
             <details className="rounded-xl border border-border-subtle bg-surface-card">
@@ -646,6 +758,7 @@ function ModpackInstallWizardModalInner({
                 <input
                   type="checkbox"
                   checked={buildLec}
+                  disabled={isInstalling}
                   onChange={(event) => setBuildLec(event.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-border-default"
                 />
@@ -654,7 +767,9 @@ function ModpackInstallWizardModalInner({
               <label className="flex items-start gap-2 text-xs text-text-secondary">
                 <input
                   type="checkbox"
+                  data-testid="modpack-async-checkbox"
                   checked={asyncMode}
+                  disabled={isInstalling}
                   onChange={(event) => setAsyncMode(event.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-border-default"
                 />
@@ -662,25 +777,115 @@ function ModpackInstallWizardModalInner({
               </label>
             </div>
 
-            {installError && <Banner variant="danger" title={installError} />}
+            {activeOperationId ? (
+              <div
+                data-testid="modpack-live-progress"
+                className="rounded-xl border border-accent-primary/40 bg-surface-page p-4 space-y-3 min-w-0"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent-primary animate-pulse" />
+                    <span className="text-xs font-bold text-text-primary truncate">
+                      {activeOperation?.steps?.[0]?.message_key ||
+                        "Installing modpack in background…"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="rounded-full bg-surface-elevated px-2 py-0.5 font-mono text-[10px] font-semibold text-text-secondary">
+                      {activeOperation?.status ?? "QUEUED"}
+                      {typeof activeOperation?.steps?.[0]?.progress === "number"
+                        ? ` · ${Math.min(100, Math.max(0, Math.round(activeOperation.steps[0].progress)))}%`
+                        : ""}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      data-testid="open-modpack-op-drawer-btn"
+                      onClick={() => openOperationDrawer(activeOperationId)}
+                    >
+                      Open Progress Drawer
+                    </Button>
+                  </div>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-surface-elevated">
+                  <div
+                    className="h-full rounded-full bg-accent-primary transition-all duration-300"
+                    style={{
+                      width: `${
+                        typeof activeOperation?.steps?.[0]?.progress === "number"
+                          ? Math.min(100, Math.max(4, Math.round(activeOperation.steps[0].progress)))
+                          : 15
+                      }%`,
+                    }}
+                  />
+                </div>
+                {typeof activeOperation?.steps?.[0]?.context?.current_file === "string" && (
+                  <p className="font-mono text-[11px] text-text-muted break-all">
+                    Downloading: {activeOperation.steps[0].context.current_file}
+                  </p>
+                )}
+                {activeOperationLogs && activeOperationLogs.length > 0 && (
+                  <div
+                    data-testid="modpack-live-logs"
+                    className="max-h-32 overflow-y-auto overflow-x-hidden rounded-lg border border-border-subtle bg-black/50 p-2.5 font-mono text-[11px] text-text-secondary space-y-1"
+                  >
+                    {activeOperationLogs.slice(-6).map((entry, idx) => (
+                      <div key={`${entry.timestamp}-${idx}`} className="break-all">
+                        {entry.line}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : isInstalling ? (
+              <div
+                data-testid="modpack-foreground-progress"
+                className="rounded-xl border border-border-subtle bg-surface-page p-3 text-xs text-text-secondary flex items-center gap-2.5"
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent-primary animate-pulse" />
+                <span>
+                  Downloading and verifying server mods &amp; overrides from CDN… This may take a
+                  moment for large packs.
+                </span>
+              </div>
+            ) : null}
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            {installError && <Banner variant="danger" title={installError} />}
+            </div>
+
+            <div className="shrink-0 mt-4 pt-3 border-t border-border-subtle flex flex-wrap items-center justify-between gap-3">
               <Button
                 type="button"
                 variant="ghost"
+                disabled={isInstalling && !activeOperationId}
                 onClick={() => {
+                  pendingAsyncBaseRef.current = null;
+                  setActiveOperationId(null);
+                  setIsInstalling(false);
                   setInspection(null);
                   setInspectError(null);
                   setManualError(null);
+                  setInstallError(null);
                 }}
               >
                 Back to Upload
               </Button>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {hasUnresolvedBlockers && (
                   <span className="text-xs text-text-muted">
                     Resolve all manual download blockers above to enable installation
                   </span>
+                )}
+                {activeOperationId && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    data-testid="close-while-installing-btn"
+                    onClick={onClose}
+                  >
+                    Continue in Background
+                  </Button>
                 )}
                 <Button
                   type="button"
@@ -688,10 +893,10 @@ function ModpackInstallWizardModalInner({
                   variant="primary"
                   icon="download"
                   loading={isInstalling}
-                  disabled={hasUnresolvedBlockers}
+                  disabled={hasUnresolvedBlockers || isInstalling}
                   onClick={handleInstall}
                 >
-                  Install Modpack
+                  {activeOperationId ? "Installing…" : "Install Modpack"}
                 </Button>
               </div>
             </div>

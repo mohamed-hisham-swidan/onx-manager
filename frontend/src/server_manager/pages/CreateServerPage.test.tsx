@@ -10,23 +10,45 @@ import { ApiError } from "@/services/api";
 const listSoftwareMock = vi.fn();
 const listSoftwareVersionsMock = vi.fn();
 const getAvailablePortMock = vi.fn();
+const listServersMock = vi.fn().mockResolvedValue([]);
+const searchMarketplaceGlobalMock = vi.fn().mockResolvedValue({
+  items: [],
+  total_hits: 0,
+  offset: 0,
+  limit: 12,
+});
+const installFromMarketplaceMock = vi.fn().mockResolvedValue({
+  plugin_id: "pl-1",
+  version: "1.0.0",
+  filename: "pl-1.jar",
+  source: "modrinth",
+  notice: "",
+  notice_kind: "",
+});
 const healthMock = vi.fn().mockResolvedValue({ docker: true });
 const getSetupStatusMock = vi.fn().mockResolvedValue({ advanced_mode_enabled: false });
 const mutateAsyncMock = vi.fn().mockResolvedValue({ server_id: "new-srv" });
 
 vi.mock("@/services/api", async () => {
-  const actual = await vi.importActual<typeof import("@/services/api")>("@/services/api");
+  const actual = await importActualHelper();
   return {
     ...actual,
     createAuthenticatedApi: () => ({
       listSoftware: listSoftwareMock,
       listSoftwareVersions: listSoftwareVersionsMock,
       getAvailablePort: getAvailablePortMock,
+      listServers: listServersMock,
+      searchMarketplaceGlobal: searchMarketplaceGlobalMock,
+      installFromMarketplace: installFromMarketplaceMock,
       health: healthMock,
       getSetupStatus: getSetupStatusMock,
     }),
   };
 });
+
+async function importActualHelper() {
+  return await vi.importActual<typeof import("@/services/api")>("@/services/api");
+}
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useCreateServer: vi.fn(() => ({ mutateAsync: mutateAsyncMock, isPending: false })),
@@ -179,7 +201,10 @@ describe("CreateServerPage Forge modern/legacy chooser", () => {
     await user.click(await screen.findByRole("button", { name: /Legacy Forge \(< 1\.17\)/i }));
     await user.click(await screen.findByRole("button", { name: "1.16.5" }));
 
-    await user.type(await screen.findByPlaceholderText("My Awesome Server"), "Legacy Forge Server");
+    const nameInput = await screen.findByPlaceholderText("Server");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Legacy Forge Server");
+    await user.click(await screen.findByRole("button", { name: /^Next$/i }));
     await user.click(await screen.findByRole("button", { name: /^Next$/i }));
     await user.click(await screen.findByRole("button", { name: /^Next$/i }));
 
@@ -309,10 +334,13 @@ describe("CreateServerPage Configuration step", () => {
     expect(dockerBtn).not.toBeDisabled();
     await user.click(dockerBtn);
 
-    const nameInput = screen.getByPlaceholderText("My Awesome Server");
+    const nameInput = screen.getByPlaceholderText("Server");
+    await user.clear(nameInput);
     await user.type(nameInput, "Dockerized Server");
 
     // Next to Properties
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    // Next to Plugins
     await user.click(screen.getByRole("button", { name: "Next" }));
     // Next to Review
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -348,10 +376,13 @@ describe("CreateServerPage Configuration step", () => {
     expect(dockerCard).not.toBeDisabled();
     expect(screen.queryByRole("button", { name: /Host Process/i })).not.toBeInTheDocument();
 
-    const nameInput = screen.getByPlaceholderText("My Awesome Server");
+    const nameInput = screen.getByPlaceholderText("Server");
+    await user.clear(nameInput);
     await user.type(nameInput, "Docker Only Server");
 
     // Next to Properties
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    // Next to Plugins
     await user.click(screen.getByRole("button", { name: "Next" }));
     // Next to Review
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -413,7 +444,10 @@ describe("CreateServerPage error handling", () => {
     await user.click(await screen.findByRole("button", { name: /Paper/i }));
     await user.click(await screen.findByRole("button", { name: "1.21.1" }));
 
-    await user.type(screen.getByPlaceholderText("My Awesome Server"), "Paper Test");
+    const errNameInput = screen.getByPlaceholderText("Server");
+    await user.clear(errNameInput);
+    await user.type(errNameInput, "Paper Test");
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -440,7 +474,10 @@ describe("CreateServerPage error handling", () => {
     await user.click(await screen.findByRole("button", { name: /Paper/i }));
     await user.click(await screen.findByRole("button", { name: "1.21.1" }));
 
-    await user.type(screen.getByPlaceholderText("My Awesome Server"), "Paper Test");
+    const dlErrInput = screen.getByPlaceholderText("Server");
+    await user.clear(dlErrInput);
+    await user.type(dlErrInput, "Paper Test");
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -512,7 +549,9 @@ describe("CreateServerPage advanced mode flag gating", () => {
     expect(await screen.findByTestId("server-mode-simple")).toBeInTheDocument();
     expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
 
-    await user.type(screen.getByPlaceholderText("My Awesome Server"), "Test Server");
+    const fallbackInput = screen.getByPlaceholderText("Server");
+    await user.clear(fallbackInput);
+    await user.type(fallbackInput, "Test Server");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("Game Properties")).toBeInTheDocument();
   });
@@ -548,7 +587,10 @@ describe("CreateServerPage Install Modpack creation mode", () => {
 
     await user.click(screen.getByRole("button", { name: /Fabric/i }));
     await user.click(await screen.findByRole("button", { name: "1.21.1" }));
-    await user.type(await screen.findByPlaceholderText("My Awesome Server"), "Modpack Server");
+    const modpackNameInput = await screen.findByPlaceholderText("Server");
+    await user.clear(modpackNameInput);
+    await user.type(modpackNameInput, "Modpack Server");
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -557,5 +599,152 @@ describe("CreateServerPage Install Modpack creation mode", () => {
     expect(
       await screen.findByRole("dialog", { name: "Install Modpack (.mrpack / CurseForge)" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("CreateServerPage sequential naming, stepper, and optional add-ons step", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listSoftwareMock.mockResolvedValue([
+      { type: "vanilla", name: "Vanilla", description: "Official" },
+      { type: "paper", name: "Paper", description: "High performance" },
+      { type: "fabric", name: "Fabric", description: "Lightweight mod loader" },
+    ]);
+    listSoftwareVersionsMock.mockResolvedValue(["1.21.1"]);
+    getAvailablePortMock.mockResolvedValue({ port: 25565 });
+    healthMock.mockResolvedValue({ docker: true });
+    getSetupStatusMock.mockResolvedValue({ advanced_mode_enabled: false });
+    mutateAsyncMock.mockResolvedValue({ server_id: "srv-addons-1" });
+    searchMarketplaceGlobalMock.mockResolvedValue({
+      items: [
+        {
+          project_id: "pl-essentials",
+          slug: "essentialsx",
+          title: "EssentialsX",
+          description: "Essential commands and utilities",
+          author: "EssentialsTeam",
+          project_types: ["plugin"],
+          downloads: 500000,
+          follows: 1200,
+          icon_url: null,
+          latest_version_id: "v1",
+          categories: ["utility"],
+          loaders: ["paper"],
+          client_side: null,
+          server_side: null,
+          date_modified: "2026-01-01T00:00:00Z",
+          color: null,
+        },
+      ],
+      total_hits: 1,
+      offset: 0,
+      limit: 12,
+    });
+  });
+
+  it("auto-generates 'Server 2' when 'Server' already exists", async () => {
+    listServersMock.mockResolvedValue([{ name: "Server" }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Vanilla/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    const nameInput = (await screen.findByLabelText("Server Name")) as HTMLInputElement;
+    expect(nameInput.value).toBe("Server 2");
+  });
+
+  it("auto-generates 'Server 3' when 'Server' and 'Server 2' already exist", async () => {
+    listServersMock.mockResolvedValue([{ name: "Server" }, { name: "Server 2" }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    const nameInput = (await screen.findByLabelText("Server Name")) as HTMLInputElement;
+    expect(nameInput.value).toBe("Server 3");
+  });
+
+  it("shows connected stepper with Plugins for Paper, Mods & Modpack for Fabric, and neither for Vanilla", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const stepNav = screen.getByRole("navigation", { name: "Server creation steps" });
+    expect(stepNav).not.toHaveTextContent("Plugins");
+    expect(stepNav).not.toHaveTextContent("Mods & Modpack");
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    expect(screen.getByRole("navigation", { name: "Server creation steps" })).toHaveTextContent(
+      "Plugins",
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Back" }));
+    await user.click(await screen.findByRole("button", { name: /Fabric/i }));
+    expect(screen.getByRole("navigation", { name: "Server creation steps" })).toHaveTextContent(
+      "Mods & Modpack",
+    );
+  });
+
+  it("lets users browse and multi-select plugins on Paper and installs them after server creation", async () => {
+    listServersMock.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Browse Plugins (Optional)")).toBeInTheDocument();
+    const card = await screen.findByTestId("addon-card-pl-essentials");
+    await user.click(card);
+    expect(screen.getByTestId("wizard-selected-addons")).toHaveTextContent("EssentialsX");
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Review & Create")).toBeInTheDocument();
+    expect(screen.getByText("Selected Plugins")).toBeInTheDocument();
+    expect(screen.getByText("1 (EssentialsX)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    await waitFor(() => {
+      expect(installFromMarketplaceMock).toHaveBeenCalledWith("srv-addons-1", {
+        project_id: "pl-essentials",
+        minecraft_version: "1.21.1",
+      });
+    });
+    expect(await screen.findByText("Server Created")).toBeInTheDocument();
+  });
+
+  it("defaults VersionStep to Main Versions and separates 26.x / snapshots into their own tab", async () => {
+    listSoftwareVersionsMock.mockResolvedValue([
+      "26.1-snapshot-1",
+      "26.0",
+      "1.21.4",
+      "1.21.3",
+      "1.21.2",
+      "1.21.1",
+      "1.20.4",
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    expect(await screen.findByRole("button", { name: "1.21.4" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1.21.1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1.20.4" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "1.21.2" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "26.0" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "26.1-snapshot-1" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /Snapshots & 26\.x \(2\)/i }));
+    expect(screen.getByRole("button", { name: "26.0" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "26.1-snapshot-1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "1.21.4" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /All Versions \(7\)/i }));
+    expect(screen.getByRole("button", { name: "1.21.2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "26.0" })).toBeInTheDocument();
   });
 });

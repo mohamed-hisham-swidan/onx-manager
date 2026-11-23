@@ -1,8 +1,9 @@
+import { useMemo, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Link } from "react-router-dom";
 import {
   getLoaderDisplay,
-  groupGameVersions,
+  groupReleaseVersions,
   environmentLabels,
 } from "@/server_manager/utils/compatibility";
 
@@ -22,6 +23,11 @@ export function CompatibilityCard({
   serverSide,
   buildPlatformHref,
 }: CompatibilityCardProps) {
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  const { releasePills, snapshots } = useMemo(
+    () => groupReleaseVersions(gameVersions),
+    [gameVersions],
+  );
   const envs = environmentLabels(clientSide, serverSide);
   const platformPillClasses =
     "inline-flex items-center rounded-md bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary transition-colors";
@@ -51,7 +57,7 @@ export function CompatibilityCard({
 
   return (
     <div
-      className="rounded-xl border border-border-default bg-surface-card p-5 sm:p-6 space-y-5"
+      className="rounded-xl border border-border-subtle bg-surface-card p-5 sm:p-6 shadow-xs space-y-5"
       data-testid="compatibility-card"
     >
       <h3 className="text-base font-semibold text-text-primary">
@@ -65,7 +71,7 @@ export function CompatibilityCard({
             Minecraft: Java Edition
           </h4>
           <div className="flex flex-wrap gap-1.5" data-testid="game-versions-pills">
-            {groupGameVersions(gameVersions).map((gv) => (
+            {(releasePills.length > 0 ? releasePills : snapshots).map((gv) => (
               <span
                 key={gv}
                 className="rounded-md bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary"
@@ -73,6 +79,26 @@ export function CompatibilityCard({
                 {gv}
               </span>
             ))}
+            {releasePills.length > 0 &&
+              showSnapshots &&
+              snapshots.map((snap) => (
+                <span
+                  key={snap}
+                  className="rounded-md border border-border-subtle bg-surface-muted/70 px-2 py-0.5 text-xs font-medium text-text-muted"
+                >
+                  {snap}
+                </span>
+              ))}
+            {releasePills.length > 0 && snapshots.length > 0 && (
+              <button
+                type="button"
+                data-testid="toggle-snapshots-btn"
+                onClick={() => setShowSnapshots((s) => !s)}
+                className="rounded-md border border-border-subtle px-2 py-0.5 text-xs font-medium text-text-muted hover:border-border-hover hover:text-text-primary transition-colors cursor-pointer"
+              >
+                {showSnapshots ? "Hide snapshots" : `+${snapshots.length} snapshots`}
+              </button>
+            )}
           </div>
         </div>
       )}

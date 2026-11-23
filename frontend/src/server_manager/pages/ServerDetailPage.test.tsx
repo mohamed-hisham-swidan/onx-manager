@@ -258,6 +258,20 @@ describe("ServerDetailPage", () => {
     expect(screen.getByTestId("tps-usage-value")).toHaveTextContent("—");
   });
 
+  it("renders provisioning failure reason banner when status is provisioning_failed", () => {
+    mockData = {
+      ...mockServer,
+      status: "provisioning_failed",
+      provisioning_error: "Installer execution failed: installer exited with code 1",
+    };
+    renderPage();
+    const banner = screen.getByTestId("provisioning-failed-banner");
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent("Server Installation Failed");
+    expect(banner).toHaveTextContent("Installer execution failed: installer exited with code 1");
+    expect(screen.getByTestId("detail-retry-provisioning-btn")).toBeInTheDocument();
+  });
+
   it("renders address widget with public exposure address when exposure is active", () => {
     mockData = { ...mockServer, deployment_host: "127.0.0.1", deployment_port: 25565 };
     mockExposureData = {
