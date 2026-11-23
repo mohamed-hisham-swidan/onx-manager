@@ -236,9 +236,15 @@ async def test_stop_server_unconfirmed_stays_stopping() -> None:
     mock_provider = AsyncMock()
     mock_provider.name = "local"
 
-    with patch(
-        "app.modules.server.application.commands.stop_server.provider_factory.get",
-        return_value=mock_provider,
+    with (
+        patch(
+            "app.modules.server.application.commands.stop_server.provider_factory.get",
+            return_value=mock_provider,
+        ),
+        patch(
+            "app.modules.server.application.commands.stop_server._port_is_listening",
+            return_value=False,
+        ),
     ):
         result = await handler.handle(StopServerCommand(server_id="srv-stop-3"))
 
@@ -386,7 +392,11 @@ async def test_delete_server_during_provisioning_cancels_registry_task() -> None
     task = asyncio.create_task(_dummy_task_body())
     ProvisioningRegistry.register_task("srv-del-1", task)
 
-    result = await handler.handle(DeleteServerCommand(server_id="srv-del-1"))
+    with patch(
+        "app.modules.server.application.commands.delete_server._port_is_listening",
+        return_value=False,
+    ):
+        result = await handler.handle(DeleteServerCommand(server_id="srv-del-1"))
     assert result.success is True
     assert task.cancelled() or task.done()
 

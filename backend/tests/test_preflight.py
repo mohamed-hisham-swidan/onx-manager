@@ -59,13 +59,19 @@ def test_preflight_belongs_to_project_exclusions():
 
 
 @skip_on_win32
-def test_preflight_dry_run_success():
+def test_preflight_dry_run_success(tmp_path: Path):
     """Verify preflight.sh runs cleanly in smart mode without errors."""
+    env = os.environ.copy()
+    env["ONX_PROJECT_ROOT"] = str(tmp_path)
+    env["ONX_BACKEND_PORT"] = "59180"
+    env["ONX_FRONTEND_PORT"] = "59181"
+    env["ONX_DB_PATH"] = str(tmp_path / "dummy_preflight.db")
     proc = subprocess.run(
         [str(PREFLIGHT_SCRIPT)],
         cwd=str(PROJECT_ROOT),
         capture_output=True,
         text=True,
+        env=env,
         timeout=15,
     )
     assert proc.returncode == 0, (
@@ -82,6 +88,9 @@ def test_preflight_force_clean_flag(tmp_path: Path):
     dummy_db = tmp_path / "dummy_preflight.db"
     dummy_db.touch()
     env = os.environ.copy()
+    env["ONX_PROJECT_ROOT"] = str(tmp_path)
+    env["ONX_BACKEND_PORT"] = "59180"
+    env["ONX_FRONTEND_PORT"] = "59181"
     env["ONX_DB_PATH"] = str(dummy_db)
     proc = subprocess.run(
         [str(PREFLIGHT_SCRIPT), "--restart"],
@@ -119,6 +128,9 @@ def test_preflight_db_lock_does_not_kill_pytest_workers(tmp_path: Path):
         assert "LOCKED" in line
 
         env = os.environ.copy()
+        env["ONX_PROJECT_ROOT"] = str(tmp_path)
+        env["ONX_BACKEND_PORT"] = "59180"
+        env["ONX_FRONTEND_PORT"] = "59181"
         env["ONX_DB_PATH"] = str(test_db)
 
         proc = subprocess.run(

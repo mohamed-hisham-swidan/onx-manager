@@ -202,7 +202,11 @@ class TestDeleteServerHandler:
         await _create_test_server("test-del-1")
 
         handler = DeleteServerHandler(event_bus)
-        result = await handler.handle(DeleteServerCommand(server_id="test-del-1"))
+        with patch(
+            "app.modules.server.application.commands.delete_server._port_is_listening",
+            return_value=False,
+        ):
+            result = await handler.handle(DeleteServerCommand(server_id="test-del-1"))
 
         assert result.success is True
         assert result.data["server_id"] == "test-del-1"
@@ -875,6 +879,14 @@ class TestUpdateServerConfigHandler:
 @patch("app.modules.server.application.commands.delete_server.local_fs.delete_dir")
 @pytest.mark.usefixtures("init_test_db")
 class TestDeleteServerFS:
+    @pytest.fixture(autouse=True)
+    def _mock_port_not_listening(self):
+        with patch(
+            "app.modules.server.application.commands.delete_server._port_is_listening",
+            return_value=False,
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_delete_removes_directory(
         self, mock_delete_dir: AsyncMock, event_bus: EventBus

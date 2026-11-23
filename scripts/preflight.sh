@@ -28,7 +28,13 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────
 
 FRONTEND_PORT="${ONX_FRONTEND_PORT:-${MCS_FRONTEND_PORT:-5173}}"
-PROJECT_ROOT="${ONX_PROJECT_ROOT:-${MCS_PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}}"
+DEFAULT_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="${ONX_PROJECT_ROOT:-${MCS_PROJECT_ROOT:-"${DEFAULT_PROJECT_ROOT}"}}"
+PROJECT_ROOT="${PROJECT_ROOT%/}"
+CUSTOM_PROJECT_ROOT=false
+if [ "${PROJECT_ROOT}" != "${DEFAULT_PROJECT_ROOT%/}" ]; then
+    CUSTOM_PROJECT_ROOT=true
+fi
 
 is_valid_port() {
     [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
@@ -210,12 +216,14 @@ belongs_to_project() {
            [[ "$cmd" != *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
             return 0
         fi
-        # Match specific unique project identifiers
-        if [[ "$cmd" == *"onx-frontend"* ]] ||
+        # Match specific unique project identifiers only for the default repository root
+        if [ "${CUSTOM_PROJECT_ROOT}" = "false" ] && {
+           [[ "$cmd" == *"onx-frontend"* ]] ||
            [[ "$cmd" == *"mcs-frontend"* ]] ||
            [[ "$cmd" == *"onx-manager"* ]] ||
            [[ "$cmd" == *"mcs-manager"* ]] ||
-           [[ "$cmd" == *"app.main:app"* ]]; then
+           [[ "$cmd" == *"app.main:app"* ]];
+        }; then
             return 0
         fi
     fi
@@ -251,11 +259,22 @@ is_caller_or_ancestor() {
     return 1
 }
 
+is_pid_alive() {
+    local pid="$1"
+    kill -0 "${pid}" 2>/dev/null || return 1
+    local stat
+    stat="$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ -z "${stat}" ] || [[ "${stat}" == Z* ]]; then
+        return 1
+    fi
+    return 0
+}
+
 kill_safe() {
     local pid="$1"
     local source_desc="$2"
 
-    if ! kill -0 "${pid}" 2>/dev/null; then
+    if ! is_pid_alive "${pid}"; then
         return 0  # already gone
     fi
 
@@ -285,19 +304,19 @@ kill_safe() {
 
     # Wait up to KILL_WAIT seconds
     local waited=0
-    while kill -0 "${pid}" 2>/dev/null && [ "${waited}" -lt "${KILL_WAIT}" ]; do
+    while is_pid_alive "${pid}" && [ "${waited}" -lt "${KILL_WAIT}" ]; do
         sleep 1
         waited=$((waited + 1))
     done
 
     # Force if still alive
-    if kill -0 "${pid}" 2>/dev/null; then
+    if is_pid_alive "${pid}"; then
         log_warn "PID ${pid} did not respond to SIGTERM after ${KILL_WAIT}s — sending SIGKILL"
         kill -9 "${pid}" 2>/dev/null || true
         sleep 1
     fi
 
-    if kill -0 "${pid}" 2>/dev/null; then
+    if is_pid_alive "${pid}"; then
         log_error "Failed to kill PID ${pid} even with SIGKILL"
         FAILED_ANY=true
         SUMMARY_LINES+=("${RED}✖${RESET} PID ${pid}  ${source_desc}  ${RED}could not kill${RESET}")
@@ -553,7 +572,11 @@ scan_orphans() {
             if [[ "${cmdline}" == *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
                 continue
             fi
-            if [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]] &&
+            if [ "${CUSTOM_PROJECT_ROOT}" = "true" ]; then
+                if [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]]; then
+                    continue
+                fi
+            elif [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]] &&
                [[ "${cmdline}" != *"onx-frontend"* ]] &&
                [[ "${cmdline}" != *"mcs-frontend"* ]] &&
                [[ "${cmdline}" != *"onx-manager"* ]] &&
@@ -603,7 +626,7 @@ cleanup_pid_files() {
                 cleaned=$((cleaned + 1))
                 continue
             fi
-            if ! kill -0 "${old_pid}" 2>/dev/null; then
+            if ! is_pid_alive "${old_pid}"; then
                 rm -f "${pid_file}" 2>/dev/null || true
                 cleaned=$((cleaned + 1))
             fi

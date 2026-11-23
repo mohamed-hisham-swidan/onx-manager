@@ -460,6 +460,10 @@ class TestRuntimeOwnershipManagerClaim:
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
             ),
+            patch(
+                "app.modules.server.application.runtime_ownership._port_is_listening",
+                return_value=False,
+            ),
         ):
             result = await manager.claim_localhost("s1")
 
