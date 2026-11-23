@@ -262,6 +262,14 @@ class TestURLResolvers:
                 await _resolve_fabric_url("1.21")
 
     @pytest.mark.asyncio
+    async def test_fabric_timeout_raises_download_timeout_error(self) -> None:
+        with (
+            patch("aiohttp.ClientSession.get", side_effect=TimeoutError()),
+            pytest.raises(DownloadTimeoutError, match="timed out after 15s"),
+        ):
+            await _resolve_fabric_url("1.21.1")
+
+    @pytest.mark.asyncio
     async def test_purpur_direct_url(self) -> None:
         url = await _resolve_purpur_url("1.21")
         assert url == "https://api.purpurmc.org/v2/purpur/1.21/latest/download"

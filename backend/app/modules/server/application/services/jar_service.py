@@ -983,8 +983,10 @@ async def _resolve_vanilla_url(version: str) -> str:
                         return (
                             f"https://piston-data.mojang.com/v1/objects/{jar_hash}/server.jar"
                         )
-    except (TimeoutError, aiohttp.ClientError, ValueError) as e:
-        raise DownloadError(VANILLA_MANIFEST_URL, 0, str(e)) from e
+    except TimeoutError as e:
+        raise DownloadTimeoutError(VANILLA_MANIFEST_URL, 15) from e
+    except (aiohttp.ClientError, ValueError) as e:
+        raise DownloadError(VANILLA_MANIFEST_URL, 0, str(e) or type(e).__name__) from e
     raise VersionNotFoundError(version, "vanilla")
 
 
@@ -1073,17 +1075,19 @@ async def resolve_paper_build(
                 if resolved is None:
                     raise VersionNotFoundError(version, "paper")
                 resolved_mc = resolved
-                builds_url = PAPER_BUILDS_URL.format(version=resolved_mc)
+                request_url = PAPER_BUILDS_URL.format(version=resolved_mc)
                 async with session.get(
-                    builds_url, timeout=aiohttp.ClientTimeout(total=15)
+                    request_url, timeout=aiohttp.ClientTimeout(total=15)
                 ) as builds_resp:
                     if builds_resp.status != 200:
                         raise DownloadError(
-                            builds_url, builds_resp.status, "cannot fetch Paper builds list"
+                            request_url, builds_resp.status, "cannot fetch Paper builds list"
                         )
                     builds_payload = await builds_resp.json()
-    except (TimeoutError, aiohttp.ClientError, ValueError) as exc:
-        raise DownloadError(request_url, 0, str(exc)) from exc
+    except TimeoutError as exc:
+        raise DownloadTimeoutError(request_url, 15) from exc
+    except (aiohttp.ClientError, ValueError) as exc:
+        raise DownloadError(request_url, 0, str(exc) or type(exc).__name__) from exc
 
     if isinstance(builds_payload, dict):
         builds_obj = builds_payload.get("builds", [])
@@ -1171,8 +1175,10 @@ async def _resolve_fabric_url(version: str) -> str:
                 f"https://meta.fabricmc.net/v2/versions/loader/{version}"
                 f"/{loader_ver}/{installer_ver}/server/jar"
             )
-    except (TimeoutError, aiohttp.ClientError, ValueError) as e:
-        raise DownloadError(url, 0, str(e)) from e
+    except TimeoutError as e:
+        raise DownloadTimeoutError(url, 15) from e
+    except (aiohttp.ClientError, ValueError) as e:
+        raise DownloadError(url, 0, str(e) or type(e).__name__) from e
 
 
 async def _resolve_quilt_url(version: str) -> str:
