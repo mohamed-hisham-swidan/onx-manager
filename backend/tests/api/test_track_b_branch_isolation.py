@@ -617,3 +617,60 @@ async def test_b4_per_branch_exposure_cgnat_and_stop_teardown(
     assert upnp_body["upnp_status"] == "CGNAT_DETECTED"
     assert upnp_body["detected_wan_ip"] == "100.64.5.9"
     assert upnp_body["srv_record_hint"] is not None
+
+
+@pytest.mark.asyncio
+async def test_b5_staging_branch_plugin_install_and_auto_merge_into_main(
+    trackb_api: Any,
+) -> None:
+    api = trackb_api
+    jar_bytes = _make_jar_bytes("InitialAddon", "1.0.0")
+    branch_name = "setup-initial-addons"
+
+    br = await api.client.post(
+        f"{VERSIONING}/branches",
+        json={"name": branch_name},
+        headers=api.header,
+    )
+    assert br.status_code == 201, br.text
+
+    up = await api.client.post(
+        f"/api/v1/servers/{SERVER_ID}/plugins/upload?branch={branch_name}",
+        files={"file": ("InitialAddon-1.0.0.jar", jar_bytes, "application/java-archive")},
+        headers=api.header,
+    )
+    assert up.status_code == 201, up.text
+
+    cm = await api.client.post(
+        f"{VERSIONING}/commits",
+        json={"branch_name": branch_name, "message": "Install initial addons"},
+        headers=api.header,
+    )
+    assert cm.status_code == 201, cm.text
+
+    mg = await api.client.post(
+        f"{VERSIONING}/commits/merge",
+        json={
+            "target_branch_name": "main",
+            "source_branch_name": branch_name,
+            "message": "Auto-merge initial addons into main",
+            "force": True,
+            "force_bypass_protection": True,
+            "force_reason": "Initial server creation add-on setup",
+        },
+        headers=api.header,
+    )
+    assert mg.status_code == 201, mg.text
+
+    dl = await api.client.delete(f"{VERSIONING}/branches/{branch_name}", headers=api.header)
+    assert dl.status_code == 200, dl.text
+
+    main_list = await api.client.get(
+        f"/api/v1/servers/{SERVER_ID}/plugins?branch=main", headers=api.header
+    )
+    assert main_list.status_code == 200, main_list.text
+    items = main_list.json()
+    assert len(items) == 1
+    assert items[0]["name"] == "InitialAddon"
+    assert items[0]["is_committed"] is True
+    assert (api.root / "plugins" / "InitialAddon-1.0.0.jar").is_file()

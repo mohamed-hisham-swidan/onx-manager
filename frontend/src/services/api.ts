@@ -487,6 +487,13 @@ export function createApiClient(
         method: "POST",
         body,
       }),
+    deleteServerBranch: (serverId: string, branchName: string) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}`,
+        {
+          method: "DELETE",
+        },
+      ),
     getServerCommits: (serverId: string, branchId?: string, limit?: number, branchName?: string) =>
       request<ServerCommit[]>(`/api/v1/servers/${serverId}/versioning/commits`, {
         params: {

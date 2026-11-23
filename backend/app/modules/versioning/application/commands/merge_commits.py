@@ -356,6 +356,13 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
                     f"from {branch.head_commit_id!r} while the merge was being created."
                 )
 
+        if command.target_branch_name == "main":
+            from app.modules.plugin.application.branch_plugins import (
+                sync_main_lockfile_addons_to_server_root,
+            )
+
+            sync_main_lockfile_addons_to_server_root(server, layout=git_context.layout)
+
         commit_event = CommitCreatedEvent(
             server_id=command.server_id,
             commit_id=merge_result.commit_id,

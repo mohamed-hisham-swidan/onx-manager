@@ -28,6 +28,10 @@ const installFromMarketplaceMock = vi.fn().mockResolvedValue({
 const healthMock = vi.fn().mockResolvedValue({ docker: true });
 const getSetupStatusMock = vi.fn().mockResolvedValue({ advanced_mode_enabled: false });
 const mutateAsyncMock = vi.fn().mockResolvedValue({ server_id: "new-srv" });
+const createServerBranchMock = vi.fn().mockResolvedValue({ name: "setup-initial-addons" });
+const createServerCommitMock = vi.fn().mockResolvedValue({ commit_id: "c1" });
+const mergeServerCommitsMock = vi.fn().mockResolvedValue({ commit_id: "m1" });
+const deleteServerBranchMock = vi.fn().mockResolvedValue({ status: "deleted" });
 
 vi.mock("@/services/api", async () => {
   const actual = await importActualHelper();
@@ -40,6 +44,10 @@ vi.mock("@/services/api", async () => {
       listServers: listServersMock,
       searchMarketplaceGlobal: searchMarketplaceGlobalMock,
       installFromMarketplace: installFromMarketplaceMock,
+      createServerBranch: createServerBranchMock,
+      createServerCommit: createServerCommitMock,
+      mergeServerCommits: mergeServerCommitsMock,
+      deleteServerBranch: deleteServerBranchMock,
       health: healthMock,
       getSetupStatus: getSetupStatusMock,
     }),
@@ -715,6 +723,59 @@ describe("CreateServerPage sequential naming, stepper, and optional add-ons step
       });
     });
     expect(await screen.findByText("Server Created")).toBeInTheDocument();
+  });
+
+  it("installs addons onto a staging branch and auto-merges into main when mode is advanced", async () => {
+    listServersMock.mockResolvedValue([]);
+    getSetupStatusMock.mockResolvedValue({ advanced_mode_enabled: true });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    const advCard = await screen.findByTestId("server-mode-advanced");
+    await user.click(advCard);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Browse Plugins (Optional)")).toBeInTheDocument();
+    await user.click(await screen.findByTestId("addon-card-pl-essentials"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    await waitFor(() => {
+      expect(createServerBranchMock).toHaveBeenCalledWith("srv-addons-1", {
+        name: "setup-initial-addons",
+      });
+      expect(installFromMarketplaceMock).toHaveBeenCalledWith(
+        "srv-addons-1",
+        {
+          project_id: "pl-essentials",
+          minecraft_version: "1.21.1",
+        },
+        "setup-initial-addons",
+      );
+      expect(createServerCommitMock).toHaveBeenCalledWith(
+        "srv-addons-1",
+        expect.objectContaining({ branch_name: "setup-initial-addons" }),
+      );
+      expect(mergeServerCommitsMock).toHaveBeenCalledWith(
+        "srv-addons-1",
+        expect.objectContaining({
+          target_branch_name: "main",
+          source_branch_name: "setup-initial-addons",
+          force: true,
+          force_bypass_protection: true,
+        }),
+      );
+      expect(deleteServerBranchMock).toHaveBeenCalledWith(
+        "srv-addons-1",
+        "setup-initial-addons",
+      );
+    });
+    expect(await screen.findByText("Server Created")).toBeInTheDocument();
+    expect(screen.queryByText(/Some optional add-ons could not be installed/i)).not.toBeInTheDocument();
   });
 
   it("defaults VersionStep to Main Versions and separates 26.x / snapshots into their own tab", async () => {

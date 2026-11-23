@@ -109,13 +109,19 @@ def _read_lockfile_bytes(worktree: Path) -> bytes | None:
 
 
 def _read_head_lockfile(
-    server_root: Path,
+    layout: HostStateLayout,
+    server_id: str,
     branch_name: str,
 ) -> LockfileV21 | None:
     try:
-        runner = GitRunner(server_root)
+        repo_dir = layout.repo_dir(server_id)
+        runner = GitRunner(
+            repo_path=repo_dir / "repo.git",
+            config_path=repo_dir / "gitconfig",
+        )
         res = runner.run(
-            ["show", f"refs/heads/{branch_name}:{LOCKFILE_RELPATH}"],
+            "show",
+            f"refs/heads/{branch_name}:{LOCKFILE_RELPATH}",
             check=False,
         )
         if res.returncode == 0 and res.stdout:
@@ -184,7 +190,7 @@ def _resolve_worktree_and_lockfile(
     if raw_bytes is not None:
         lockfile = parse_lockfile(raw_bytes)
     else:
-        head_lf = _read_head_lockfile(server_root, branch_name)
+        head_lf = _read_head_lockfile(eff_layout, str(server.id), branch_name)
         lockfile = (
             head_lf
             if head_lf is not None
@@ -263,11 +269,11 @@ def list_branch_plugins(
     layout: HostStateLayout | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """List plugins/mods from the branch worktree's ``onx-jars.lock.json`` + CAS."""
-    eff_layout, server_root, worktree, lockfile = _resolve_worktree_and_lockfile(
+    eff_layout, _server_root, worktree, lockfile = _resolve_worktree_and_lockfile(
         server, branch_name, layout=layout, require_writable=False
     )
     addon_dir_name = get_addon_dir_name(server.server_type.value)
-    head_lf = _read_head_lockfile(server_root, branch_name)
+    head_lf = _read_head_lockfile(eff_layout, str(server.id), branch_name)
     committed_map: dict[str, str] = {}
     if head_lf is not None:
         for hf in head_lf.files:
@@ -727,3 +733,80 @@ async def toggle_branch_plugin(
         "filename": Path(updated_entry.path).name,
         "branch_name": branch_name,
     }
+
+
+def sync_main_lockfile_addons_to_server_root(
+    server: Server,
+    *,
+    layout: HostStateLayout | None = None,
+) -> None:
+    """Sync ``main``'s lockfile and materialize CAS addon JARs to the live server root."""
+    if server.deployment is None or not server.deployment.root_path:
+        return
+    server_root = Path(server.deployment.root_path)
+    if not server_root.is_dir():
+        return
+    check_not_symlink_or_reparse(server_root)
+
+    eff_layout = layout or resolve_host_state_layout()
+    head_lf = _read_head_lockfile(eff_layout, str(server.id), MAIN_BRANCH)
+    if head_lf is None:
+        return
+
+    with contextlib.suppress(Exception):
+        LockfileService(eff_layout).write(str(server.id), head_lf)
+
+    addon_dir_name = get_addon_dir_name(server.server_type.value)
+    addon_dir = server_root / addon_dir_name
+    addon_dir.mkdir(parents=True, exist_ok=True)
+    check_not_symlink_or_reparse(addon_dir)
+
+    cas = ArtifactCas(eff_layout.cas)
+    desired_filenames: set[str] = set()
+    for entry in head_lf.files:
+        try:
+            relpath = validate_canonical_relpath(entry.path)
+        except ValueError:
+            continue
+        if not relpath.startswith(f"{addon_dir_name}/"):
+            continue
+        filename = Path(relpath).name
+        desired_filenames.add(filename)
+        if not cas.has(entry.sha256):
+            continue
+        dest = server_root / relpath
+        if dest.is_symlink():
+            continue
+        needs_write = True
+        if dest.is_file():
+            try:
+                fd = open_safe_path_fd(str(server_root), relpath, flags=os.O_RDONLY)
+                try:
+                    h = hashlib.sha256()
+                    while True:
+                        chunk = os.read(fd, 65536)
+                        if not chunk:
+                            break
+                        h.update(chunk)
+                    needs_write = h.hexdigest() != entry.sha256
+                finally:
+                    os.close(fd)
+            except Exception:
+                needs_write = True
+        if needs_write:
+            with cas.open_blob(entry.sha256) as fh:
+                data = fh.read()
+            atomic_write_private(dest, data)
+
+    # Remove orphaned JARs when server is stopped so deletions/toggles merged to main take effect
+    status_val = str(getattr(server.status, "value", server.status) or "").lower()
+    if status_val == "stopped" and addon_dir.is_dir():
+        for existing in list(addon_dir.iterdir()):
+            if existing.is_symlink() or not existing.is_file():
+                continue
+            low = existing.name.lower()
+            if not (low.endswith(".jar") or low.endswith(".jar.disabled")):
+                continue
+            if existing.name not in desired_filenames:
+                with contextlib.suppress(OSError):
+                    existing.unlink(missing_ok=True)

@@ -194,24 +194,87 @@ export function CreateServerPage() {
         setInstallingAddons(true);
         const installed: string[] = [];
         const failed: { title: string; error: string }[] = [];
-        for (let i = 0; i < data.selectedAddons.length; i += 1) {
-          const addon = data.selectedAddons[i];
-          setAddonInstallStatus(
-            `Installing ${addon.project_type === "mod" ? "mods" : "plugins"} (${i + 1}/${data.selectedAddons.length}): ${addon.title}...`,
-          );
+
+        const useBranchWorkflow = data.mode === "advanced";
+        const setupBranch = "setup-initial-addons";
+        let branchReady = !useBranchWorkflow;
+
+        if (useBranchWorkflow) {
+          setAddonInstallStatus("Creating staging branch for add-ons...");
           try {
-            await api.installFromMarketplace(newServerId, {
-              project_id: addon.project_id,
-              minecraft_version: data.minecraftVersion || undefined,
-            });
-            installed.push(addon.title);
-          } catch (addonErr) {
-            failed.push({
-              title: addon.title,
-              error: addonErr instanceof Error ? addonErr.message : "Install failed",
-            });
+            await api.createServerBranch(newServerId, { name: setupBranch });
+            branchReady = true;
+          } catch (branchErr) {
+            const msg =
+              branchErr instanceof Error ? branchErr.message : "Failed to create staging branch";
+            for (const addon of data.selectedAddons) {
+              failed.push({ title: addon.title, error: msg });
+            }
           }
         }
+
+        if (branchReady) {
+          for (let i = 0; i < data.selectedAddons.length; i += 1) {
+            const addon = data.selectedAddons[i];
+            setAddonInstallStatus(
+              `Installing ${addon.project_type === "mod" ? "mods" : "plugins"} (${i + 1}/${data.selectedAddons.length}): ${addon.title}...`,
+            );
+            try {
+              if (useBranchWorkflow) {
+                await api.installFromMarketplace(
+                  newServerId,
+                  {
+                    project_id: addon.project_id,
+                    minecraft_version: data.minecraftVersion || undefined,
+                  },
+                  setupBranch,
+                );
+              } else {
+                await api.installFromMarketplace(newServerId, {
+                  project_id: addon.project_id,
+                  minecraft_version: data.minecraftVersion || undefined,
+                });
+              }
+              installed.push(addon.title);
+            } catch (addonErr) {
+              failed.push({
+                title: addon.title,
+                error: addonErr instanceof Error ? addonErr.message : "Install failed",
+              });
+            }
+          }
+
+          if (useBranchWorkflow && installed.length > 0) {
+            setAddonInstallStatus("Committing add-ons and merging into main...");
+            try {
+              await api.createServerCommit(newServerId, {
+                branch_name: setupBranch,
+                message: `chore(addons): install initial add-ons (${installed.join(", ")})`,
+              });
+              await api.mergeServerCommits(newServerId, {
+                target_branch_name: "main",
+                source_branch_name: setupBranch,
+                message: `chore(addons): merge initial add-ons into main (${installed.join(", ")})`,
+                force: true,
+                force_bypass_protection: true,
+                force_reason: "Initial server creation add-on setup",
+              });
+              await api.deleteServerBranch(newServerId, setupBranch).catch(() => {});
+            } catch (mergeErr) {
+              const mergeMsg =
+                mergeErr instanceof Error
+                  ? mergeErr.message
+                  : "Failed to merge staging add-ons branch into main";
+              for (const title of installed) {
+                failed.push({ title, error: mergeMsg });
+              }
+              installed.length = 0;
+            }
+          } else if (useBranchWorkflow && installed.length === 0) {
+            await api.deleteServerBranch(newServerId, setupBranch).catch(() => {});
+          }
+        }
+
         setInstalledAddonTitles(installed);
         setFailedAddonTitles(failed);
         setInstallingAddons(false);

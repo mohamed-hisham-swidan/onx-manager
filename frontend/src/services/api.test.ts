@@ -487,6 +487,16 @@ describe("createApiClient", () => {
     await expect(uploadPromise).rejects.toThrow("Archive too large");
   });
 
+  it("deleteServerBranch sends DELETE to /versioning/branches/:name", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ status: "deleted" }));
+    const res = await api.deleteServerBranch("s1", "setup/init");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/branches/setup%2Finit",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(res.status).toBe("deleted");
+  });
+
   it("mergeServerCommits sends POST to commits/merge", async () => {
     vi.mocked(fetch).mockImplementationOnce(mockFetch({ commit_id: "m1", server_id: "s1", branch_name: "main", parent_commit_ids: [] }));
     const res = await api.mergeServerCommits("s1", { target_branch_name: "main", source_branch_name: "feat", message: "merge" });
