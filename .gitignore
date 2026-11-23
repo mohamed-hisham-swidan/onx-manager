@@ -57,7 +57,6 @@ backend/config/
 *.log
 !backend/tests/fixtures/*.log
 logs/
-executors/logs/
 
 # ──────────────────────────────────────────────
 # Runtime / Process Artifacts

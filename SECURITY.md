@@ -11,26 +11,14 @@ Only the latest `0.1.x` release series receives security updates.
 
 ## Reporting a Vulnerability
 
-**Please do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
+Please do not report security vulnerabilities through public GitHub issues.
 
-Instead, please report vulnerabilities privately through [GitHub Private Vulnerability Reporting](https://github.com/mohamed-hisham-swidan/onx-manager/security/advisories/new) on this repository.
+Instead, report them privately using [GitHub Private Vulnerability Reporting](https://github.com/mohamed-hisham-swidan/onx-manager/security/advisories/new) (via the Security → Advisories → Report a vulnerability tab in this repository).
 
-<!-- TODO(HUMAN): Add security contact email / verify GitHub Security Advisories link and optional PGP fingerprint -->
+### What to Expect (Triage SLA)
 
-When reporting a vulnerability, please include:
-
-- A clear description of the issue and the affected component (backend API, WebSocket, file manager, provider execution, authentication/RBAC, encrypted vaults, or frontend).
-- Step-by-step instructions or a minimal proof-of-concept to reproduce the issue.
-- The potential impact and any preconditions required (e.g., unauthenticated vs. authenticated role).
-- Any suggested mitigations or fixes, if available.
-
-### What to Expect
-
-<!-- TODO(HUMAN): Specify target acknowledgement / triage response SLA (e.g., within 72 hours) -->
-
-- **Acknowledgement**: Reports are reviewed promptly upon submission.
-- **Coordinate & Fix**: Once verified, a fix and regression test will be prepared before public disclosure.
-- **Credit**: Reporters are credited in the security advisory and release notes unless anonymity is requested.
+- Acknowledgment: Within 3–5 business days (best-effort; this is a solo-maintained open-source project).
+- Updates & Remediation: Confirmed vulnerabilities are prioritized based on severity. You will receive status updates through the private advisory thread until a fix is released and coordinated disclosure is agreed upon.
 
 ## Security Architecture Reference
 
