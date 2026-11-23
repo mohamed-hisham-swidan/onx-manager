@@ -8,31 +8,32 @@ import { AppShell } from "@/layouts/AppShell";
 import { ServerShell } from "@/layouts/ServerShell";
 import { SplashScreen } from "@/components/brand/SplashScreen";
 import { WebSocketManager } from "@/components/WebSocketManager";
+import { lazyWithReload } from "@/utils/chunkReload";
 
-// Route-level code-splitting: load page chunks on demand
-const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
-const RegisterPage = lazy(() => import("@/pages/RegisterPage").then((m) => ({ default: m.RegisterPage })));
-const SetupPage = lazy(() => import("@/pages/SetupPage").then((m) => ({ default: m.SetupPage })));
-const InvitePage = lazy(() => import("@/pages/InvitePage").then((m) => ({ default: m.InvitePage })));
-const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
+// Route-level code-splitting: load page chunks on demand (auto-reload once if chunk hash rotated)
+const LoginPage = lazyWithReload(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const RegisterPage = lazyWithReload(() => import("@/pages/RegisterPage").then((m) => ({ default: m.RegisterPage })));
+const SetupPage = lazyWithReload(() => import("@/pages/SetupPage").then((m) => ({ default: m.SetupPage })));
+const InvitePage = lazyWithReload(() => import("@/pages/InvitePage").then((m) => ({ default: m.InvitePage })));
+const NotFoundPage = lazyWithReload(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 
-const DashboardPage = lazy(() => import("@/server_manager/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
-const ServersPage = lazy(() => import("@/server_manager/pages/ServersPage").then((m) => ({ default: m.ServersPage })));
-const CreateServerPage = lazy(() => import("@/server_manager/pages/CreateServerPage").then((m) => ({ default: m.CreateServerPage })));
-const ImportServerPage = lazy(() => import("@/server_manager/pages/ImportServerPage").then((m) => ({ default: m.ImportServerPage })));
-const ServerDetailPage = lazy(() => import("@/server_manager/pages/ServerDetailPage").then((m) => ({ default: m.ServerDetailPage })));
-const ServerFilesPage = lazy(() => import("@/server_manager/pages/ServerFilesPage").then((m) => ({ default: m.ServerFilesPage })));
-const ServerExposurePage = lazy(() => import("@/server_manager/pages/ServerExposurePage").then((m) => ({ default: m.ServerExposurePage })));
-const ServerModsPage = lazy(() => import("@/server_manager/pages/ServerModsPage").then((m) => ({ default: m.ServerModsPage })));
-const ServerVersioningPage = lazy(() => import("@/server_manager/pages/ServerVersioningPage").then((m) => ({ default: m.ServerVersioningPage })));
-const ServerActivityPage = lazy(() => import("@/server_manager/pages/ServerActivityPage").then((m) => ({ default: m.ServerActivityPage })));
-const ServerSettingsPage = lazy(() => import("@/server_manager/pages/ServerSettingsPage").then((m) => ({ default: m.ServerSettingsPage })));
-const BackupListPage = lazy(() => import("@/server_manager/pages/BackupListPage").then((m) => ({ default: m.BackupListPage })));
-const PluginListPage = lazy(() => import("@/server_manager/pages/PluginListPage").then((m) => ({ default: m.PluginListPage })));
-const PluginMarketplacePage = lazy(() => import("@/server_manager/pages/PluginMarketplacePage").then((m) => ({ default: m.PluginMarketplacePage })));
-const PluginDetailPage = lazy(() => import("@/server_manager/pages/PluginDetailPage").then((m) => ({ default: m.PluginDetailPage })));
-const SettingsPage = lazy(() => import("@/server_manager/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
-const ApiKeysPage = lazy(() => import("@/server_manager/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
+const DashboardPage = lazyWithReload(() => import("@/server_manager/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const ServersPage = lazyWithReload(() => import("@/server_manager/pages/ServersPage").then((m) => ({ default: m.ServersPage })));
+const CreateServerPage = lazyWithReload(() => import("@/server_manager/pages/CreateServerPage").then((m) => ({ default: m.CreateServerPage })));
+const ImportServerPage = lazyWithReload(() => import("@/server_manager/pages/ImportServerPage").then((m) => ({ default: m.ImportServerPage })));
+const ServerDetailPage = lazyWithReload(() => import("@/server_manager/pages/ServerDetailPage").then((m) => ({ default: m.ServerDetailPage })));
+const ServerFilesPage = lazyWithReload(() => import("@/server_manager/pages/ServerFilesPage").then((m) => ({ default: m.ServerFilesPage })));
+const ServerExposurePage = lazyWithReload(() => import("@/server_manager/pages/ServerExposurePage").then((m) => ({ default: m.ServerExposurePage })));
+const ServerModsPage = lazyWithReload(() => import("@/server_manager/pages/ServerModsPage").then((m) => ({ default: m.ServerModsPage })));
+const ServerVersioningPage = lazyWithReload(() => import("@/server_manager/pages/ServerVersioningPage").then((m) => ({ default: m.ServerVersioningPage })));
+const ServerActivityPage = lazyWithReload(() => import("@/server_manager/pages/ServerActivityPage").then((m) => ({ default: m.ServerActivityPage })));
+const ServerSettingsPage = lazyWithReload(() => import("@/server_manager/pages/ServerSettingsPage").then((m) => ({ default: m.ServerSettingsPage })));
+const BackupListPage = lazyWithReload(() => import("@/server_manager/pages/BackupListPage").then((m) => ({ default: m.BackupListPage })));
+const PluginListPage = lazyWithReload(() => import("@/server_manager/pages/PluginListPage").then((m) => ({ default: m.PluginListPage })));
+const PluginMarketplacePage = lazyWithReload(() => import("@/server_manager/pages/PluginMarketplacePage").then((m) => ({ default: m.PluginMarketplacePage })));
+const PluginDetailPage = lazyWithReload(() => import("@/server_manager/pages/PluginDetailPage").then((m) => ({ default: m.PluginDetailPage })));
+const SettingsPage = lazyWithReload(() => import("@/server_manager/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const ApiKeysPage = lazyWithReload(() => import("@/server_manager/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
 
 declare global {
   interface ImportMetaEnv {

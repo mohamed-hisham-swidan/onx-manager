@@ -52,4 +52,32 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("Try again")).toBeInTheDocument();
     vi.restoreAllMocks();
   });
+
+  it("auto-reloads once and offers Reload app fallback for dynamic import chunk errors", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const reloadSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, reload: reloadSpy },
+      configurable: true,
+    });
+    window.sessionStorage.clear();
+
+    const ChunkFail = () => {
+      throw new TypeError(
+        "Failed to fetch dynamically imported module: http://127.0.0.1:8001/assets/ServerFilesPage-DyGFmkDG.js",
+      );
+    };
+
+    render(
+      <ErrorBoundary>
+        <ChunkFail />
+      </ErrorBoundary>,
+    );
+
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("App update available")).toBeInTheDocument();
+    screen.getByRole("button", { name: "Reload app" }).click();
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
 });

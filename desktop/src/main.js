@@ -84,6 +84,11 @@ function createWindow() {
     if (mod && input.shift && key === "k") {
       event.preventDefault();
       loadLauncherScreen();
+    } else if ((mod && input.shift && key === "r") || key === "f5") {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.reloadIgnoringCache();
+      }
     } else if (mod && !input.shift && key === "r") {
       event.preventDefault();
       if (mainWindow && !mainWindow.isDestroyed()) {
