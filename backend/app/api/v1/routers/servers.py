@@ -363,11 +363,12 @@ async def start_server(
 @router.post("/{server_id}/stop", response_model=dict)
 async def stop_server(
     server_id: str,
-    body: ServerActionRequest,
     command_bus: CommandBus = Depends(get_command_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.power")),
+    body: Annotated[ServerActionRequest | None, Body()] = None,
 ) -> dict:
-    result = await command_bus.send(StopServerCommand(server_id=server_id, reason=body.reason))
+    reason = body.reason if body is not None else ""
+    result = await command_bus.send(StopServerCommand(server_id=server_id, reason=reason))
     return check_command_result(result)
 
 

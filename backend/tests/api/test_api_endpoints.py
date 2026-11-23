@@ -594,6 +594,70 @@ class TestServers:
             )
         assert resp.status_code == 200
 
+    async def test_stop_server_without_body(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
+        from sqlalchemy import text
+
+        from app.core.persistence.db import database
+        from app.modules.server.infrastructure.providers.base import (
+            DeploymentResult,
+            ServerRuntimeStatus,
+        )
+
+        server_id = created_server["server_id"]
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "local"
+        mock_provider.get_address = AsyncMock(return_value="127.0.0.1")
+        mock_provider.start.return_value = DeploymentResult(
+            status=ServerRuntimeStatus.RUNNING,
+            address="127.0.0.1",
+            port=25565,
+            pid=12345,
+            metadata={"session_name": "onx-test-stop-no-body"},
+        )
+        mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
+        mock_provider.stop.return_value = None
+
+        with (
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.start_server._port_is_listening",
+                return_value=False,
+            ),
+        ):
+            await client.post(f"/api/v1/servers/{server_id}/start", headers=privileged_header)
+        async with database._session_factory() as session:
+            await session.execute(
+                text("UPDATE servers SET status = 'running' WHERE id = :id"), {"id": server_id}
+            )
+            await session.commit()
+        with (
+            patch(
+                "app.modules.server.application.commands.stop_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.stop_server._port_is_listening",
+                return_value=False,
+            ),
+            patch(
+                "app.modules.server.application.commands.stop_server._wait_for_port_free",
+                return_value=True,
+            ),
+        ):
+            resp = await client.post(
+                f"/api/v1/servers/{server_id}/stop",
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+
     async def test_delete_server(
         self,
         client: AsyncClient,
