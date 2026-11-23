@@ -100,3 +100,111 @@ test("LocalBackendManager fails cleanly when virtualenv is missing", async () =>
   await assert.rejects(() => mgr.start(), /virtualenv not found/i);
   assert.equal(mgr.getSnapshot().status, "error");
 });
+
+function createFakeInstallDir({ reconcileExit = 0, reconcileJson = null } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onx-desktop-mgr-"));
+  const backendDir = path.join(dir, "backend");
+  const venvBinDir = path.join(backendDir, ".venv", "bin");
+  const reconcilerDir = path.join(backendDir, "app", "core", "persistence");
+  fs.mkdirSync(venvBinDir, { recursive: true });
+  fs.mkdirSync(reconcilerDir, { recursive: true });
+  fs.writeFileSync(path.join(backendDir, "pyproject.toml"), "[project]\nname='onx-manager'\n");
+  fs.writeFileSync(path.join(reconcilerDir, "reconciler.py"), "# stub\n");
+
+  const orderLog = path.join(dir, "invocations.log");
+  const fakeScript = path.join(dir, "fake_python.mjs");
+  const payloadJson = JSON.stringify(
+    reconcileJson || {
+      status: "RECONCILED",
+      action_taken: "UPGRADE",
+      target_revision: "b1e2100000034",
+      message: "Database successfully upgraded to head revision 'b1e2100000034'.",
+    },
+  );
+
+  fs.writeFileSync(
+    fakeScript,
+    `import fs from "node:fs";
+import http from "node:http";
+
+const args = process.argv.slice(2);
+const orderLog = ${JSON.stringify(orderLog)};
+if (args[0] === "-m" && args[1] === "app.core.persistence.reconciler") {
+  fs.appendFileSync(orderLog, "reconciler\\n");
+  process.stdout.write("Alembic target DB: stub\\n");
+  process.stdout.write(${JSON.stringify(payloadJson)} + "\\n");
+  process.exit(${Number(reconcileExit)});
+}
+if (args[0] === "-m" && args[1] === "uvicorn") {
+  fs.appendFileSync(orderLog, "uvicorn\\n");
+  const portIdx = args.indexOf("--port");
+  const hostIdx = args.indexOf("--host");
+  const port = Number(portIdx >= 0 ? args[portIdx + 1] : 8000);
+  const host = hostIdx >= 0 ? args[hostIdx + 1] : "127.0.0.1";
+  const server = http.createServer((req, res) => {
+    if (req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  server.listen(port, host);
+  process.on("SIGTERM", () => server.close(() => process.exit(0)));
+}
+`,
+  );
+
+  const wrapperPath = path.join(venvBinDir, "python");
+  fs.writeFileSync(wrapperPath, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeScript)} "$@"\n`);
+  fs.chmodSync(wrapperPath, 0o755);
+
+  return { dir, orderLog };
+}
+
+test(
+  "LocalBackendManager runs database reconciler before starting uvicorn",
+  { skip: process.platform === "win32" },
+  async () => {
+    const { dir, orderLog } = createFakeInstallDir();
+    const mgr = new LocalBackendManager({ installDir: dir, preferredPort: 48120 });
+    try {
+      const snap = await mgr.start();
+      assert.equal(snap.status, "running");
+      const invocations = fs.readFileSync(orderLog, "utf8").trim().split(/\r?\n/);
+      assert.deepEqual(invocations, ["reconciler", "uvicorn"]);
+      assert.ok(mgr.getLogs().some((line) => line.includes("RECONCILED")));
+    } finally {
+      await mgr.stop();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "LocalBackendManager aborts startup when database reconciliation fails",
+  { skip: process.platform === "win32" },
+  async () => {
+    const { dir, orderLog } = createFakeInstallDir({
+      reconcileExit: 1,
+      reconcileJson: {
+        status: "BLOCKED_UNSAFE",
+        message: "Unknown schema revision detected",
+      },
+    });
+    const mgr = new LocalBackendManager({ installDir: dir, preferredPort: 48140 });
+    try {
+      await assert.rejects(
+        () => mgr.start(),
+        /Database schema reconciliation failed: Unknown schema revision detected/,
+      );
+      assert.equal(mgr.getSnapshot().status, "error");
+      const invocations = fs.readFileSync(orderLog, "utf8").trim().split(/\r?\n/);
+      assert.deepEqual(invocations, ["reconciler"]);
+    } finally {
+      await mgr.stop();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

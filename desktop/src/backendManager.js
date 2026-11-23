@@ -228,6 +228,92 @@ class LocalBackendManager {
     return [...this.logs];
   }
 
+  async _reconcileDatabase(pyBin, backendDir, env) {
+    const reconcilerEnv = {
+      ...env,
+      PYTHONPATH: env.PYTHONPATH ? `${backendDir}${path.delimiter}${env.PYTHONPATH}` : backendDir,
+    };
+
+    const { code, stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(pyBin, ["-m", "app.core.persistence.reconciler", "--json"], {
+        cwd: backendDir,
+        env: reconcilerEnv,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      const outChunks = [];
+      const errChunks = [];
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Ignore
+        }
+      }, 60000);
+      timer.unref();
+
+      child.stdout.on("data", (chunk) => outChunks.push(chunk));
+      child.stderr.on("data", (chunk) => errChunks.push(chunk));
+      child.once("error", (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.once("exit", (exitCode) => {
+        clearTimeout(timer);
+        const stdoutText = Buffer.concat(outChunks).toString("utf8");
+        const stderrText = Buffer.concat(errChunks).toString("utf8");
+        if (timedOut) {
+          reject(new Error("Database schema reconciliation timed out after 60s."));
+          return;
+        }
+        resolve({ code: exitCode ?? 1, stdout: stdoutText, stderr: stderrText });
+      });
+    });
+
+    if (stderr && stderr.trim()) {
+      this._appendLog(stderr);
+    }
+
+    let parsed = null;
+    const lines = stdout
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].startsWith("{") && lines[i].endsWith("}")) {
+        try {
+          parsed = JSON.parse(lines[i]);
+          break;
+        } catch {
+          // Try preceding line
+        }
+      }
+    }
+
+    const okStatuses = new Set(["READY", "RECONCILED"]);
+    if (code === 0 && (!parsed || okStatuses.has(parsed.status))) {
+      if (parsed && parsed.message) {
+        this._appendLog(`[Database] ${parsed.status}: ${parsed.message}`);
+      } else {
+        this._appendLog("[Database] Schema check passed.");
+      }
+      return parsed;
+    }
+
+    const detail =
+      (parsed && (parsed.message || parsed.error_detail || parsed.status)) ||
+      stderr.trim() ||
+      stdout.trim() ||
+      `reconciler exited with code ${code}`;
+    const msg = `Database schema reconciliation failed: ${detail}`;
+    this._appendLog(msg);
+    throw new Error(msg);
+  }
+
   async _waitForHealthy(port) {
     const deadline = Date.now() + this.healthTimeoutMs;
     const url = `http://127.0.0.1:${port}/health`;
@@ -288,6 +374,18 @@ class LocalBackendManager {
       ONX_PANEL_BIND_PORT: String(port),
       ONX_STATIC_DIR: fs.existsSync(path.join(staticDir, "index.html")) ? staticDir : "off",
     };
+
+    const reconcilerScript = path.join(backendDir, "app", "core", "persistence", "reconciler.py");
+    if (fs.existsSync(reconcilerScript)) {
+      try {
+        await this._reconcileDatabase(pyBin, backendDir, env);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.port = null;
+        this._setStatus("error", msg);
+        throw err;
+      }
+    }
 
     const child = spawn(
       pyBin,
