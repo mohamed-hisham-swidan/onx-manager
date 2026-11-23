@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "private": true,
   "main": "src/main.js",
+  "desktopName": "onx-manager.desktop",
   "scripts": {
     "prestart": "node scripts/ensure-electron.js",
     "start": "electron .",
@@ -31,6 +32,9 @@
       "assets/**/*",
       "!src/test/**"
     ],
+    "asarUnpack": [
+      "assets/**/*"
+    ],
     "win": {
       "icon": "assets/icon.ico",
       "target": [
@@ -38,12 +42,21 @@
       ]
     },
     "linux": {
-      "icon": "assets/icon.png",
+      "icon": "assets/icons",
+      "executableName": "onx-manager",
+      "syncDesktopName": true,
+      "artifactName": "ONX-Manager-${version}-${arch}.${ext}",
       "target": [
         "AppImage",
         "deb"
       ],
-      "category": "Game"
+      "category": "Game",
+      "desktop": {
+        "entry": {
+          "Name": "ONX Manager",
+          "StartupWMClass": "onx-manager"
+        }
+      }
     }
   },
   "allowScripts": {

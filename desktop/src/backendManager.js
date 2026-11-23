@@ -12,19 +12,40 @@ const { normalizePanelUrl } = require("./connectionsStore");
 
 const MAX_LOG_LINES = 120;
 
-function resolveInstallDir(explicitDir) {
+function addAncestors(list, startPath, depth = 4) {
+  if (!startPath) return;
+  let current = path.resolve(startPath);
+  for (let i = 0; i <= depth; i++) {
+    list.push(current);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+}
+
+function resolveInstallDir(explicitDir, env = process.env, cwd = process.cwd(), execPath = process.execPath) {
   if (explicitDir) {
     return path.resolve(explicitDir);
   }
   const candidates = [];
-  if (process.env.ONX_INSTALL_DIR) candidates.push(process.env.ONX_INSTALL_DIR);
+  if (env.ONX_INSTALL_DIR) candidates.push(env.ONX_INSTALL_DIR);
   candidates.push(path.resolve(__dirname, "..", ".."));
 
-  if (process.platform === "win32" && process.env.LOCALAPPDATA) {
-    candidates.push(path.join(process.env.LOCALAPPDATA, "onx-manager"));
-  } else {
-    candidates.push(path.join(os.homedir(), ".local", "share", "onx-manager"));
+  if (env.APPIMAGE) {
+    addAncestors(candidates, path.dirname(env.APPIMAGE), 4);
   }
+  if (execPath) {
+    addAncestors(candidates, path.dirname(execPath), 4);
+  }
+  if (cwd) {
+    addAncestors(candidates, cwd, 4);
+  }
+
+  const standardDir =
+    process.platform === "win32" && env.LOCALAPPDATA
+      ? path.join(env.LOCALAPPDATA, "onx-manager")
+      : path.join(os.homedir(), ".local", "share", "onx-manager");
+  candidates.push(standardDir);
 
   for (const dir of candidates) {
     if (

@@ -26,27 +26,33 @@ function getStorePath() {
   return path.join(app.getPath("userData"), "connections.json");
 }
 
-function getBrandIconPath() {
-  const assetsDir = path.resolve(__dirname, "..", "assets");
-  const preferred =
-    process.platform === "win32"
-      ? path.join(assetsDir, "icon.ico")
-      : path.join(assetsDir, "icon.png");
-  if (fs.existsSync(preferred)) {
-    return preferred;
+function getBrandIconPath(relativePath = null) {
+  const target = relativePath || (process.platform === "win32" ? "icon.ico" : "icon.png");
+  const candidateDirs = [];
+  if (app.isPackaged && process.resourcesPath) {
+    candidateDirs.push(path.join(process.resourcesPath, "app.asar.unpacked", "assets"));
   }
-  return path.join(assetsDir, "icon.svg");
+  candidateDirs.push(path.resolve(__dirname, "..", "assets"));
+
+  for (const assetsDir of candidateDirs) {
+    const preferred = path.join(assetsDir, target);
+    if (fs.existsSync(preferred)) {
+      return preferred;
+    }
+  }
+  return path.join(candidateDirs[candidateDirs.length - 1], "icon.svg");
 }
 
 function createWindow() {
   const iconPath = getBrandIconPath();
+  const windowIcon = nativeImage.createFromPath(iconPath);
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 640,
     title: "ONX Manager",
-    icon: iconPath,
+    icon: windowIcon.isEmpty() ? iconPath : windowIcon,
     autoHideMenuBar: true,
     backgroundColor: "#0b0e14",
     show: false,
@@ -61,6 +67,9 @@ function createWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
+  if (typeof mainWindow.removeMenu === "function") {
+    mainWindow.removeMenu();
+  }
 
   mainWindow.once("ready-to-show", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -114,11 +123,15 @@ function createWindow() {
 }
 
 function buildTray() {
-  let icon = nativeImage.createFromPath(getBrandIconPath());
+  const trayPath =
+    process.platform === "linux"
+      ? getBrandIconPath(path.join("icons", "32x32.png"))
+      : getBrandIconPath();
+  let icon = nativeImage.createFromPath(trayPath);
   if (icon.isEmpty()) {
     icon = nativeImage.createEmpty();
   } else {
-    icon = icon.resize({ width: 16, height: 16 });
+    icon = icon.resize({ width: 32, height: 32, quality: "best" });
   }
   tray = new Tray(icon);
   tray.setToolTip("ONX Manager");
@@ -248,6 +261,9 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    if (process.platform === "linux" && typeof app.setDesktopName === "function") {
+      app.setDesktopName("onx-manager.desktop");
+    }
     backendManager = new LocalBackendManager({
       onStatusChange: () => broadcastStatus(),
     });

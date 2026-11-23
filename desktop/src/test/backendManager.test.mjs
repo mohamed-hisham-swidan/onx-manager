@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import http from "node:http";
 import { createRequire } from "node:module";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -16,6 +18,27 @@ const {
 test("resolveInstallDir finds repository checkout root automatically", () => {
   const dir = resolveInstallDir();
   assert.equal(path.basename(dir), "onx-manager");
+});
+
+test("resolveInstallDir honors ONX_INSTALL_DIR and APPIMAGE ancestor paths", () => {
+  const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "..");
+  const appImagePath = path.join(repoRoot, "desktop", "dist", "ONX-Manager-0.1.0-x86_64.AppImage");
+  assert.equal(
+    resolveInstallDir(null, { APPIMAGE: appImagePath }, "/tmp", "/tmp/mount/app"),
+    repoRoot,
+  );
+
+  const customDir = fs.mkdtempSync(path.join(os.tmpdir(), "onx-install-"));
+  try {
+    fs.mkdirSync(path.join(customDir, "backend"), { recursive: true });
+    fs.writeFileSync(path.join(customDir, "backend", "pyproject.toml"), "[project]\nname='onx'\n");
+    assert.equal(
+      resolveInstallDir(null, { ONX_INSTALL_DIR: customDir }, "/tmp", "/tmp/mount/app"),
+      path.resolve(customDir),
+    );
+  } finally {
+    fs.rmSync(customDir, { recursive: true, force: true });
+  }
 });
 
 test("findAvailablePort skips busy loopback port", async () => {
