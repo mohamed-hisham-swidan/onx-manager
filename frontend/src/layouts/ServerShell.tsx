@@ -1,6 +1,6 @@
 import { useEffect, useState, Suspense, useContext, useMemo, useCallback } from "react";
 import { Outlet, useLocation, useParams, Link, useNavigate } from "react-router-dom";
-import { QueryClientContext, useQuery } from "@tanstack/react-query";
+import { QueryClientContext, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LoadingBar } from "@/components/ui/LoadingBar";
@@ -59,7 +59,17 @@ export function ServerShell() {
   const serversQuery = useSafeServersList();
   const servers = useMemo(() => serversQuery?.data ?? [], [serversQuery?.data]);
 
-  const { data: server } = useServerDetail(serverId!);
+  const urlBranch = new URLSearchParams(location.search).get("branch");
+  const persistedBranch =
+    typeof window !== "undefined" && serverId
+      ? window.localStorage.getItem(`onx.selectedBranch.${serverId}`)
+      : null;
+  const candidateBranch = urlBranch || persistedBranch || "main";
+
+  const { data: server } = useServerDetail(
+    serverId!,
+    candidateBranch !== "main" ? candidateBranch : undefined,
+  );
   const { supportsMods, supportsPlugins } = getServerCapabilities(server?.server_type);
   const serverMode = resolveServerMode(server?.mode);
 
@@ -72,18 +82,64 @@ export function ServerShell() {
   const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
   const gitBacked = branches.some((branch) => branch.worktree_path != null);
 
-  const urlBranch = new URLSearchParams(location.search).get("branch");
-  const persistedBranch =
-    typeof window !== "undefined" && serverId
-      ? window.localStorage.getItem(`onx.selectedBranch.${serverId}`)
-      : null;
-  const candidateBranch = urlBranch || persistedBranch || "main";
   const selectedBranch =
     gitBacked &&
     branches.length > 0 &&
     !branches.some((branch) => branch.name === candidateBranch)
       ? "main"
       : candidateBranch;
+  const isNonMainBranch = gitBacked && selectedBranch !== "main";
+
+  const queryClient = useQueryClient();
+  const branchRuntimeQuery = useQuery({
+    queryKey: queryKeys.versioning.branchRuntime(serverId ?? "", selectedBranch),
+    queryFn: () =>
+      typeof api.getBranchRuntime === "function"
+        ? api.getBranchRuntime(serverId!, selectedBranch)
+        : Promise.resolve(null),
+    enabled: !!serverId && isNonMainBranch,
+    refetchInterval: 5000,
+  });
+  const branchRuntime = branchRuntimeQuery.data ?? null;
+
+  const branchStartMutation = useMutation({
+    mutationFn: () => api.startBranchRun(serverId!, selectedBranch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.versioning.branchRuntime(serverId!, selectedBranch),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.versioning.branches(serverId!),
+      });
+    },
+  });
+
+  const branchStopMutation = useMutation({
+    mutationFn: () => api.stopBranchRun(serverId!, selectedBranch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.versioning.branchRuntime(serverId!, selectedBranch),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.versioning.branches(serverId!),
+      });
+    },
+  });
+
+  const branchRestartMutation = useMutation({
+    mutationFn: async () => {
+      await api.stopBranchRun(serverId!, selectedBranch);
+      return api.startBranchRun(serverId!, selectedBranch);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.versioning.branchRuntime(serverId!, selectedBranch),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.versioning.branches(serverId!),
+      });
+    },
+  });
 
   const selectBranch = useCallback(
     (nextBranch: string) => {
@@ -165,7 +221,9 @@ export function ServerShell() {
     server.deployment_host !== "null"
       ? server.deployment_host.trim()
       : "";
-  const effectivePort = server?.deployment_port ?? server?.port;
+  const effectivePort = isNonMainBranch
+    ? (branchRuntime?.port_set?.game_port ?? server?.port)
+    : (server?.deployment_port ?? server?.port);
   const serverAddress = server
     ? `${effectiveHost || "127.0.0.1"}:${effectivePort}`
     : "";
@@ -178,19 +236,33 @@ export function ServerShell() {
     setTimeout(() => setCopiedAddress(false), 2000);
   };
 
-  const isStatusRunning = server?.status === "running" || server?.status === "RUNNING";
-  const isStatusStarting = server?.status === "starting" || server?.status === "STARTING";
+  const activeStatus = isNonMainBranch
+    ? (branchRuntime?.runtime_status || "stopped")
+    : (server?.status || "stopped");
+  const isStatusRunning = activeStatus === "running" || activeStatus === "RUNNING";
+  const isStatusStarting = activeStatus === "starting" || activeStatus === "STARTING";
   const isRunning = isStatusRunning;
   const isStarting = isStatusStarting;
   const canStop = isRunning || isStarting;
-  const isStopping = server?.status === "stopping" || server?.status === "STOPPING";
-  const isTransitioning =
-    isStarting ||
-    isStopping ||
-    server?.status === "provisioning" ||
-    startMutation.isPending ||
-    stopMutation.isPending ||
-    restartMutation.isPending;
+  const isStopping = activeStatus === "stopping" || activeStatus === "STOPPING";
+  const isTransitioning = isNonMainBranch
+    ? isStarting ||
+      isStopping ||
+      branchStartMutation.isPending ||
+      branchStopMutation.isPending ||
+      branchRestartMutation.isPending
+    : isStarting ||
+      isStopping ||
+      server?.status === "provisioning" ||
+      startMutation.isPending ||
+      stopMutation.isPending ||
+      restartMutation.isPending;
+
+  const withBranch = useCallback(
+    (path: string) =>
+      isNonMainBranch ? `${path}?branch=${encodeURIComponent(selectedBranch)}` : path,
+    [isNonMainBranch, selectedBranch],
+  );
 
   const effectiveServerId = serverId || "";
   const serverName = server?.name || effectiveServerId || "Server";
@@ -208,16 +280,16 @@ export function ServerShell() {
     (location.pathname.endsWith(`/servers/${effectiveServerId}`) ? "console" : location.pathname.split("/").pop() || "console");
 
   const navPills = [
-    { id: "console", label: "Console", path: `/servers/${effectiveServerId}/console`, icon: "dashboard" as const },
-    { id: "files", label: "Files", path: `/servers/${effectiveServerId}/files`, icon: "folder" as const },
-    ...(supportsPlugins ? [{ id: "plugins", label: "Plugins", path: `/servers/${effectiveServerId}/plugins`, icon: "plugin" as const }] : []),
-    ...(supportsMods ? [{ id: "mods", label: "Mods", path: `/servers/${effectiveServerId}/mods`, icon: "plugin" as const }] : []),
+    { id: "console", label: "Console", path: withBranch(`/servers/${effectiveServerId}/console`), icon: "dashboard" as const },
+    { id: "files", label: "Files", path: withBranch(`/servers/${effectiveServerId}/files`), icon: "folder" as const },
+    ...(supportsPlugins ? [{ id: "plugins", label: "Plugins", path: withBranch(`/servers/${effectiveServerId}/plugins`), icon: "plugin" as const }] : []),
+    ...(supportsMods ? [{ id: "mods", label: "Mods", path: withBranch(`/servers/${effectiveServerId}/mods`), icon: "plugin" as const }] : []),
     ...(serverMode === "advanced"
-      ? [{ id: "versioning", label: "Versions", path: `/servers/${effectiveServerId}/versioning`, icon: "backup" as const }]
+      ? [{ id: "versioning", label: "Versions", path: withBranch(`/servers/${effectiveServerId}/versioning`), icon: "backup" as const }]
       : []),
-    { id: "network", label: "Network", path: `/servers/${effectiveServerId}/network`, icon: "activity" as const },
-    { id: "activity", label: "Activity", path: `/servers/${effectiveServerId}/activity`, icon: "clock" as const },
-    { id: "settings", label: "Settings", path: `/servers/${effectiveServerId}/settings`, icon: "settings" as const },
+    { id: "network", label: "Network", path: withBranch(`/servers/${effectiveServerId}/network`), icon: "activity" as const },
+    { id: "activity", label: "Activity", path: withBranch(`/servers/${effectiveServerId}/activity`), icon: "clock" as const },
+    { id: "settings", label: "Settings", path: withBranch(`/servers/${effectiveServerId}/settings`), icon: "settings" as const },
   ];
 
   return (
@@ -244,6 +316,7 @@ export function ServerShell() {
           supportsMods,
           supportsPlugins,
           mode: serverMode,
+          branch: isNonMainBranch ? selectedBranch : undefined,
         }}
       />
 
@@ -258,7 +331,7 @@ export function ServerShell() {
           {/* Breadcrumb Navigation (Exact semantics preserved for tests) */}
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs flex-wrap text-text-muted">
             <Link
-              to={currentSection === "Console" ? "/servers" : `/servers/${serverId}/console`}
+              to={currentSection === "Console" ? "/servers" : withBranch(`/servers/${serverId}/console`)}
               className="text-text-muted hover:text-text-primary flex items-center gap-1 transition-colors"
             >
               <Icon name="chevron-left" size={14} />
@@ -269,7 +342,7 @@ export function ServerShell() {
             {currentSection === "Files" && (filePathParts.length > 0 || fileName) ? (
               <>
                 <Link
-                  to={`/servers/${serverId}/files`}
+                  to={withBranch(`/servers/${serverId}/files`)}
                   className="text-text-muted hover:text-text-primary transition-colors"
                 >
                   Files
@@ -398,7 +471,15 @@ export function ServerShell() {
                       </div>
                     )}
 
-                    <StatusBadge status={server?.status || "stopped"} />
+                    <StatusBadge status={activeStatus} />
+                    {isNonMainBranch && branchRuntime && !branchRuntime.container_provisioned && (
+                      <span
+                        data-testid="branch-unprovisioned-badge"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-surface-elevated text-text-muted border border-border-subtle"
+                      >
+                        No Container
+                      </span>
+                    )}
                     {server?.server_type && <LoaderBadge loader={server.server_type} />}
                     {server?.provider && (
                       <span
@@ -479,7 +560,11 @@ export function ServerShell() {
                         variant="secondary"
                         icon="restart"
                         disabled={isTransitioning}
-                        onClick={() => restartMutation.mutate(serverId!)}
+                        onClick={() =>
+                          isNonMainBranch
+                            ? branchRestartMutation.mutate()
+                            : restartMutation.mutate(serverId!)
+                        }
                       >
                         Restart
                       </Button>
@@ -488,7 +573,12 @@ export function ServerShell() {
                       size="sm"
                       variant="danger"
                       icon="stop"
-                      disabled={isStopping || stopMutation.isPending}
+                      disabled={
+                        isStopping ||
+                        (isNonMainBranch
+                          ? branchStopMutation.isPending
+                          : stopMutation.isPending)
+                      }
                       onClick={() => setShowStopDialog(true)}
                     >
                       Stop
@@ -500,7 +590,11 @@ export function ServerShell() {
                     variant="primary"
                     icon="play"
                     disabled={isTransitioning || !server}
-                    onClick={() => startMutation.mutate(serverId!)}
+                    onClick={() =>
+                      isNonMainBranch
+                        ? branchStartMutation.mutate()
+                        : startMutation.mutate(serverId!)
+                    }
                   >
                     Start
                   </Button>
@@ -548,13 +642,25 @@ export function ServerShell() {
       {/* Stop Server Confirmation */}
       <ConfirmDialog
         open={showStopDialog}
-        title={`Stop ${server?.name || "Server"}?`}
-        description="Are you sure you want to stop this Minecraft server? Active player connections will be safely terminated."
-        confirmLabel="Stop Server"
+        title={
+          isNonMainBranch
+            ? `Stop branch ${selectedBranch}?`
+            : `Stop ${server?.name || "Server"}?`
+        }
+        description={
+          isNonMainBranch
+            ? `Are you sure you want to stop the isolated container for branch "${selectedBranch}"?`
+            : "Are you sure you want to stop this Minecraft server? Active player connections will be safely terminated."
+        }
+        confirmLabel={isNonMainBranch ? "Stop Branch Container" : "Stop Server"}
         variant="danger"
         onConfirm={() => {
           setShowStopDialog(false);
-          stopMutation.mutate(serverId!);
+          if (isNonMainBranch) {
+            branchStopMutation.mutate();
+          } else {
+            stopMutation.mutate(serverId!);
+          }
         }}
         onCancel={() => setShowStopDialog(false)}
       />

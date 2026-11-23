@@ -60,6 +60,34 @@ export function usePanelExposure(draftMethod?: string) {
       if (updated.method === "playit_http") {
         queryClient.invalidateQueries({ queryKey: queryKeys.exposure.agent() });
       }
+      if (updated.status === "ERROR") {
+        if (updated.error_code === "BIND_MISMATCH") {
+          toast(
+            "info",
+            "Restart Required",
+            updated.error_message ||
+              updated.fix_hint ||
+              "Panel bind address updated to 0.0.0.0. Restart the panel to activate Port Forwarding.",
+          );
+          return;
+        }
+        toast(
+          "error",
+          "Exposure Configuration Error",
+          updated.error_message ||
+            updated.fix_hint ||
+            `Exposure failed (${updated.error_code || "ERROR"}).`,
+        );
+        return;
+      }
+      if (updated.status === "CLAIM_REQUIRED" || updated.status === "RECLAIM_REQUIRED") {
+        toast(
+          "info",
+          "Action Required",
+          updated.error_message || "Authorization or token replacement is required to continue.",
+        );
+        return;
+      }
       const action = updated.desired_state === "ENABLED" ? "enabled" : "disabled";
       toast(
         "success",
@@ -69,7 +97,7 @@ export function usePanelExposure(draftMethod?: string) {
     },
     onError: (err: Error) => {
       // Non-blocking error handling: fires toast and leaves form inputs editable for immediate user retry
-      toast("error", "Exposure Update Failed", err.message || "Failed to update panel exposure");
+      toast("error", "Exposure Update Failed", err.message?.trim() || "Failed to update panel exposure");
     },
   });
 

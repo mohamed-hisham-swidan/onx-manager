@@ -35,8 +35,10 @@ export function CommandCenterKpiGrid({
   const areaData = `${pathData} L 120,28 L 0,28 Z`;
 
   // RAM calculations
-  const usedRamPct = Math.min(100, (telemetry.usedRamGb / telemetry.totalRamGb) * 100);
-  const reservedRamPct = Math.min(100, (telemetry.reservedRamGb / telemetry.totalRamGb) * 100);
+  const safeTotalRamGb = telemetry.totalRamGb > 0 ? telemetry.totalRamGb : 1;
+  const usedRamPct = Math.min(100, Math.max(0, (telemetry.usedRamGb / safeTotalRamGb) * 100));
+  const reservedRamPct = Math.min(100, Math.max(0, (telemetry.reservedRamGb / safeTotalRamGb) * 100));
+  const freeRamGb = Math.max(0, telemetry.totalRamGb - telemetry.usedRamGb);
 
   return (
     <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @4xl:grid-cols-4">
@@ -207,7 +209,7 @@ export function CommandCenterKpiGrid({
           </div>
           <div className="flex items-center justify-between text-[11px] text-text-muted">
             <span>{telemetry.reservedRamGb.toFixed(1)} GB Reserved ({usedRamPct.toFixed(1)}% Used)</span>
-            <span>{(telemetry.totalRamGb - telemetry.usedRamGb).toFixed(1)} GB Free</span>
+            <span>{freeRamGb.toFixed(1)} GB Free</span>
           </div>
         </div>
       </div>

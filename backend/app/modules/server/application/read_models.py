@@ -96,6 +96,8 @@ class ServerReadModel:
         provisioning_retryable: bool = False,
         startup_timeout_seconds: int | None = None,
         mode: str = "simple",
+        branch_name: str | None = None,
+        pending_settings_branch: dict | None = None,
     ) -> None:
         self.server_id = server_id
         self.name = name
@@ -114,6 +116,8 @@ class ServerReadModel:
         self.provisioning_error = provisioning_error
         self.provisioning_retryable = provisioning_retryable
         self.startup_timeout_seconds = startup_timeout_seconds
+        self.branch_name = branch_name
+        self.pending_settings_branch = pending_settings_branch
 
     @classmethod
     def from_domain(cls, server: Server) -> ServerReadModel:
@@ -182,6 +186,8 @@ class ServerDetailReadModel(ServerReadModel):
         provisioning_retryable: bool = False,
         startup_timeout_seconds: int | None = None,
         mode: str = "simple",
+        branch_name: str | None = None,
+        pending_settings_branch: dict | None = None,
     ) -> None:
         super().__init__(
             server_id=server_id,
@@ -226,6 +232,8 @@ class ServerDetailReadModel(ServerReadModel):
         self.startup_jar = startup_jar
         self.startup_command = startup_command
         self.primary_world = primary_world
+        self.branch_name = branch_name
+        self.pending_settings_branch = pending_settings_branch
 
     @classmethod
     def from_domain(cls, server: Server) -> ServerDetailReadModel:

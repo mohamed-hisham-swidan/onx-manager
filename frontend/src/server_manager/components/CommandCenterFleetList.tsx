@@ -211,7 +211,7 @@ export function CommandCenterFleetList({
             return (
               <div
                 key={server.server_id}
-                className="group relative flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-elevated p-3.5 transition-all cursor-pointer hover:border-border-default hover:bg-surface-card/80 hover:shadow-xs @2xl:flex-row @2xl:items-center @2xl:justify-between min-w-0"
+                className="group relative flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-elevated p-3.5 transition-all cursor-pointer hover:border-border-default hover:bg-surface-card/80 hover:shadow-xs @3xl:flex-row @3xl:items-center @3xl:justify-between min-w-0"
               >
                 {/* Col 1: Identity */}
                 <div className="flex items-center gap-3 min-w-0">
@@ -245,14 +245,14 @@ export function CommandCenterFleetList({
                 </div>
 
                 {/* Col 2: Network & Players */}
-                <div className="flex items-center gap-4 text-xs min-w-0">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs min-w-0">
                   {server.port ? (
                     <button
                       type="button"
                       onClick={() => copyPort(server.port)}
                       aria-label={`Copy port ${server.port}`}
                       title="Click to copy server port"
-                      className="relative z-10 flex items-center gap-1 rounded bg-surface-muted px-2 py-0.5 font-mono text-xs text-text-secondary hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer"
+                      className="relative z-10 flex shrink-0 items-center gap-1 rounded bg-surface-muted px-2 py-0.5 font-mono text-xs text-text-secondary hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer"
                     >
                       <span>:{server.port}</span>
                       <Icon
@@ -263,12 +263,12 @@ export function CommandCenterFleetList({
                     </button>
                   ) : null}
 
-                  <div className="flex items-center gap-1.5 text-text-muted">
+                  <div className="flex items-center gap-1.5 text-text-muted whitespace-nowrap">
                     <Icon name="users" size={13} />
                     <span className="font-mono tabular-nums">
                       {(() => {
                         const snaps = metricsMap?.[server.server_id];
-                        const latest = snaps?.length
+                        const latest = Array.isArray(snaps) && snaps.length
                           ? snaps.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
                           : undefined;
                         return isOnline ? String(latest?.players ?? 0) : "--";
@@ -279,13 +279,13 @@ export function CommandCenterFleetList({
                 </div>
 
                 {/* Col 3: Live Instance Telemetry */}
-                <div className="min-w-0 flex-1 text-xs">
+                <div className="min-w-0 flex-1 overflow-hidden text-xs">
                   {(() => {
                     const detail = detailsMap?.[server.server_id];
                     const maxMb = detail?.max_memory_mb ?? 2048;
                     const maxGb = +(maxMb / 1024).toFixed(1);
                     const snaps = metricsMap?.[server.server_id];
-                    const latest = snaps?.length
+                    const latest = Array.isArray(snaps) && snaps.length
                       ? snaps.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
                       : undefined;
                     const cpuPct = isOnline && latest ? Math.min(100, Math.max(0, latest.cpu_percent)) : 0;
@@ -295,7 +295,7 @@ export function CommandCenterFleetList({
 
                     return isOnline ? (
                       <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-2 font-mono text-[11px] text-text-secondary">
+                        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 font-mono text-[11px] text-text-secondary">
                           <span className="whitespace-nowrap">CPU: {latest ? `${cpuPct.toFixed(1)}%` : "0.0%"}</span>
                           <span className="whitespace-nowrap">RAM: {usedGb.toFixed(1)} / {maxGb.toFixed(1)} GB</span>
                         </div>

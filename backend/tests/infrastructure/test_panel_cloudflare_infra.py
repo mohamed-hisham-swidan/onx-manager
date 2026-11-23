@@ -475,6 +475,89 @@ class TestCloudflaredSupervisor:
                 never_ending_event.set()
                 token_path.unlink(missing_ok=True)
 
+    async def test_start_token_passes_tunnel_token_in_env_not_argv(self) -> None:
+        """Permanent Mode: TUNNEL_TOKEN passed via env var, never on argv or temp file."""
+        from app.modules.exposure.infrastructure.cloudflared import CloudflaredSupervisor
+
+        captured_cmds: list[tuple] = []
+        captured_envs: list[dict | None] = []
+
+        def fake_create(*args, **kwargs):
+            captured_cmds.append(args)
+            captured_envs.append(kwargs.get("env"))
+            return self._mock_subprocess()
+
+        supervisor = CloudflaredSupervisor()
+        token = b"eyJhIjoiTestTunnelTokenSecret123456"
+        with patch("asyncio.create_subprocess_exec", new=AsyncMock(side_effect=fake_create)):
+            await supervisor.start_token(token)
+        try:
+            assert captured_cmds
+            argv = list(captured_cmds[0])
+            assert argv == ["cloudflared", "tunnel", "--no-autoupdate", "run"]
+            assert "--token" not in argv
+            assert "--token-file" not in argv
+            assert token.decode("utf-8") not in " ".join(argv)
+            assert supervisor._token_file is None
+            assert captured_envs[0] is not None
+            assert captured_envs[0]["TUNNEL_TOKEN"] == token.decode("utf-8")
+        finally:
+            await supervisor.stop()
+
+    async def test_start_quick_parses_trycloudflare_url_from_stderr(self) -> None:
+        """Quick Preview Mode captures ephemeral *.trycloudflare.com URL from stderr."""
+        from app.modules.exposure.infrastructure.cloudflared import CloudflaredSupervisor
+
+        captured_cmds: list[tuple] = []
+        captured_urls: list[str] = []
+
+        async def _on_url(url: str) -> None:
+            captured_urls.append(url)
+
+        proc = self._mock_subprocess(
+            stderr_lines=[
+                b"INF Requesting new quick Tunnel on trycloudflare.com...\n",
+                b"INF +------------------------------------------------------------+\n",
+                b"INF |  https://gentle-breeze-1234.trycloudflare.com              |\n",
+            ]
+        )
+
+        def fake_create(*args, **_kwargs):
+            captured_cmds.append(args)
+            return proc
+
+        supervisor = CloudflaredSupervisor()
+        with patch("asyncio.create_subprocess_exec", new=AsyncMock(side_effect=fake_create)):
+            await supervisor.start_quick("http://127.0.0.1:8000", on_url=_on_url)
+            await asyncio.sleep(0.05)
+        try:
+            assert list(captured_cmds[0]) == [
+                "cloudflared",
+                "tunnel",
+                "--no-autoupdate",
+                "--url",
+                "http://127.0.0.1:8000",
+            ]
+            assert supervisor.quick_url == "https://gentle-breeze-1234.trycloudflare.com"
+            assert captured_urls == ["https://gentle-breeze-1234.trycloudflare.com"]
+            assert supervisor.status.value == "ACTIVE"
+        finally:
+            await supervisor.stop()
+
+    async def test_missing_cloudflared_binary_sets_error_code(self) -> None:
+        from app.modules.exposure.infrastructure.cloudflared import CloudflaredSupervisor
+
+        supervisor = CloudflaredSupervisor()
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("no binary")):
+            await supervisor.start_token(b"eyJhIjoiTestTunnelTokenSecret123456")
+        try:
+            assert supervisor.is_running is False
+            assert supervisor.status.value == "ERROR"
+            assert supervisor.error_code == "CLOUDFLARED_NOT_FOUND"
+            assert "not installed" in (supervisor.error_message or "").lower()
+        finally:
+            await supervisor.stop()
+
 
 class TestCloudflaredHealthProbe:
     """The health probe must try the documented metrics range (20241..20245)

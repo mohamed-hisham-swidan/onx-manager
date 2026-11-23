@@ -78,8 +78,35 @@ class TestUPnPService:
         with patch.object(service, "_discover_igd", return_value=mock_upnp):
             result = await service.attempt_mapping(internal_port=8000, requested_external_port=8000)
             assert result.success is False
-            assert result.error_code == "DOUBLE_NAT_DETECTED"
-            assert "Double-NAT or CGNAT" in (result.error_message or "")
+            assert result.error_code == "CGNAT_DETECTED"
+            assert result.external_ip == "100.64.1.25"
+            assert "100.64.1.25" in (result.error_message or "")
+            assert "Cloudflare" in (result.fix_hint or "")
+
+    @pytest.mark.parametrize(
+        "wan_ip",
+        [
+            "10.0.0.1",
+            "172.16.5.20",
+            "192.168.1.1",
+            "100.64.0.1",
+            "100.127.255.254",
+            "127.0.0.1",
+            "169.254.1.1",
+        ],
+    )
+    async def test_attempt_mapping_rejects_all_non_public_wan_ips(self, wan_ip: str) -> None:
+        service = AsyncUPnPService(timeout=1)
+        mock_upnp = MagicMock()
+        mock_upnp.get_external_ip = AsyncMock(return_value=wan_ip)
+        mock_upnp.add_port_mapping = AsyncMock(return_value=None)
+
+        with patch.object(service, "_discover_igd", return_value=mock_upnp):
+            result = await service.attempt_mapping(internal_port=8000, requested_external_port=8000)
+            assert result.success is False
+            assert result.error_code == "CGNAT_DETECTED"
+            assert wan_ip in (result.error_message or "")
+            mock_upnp.add_port_mapping.assert_not_awaited()
 
     async def test_attempt_mapping_success(self) -> None:
         service = AsyncUPnPService(timeout=1)
@@ -356,3 +383,18 @@ class TestUPnPTimeouts:
 
         assert result.success is False
         assert result.error_code == "UPNP_TIMEOUT"
+
+
+class TestPlayitMissingBinary:
+    async def test_missing_playit_binary_sets_error_without_crash(self) -> None:
+        supervisor = PlayitAgentSupervisor(health_interval=0.1)
+        try:
+            with patch(
+                "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("no playit")
+            ):
+                await supervisor.start(secret=b"test-secret-123")
+            assert supervisor.is_running is False
+            assert supervisor.status == ExposureStatus.ERROR
+            assert "playit binary" in (supervisor.error_message or "").lower()
+        finally:
+            await supervisor.stop()

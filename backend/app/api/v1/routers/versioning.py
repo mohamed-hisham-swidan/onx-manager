@@ -46,6 +46,8 @@ from app.api.v1.schemas.versioning import (
     DataTemplateResponse,
     DeleteDataTemplateResponse,
     DeleteSecretResponse,
+    DestroyBranchRunRequest,
+    DestroyBranchRunResponse,
     DiffResponse,
     DynamicClassCEntryResponse,
     DynamicClassCResetRequest,
@@ -2523,6 +2525,8 @@ async def get_branch_runtime(
         server_id=server_id,
         branch_name=name,
         runtime_status=status.get("runtime_status") or "stopped",
+        container_provisioned=bool(status.get("container_provisioned", False)),
+        container_name=status.get("container_name"),
         runtime_id=status.get("runtime_id"),
         active_commit_sha=status.get("active_commit_sha"),
         data_template_id=status.get("data_template_id"),
@@ -2702,6 +2706,56 @@ async def stop_branch_run(
         saved_template_name=(
             result.saved_template.name if result.saved_template is not None else None
         ),
+    )
+
+
+@router.post("/branches/{name}/destroy", response_model=DestroyBranchRunResponse)
+async def destroy_branch_run(
+    server_id: str,
+    name: str,
+    event_bus: Annotated[EventBus, Depends(get_event_bus)],
+    runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    body: DestroyBranchRunRequest | None = None,
+) -> DestroyBranchRunResponse:
+    from app.modules.versioning.domain.events import BranchRuntimeDestroyedEvent
+
+    req_body = body or DestroyBranchRunRequest()
+    if name == "main":
+        raise ValidationError(
+            "Branch runtime engine only manages non-main branches",
+            field="branch_name",
+        )
+    async with database.session_factory() as session:
+        server = await _load_server(session, server_id)
+        if not server.root_path:
+            raise NotFoundError("Server root path not configured")
+    result = await runtime_service.destroy_branch_runtime(
+        server_id,
+        server.root_path,
+        name,
+        runtime_id=req_body.runtime_id,
+        timeout_seconds=req_body.timeout_seconds,
+        keep_port_assignment=req_body.keep_port_assignment,
+    )
+    actor_id = _current_user.get("user_id") or _current_user.get("id")
+    await event_bus.publish(
+        BranchRuntimeDestroyedEvent(
+            server_id=server_id,
+            branch_name=name,
+            runtime_id=result.runtime_id,
+            actor_type="user",
+            actor_id=str(actor_id) if actor_id else None,
+        )
+    )
+    return DestroyBranchRunResponse(
+        runtime_id=result.runtime_id,
+        server_id=server_id,
+        branch_name=name,
+        container_name=result.container_name,
+        status="destroyed",
+        container_provisioned=False,
+        released_ports=result.released_ports,
     )
 
 

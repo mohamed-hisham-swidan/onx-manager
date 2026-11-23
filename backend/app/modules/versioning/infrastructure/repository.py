@@ -102,6 +102,9 @@ class SQLVersioningRepository(VersioningRepository):
                 active_runtime_id=branch.active_runtime_id,
                 active_commit_sha=branch.active_commit_sha,
                 active_data_template_id=branch.active_data_template_id,
+                pending_merge_on_restart=branch.pending_merge_on_restart,
+                pending_merge_status=branch.pending_merge_status,
+                pending_merge_error=branch.pending_merge_error,
             )
             self._session.add(model)
         else:
@@ -115,6 +118,9 @@ class SQLVersioningRepository(VersioningRepository):
             model.active_runtime_id = branch.active_runtime_id
             model.active_commit_sha = branch.active_commit_sha
             model.active_data_template_id = branch.active_data_template_id
+            model.pending_merge_on_restart = branch.pending_merge_on_restart
+            model.pending_merge_status = branch.pending_merge_status
+            model.pending_merge_error = branch.pending_merge_error
         await self._session.flush()
         return branch
 
@@ -707,6 +713,9 @@ class SQLVersioningRepository(VersioningRepository):
             active_runtime_id=getattr(m, "active_runtime_id", None),
             active_commit_sha=getattr(m, "active_commit_sha", None),
             active_data_template_id=getattr(m, "active_data_template_id", None),
+            pending_merge_on_restart=bool(getattr(m, "pending_merge_on_restart", False)),
+            pending_merge_status=getattr(m, "pending_merge_status", None),
+            pending_merge_error=getattr(m, "pending_merge_error", None),
         )
 
     @staticmethod

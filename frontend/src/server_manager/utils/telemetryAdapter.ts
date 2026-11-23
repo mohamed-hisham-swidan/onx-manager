@@ -1,5 +1,6 @@
 import type { ServerDetailResponse, ServerResponse } from "@/server_manager/types";
 import type { MetricsSnapshot } from "@/services/api";
+import type { HostResourceBudget } from "@/types";
 
 export interface HostTelemetryMetrics {
   cpuPercent: number;
@@ -26,13 +27,23 @@ export function getHostTelemetry(
   servers: ServerResponse[],
   detailsMap?: Record<string, ServerDetailResponse | undefined>,
   metricsMap?: Record<string, MetricsSnapshot[] | undefined>,
+  hostBudget?: HostResourceBudget,
 ): HostTelemetryMetrics {
   const runningServers = servers.filter((s) => s.status === "running");
   const onlineCount = runningServers.length;
 
-  // Reserved RAM from real server max_memory_mb configurations (fallback 2048 MB per server while loading)
+  const budgetAllocMap = new Map(
+    (hostBudget?.allocations ?? [])
+      .filter((a) => a.kind === "server")
+      .map((a) => [a.id, a.ram_mb]),
+  );
+
+  // Reserved RAM from real server max_memory_mb configurations (fallback to budget allocation or 2048 MB while loading)
   const reservedRamMb = servers.reduce((sum, s) => {
-    const maxMb = detailsMap?.[s.server_id]?.max_memory_mb ?? 2048;
+    const maxMb =
+      detailsMap?.[s.server_id]?.max_memory_mb ??
+      budgetAllocMap.get(s.server_id) ??
+      2048;
     return sum + maxMb;
   }, 0);
   const reservedRamGb = +(reservedRamMb / 1024).toFixed(1);
@@ -44,14 +55,15 @@ export function getHostTelemetry(
 
   for (const s of runningServers) {
     const snapshots = metricsMap?.[s.server_id];
-    if (snapshots && snapshots.length > 0) {
-      const latest = snapshots.reduce((a, b) => (b.timestamp > a.timestamp ? b : a));
+    if (Array.isArray(snapshots) && snapshots.length > 0) {
+      const sorted = [...snapshots].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      const latest = sorted[sorted.length - 1];
       usedRamMb += latest.ram_used_mb || 0;
       totalCpu += latest.cpu_percent || 0;
       if (latest.tps != null) {
         liveTpsValues.push(latest.tps);
       }
-      for (const snap of snapshots.slice(-20)) {
+      for (const snap of sorted.slice(-20)) {
         combinedCpuSamples.push(snap.cpu_percent || 0);
       }
     }
@@ -69,7 +81,9 @@ export function getHostTelemetry(
       : Array.from({ length: 20 }, () => cpuPercent);
 
   const usedRamGb = onlineCount > 0 ? +(usedRamMb / 1024).toFixed(1) : 0.0;
-  const totalRamGb = Math.max(16.0, +(reservedRamGb * 1.25).toFixed(1));
+  const totalRamGb = hostBudget
+    ? +(Math.max(0, hostBudget.allocatable_ram_mb) / 1024).toFixed(1)
+    : Math.max(16.0, +(reservedRamGb * 1.25).toFixed(1));
   const storageUsedGb = +(servers.length * 0.5).toFixed(1);
 
   return {

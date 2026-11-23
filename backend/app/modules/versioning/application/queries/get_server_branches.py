@@ -19,6 +19,8 @@ def _branch_row(branch: Any) -> dict[str, Any]:
         else None
     )
     created_at = branch.created_at
+    active_runtime_id = getattr(branch, "active_runtime_id", None)
+    runtime_status = getattr(branch, "runtime_status", None) or "stopped"
     return {
         "id": branch.id,
         "server_id": branch.server_id,
@@ -32,6 +34,15 @@ def _branch_row(branch: Any) -> dict[str, Any]:
         "protection_policy": policy,
         "worktree_path": None,
         "worktree_locked": False,
+        "runtime_status": runtime_status,
+        "container_provisioned": bool(active_runtime_id),
+        "port_set": getattr(branch, "port_set", None),
+        "active_runtime_id": active_runtime_id,
+        "active_commit_sha": getattr(branch, "active_commit_sha", None),
+        "active_data_template_id": getattr(branch, "active_data_template_id", None),
+        "pending_merge_on_restart": bool(getattr(branch, "pending_merge_on_restart", False)),
+        "pending_merge_status": getattr(branch, "pending_merge_status", None),
+        "pending_merge_error": getattr(branch, "pending_merge_error", None),
     }
 
 

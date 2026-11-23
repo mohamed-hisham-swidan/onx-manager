@@ -6,10 +6,36 @@ import { useAuthStore } from "@/stores/authStore";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { VoxelBanner } from "@/components/brand/VoxelBanner";
 
+function extractInviteToken(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  const pathMatch = trimmed.match(/\/invite\/([^/?#]+)/i);
+  if (pathMatch?.[1]) {
+    try {
+      return decodeURIComponent(pathMatch[1]).trim();
+    } catch {
+      return pathMatch[1].trim();
+    }
+  }
+
+  const queryMatch = trimmed.match(/[?&]token=([^&#]+)/i);
+  if (queryMatch?.[1]) {
+    try {
+      return decodeURIComponent(queryMatch[1]).trim();
+    } catch {
+      return queryMatch[1].trim();
+    }
+  }
+
+  return trimmed;
+}
+
 export function RegisterPage() {
   const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
   const [searchParams] = useSearchParams();
   const tokenFromUrl = searchParams.get("token") || "";
+  const initialToken = extractInviteToken(tokenFromUrl);
 
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
@@ -19,7 +45,7 @@ export function RegisterPage() {
     queryFn: () => api.getSetupStatus(),
   });
 
-  const [inviteToken, setInviteToken] = useState(tokenFromUrl);
+  const [inviteToken, setInviteToken] = useState(initialToken);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +55,7 @@ export function RegisterPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [activeVerifyToken, setActiveVerifyToken] = useState(tokenFromUrl);
+  const [activeVerifyToken, setActiveVerifyToken] = useState(initialToken);
 
   const verifyQuery = useQuery({
     queryKey: ["invite", "verify", activeVerifyToken],
@@ -40,7 +66,7 @@ export function RegisterPage() {
 
   const verification = verifyQuery.data;
   const tokenVerified = verification?.valid === true;
-  const verifyingToken = verifyQuery.isPending || verifyQuery.isFetching;
+  const verifyingToken = verifyQuery.isFetching;
 
   const requestError = verifyQuery.error instanceof Error ? verifyQuery.error.message : "";
   const verificationError = verification && !verification.valid ? "Invalid or expired invitation token." : "";
@@ -48,12 +74,19 @@ export function RegisterPage() {
   const displayError = error || verifyError;
 
   const verifiedEmail = verification?.valid ? verification.email ?? "" : "";
+  const isGlobalMode = systemStatus?.access_mode === "GLOBAL";
+  const isInviteOnlyLocked = isGlobalMode && !tokenVerified;
 
   const handleClickVerify = () => {
     setError("");
-    const tok = inviteToken.trim();
+    const tok = extractInviteToken(inviteToken);
     if (!tok) return;
-    setActiveVerifyToken(tok);
+    setInviteToken(tok);
+    if (tok === activeVerifyToken) {
+      void verifyQuery.refetch();
+    } else {
+      setActiveVerifyToken(tok);
+    }
   };
 
   const handleChangeToken = () => {
@@ -64,6 +97,10 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isInviteOnlyLocked) {
+      handleClickVerify();
+      return;
+    }
     setError("");
 
     const trimmedUsername = username.trim();
@@ -82,10 +119,11 @@ export function RegisterPage() {
 
     setLoading(true);
     try {
-      if (tokenVerified && inviteToken) {
+      const verifiedTok = activeVerifyToken || extractInviteToken(inviteToken);
+      if (tokenVerified && verifiedTok) {
         // Token invitation registration
         const res = await api.acceptInvite({
-          token: inviteToken.trim(),
+          token: verifiedTok,
           username: trimmedUsername,
           display_name: trimmedUsername,
           password,
@@ -117,9 +155,6 @@ export function RegisterPage() {
       </div>
     );
   }
-
-  const isGlobalMode = systemStatus?.access_mode === "GLOBAL";
-  const isInviteOnlyLocked = isGlobalMode && !tokenVerified;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-page px-4">
@@ -160,7 +195,13 @@ export function RegisterPage() {
                     id="inviteToken"
                     type="text"
                     value={inviteToken}
-                    onChange={(e) => setInviteToken(e.target.value)}
+                    onChange={(e) => {
+                      setInviteToken(e.target.value);
+                      setError("");
+                      if (activeVerifyToken) {
+                        setActiveVerifyToken("");
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
                     placeholder="Enter token"
                   />

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { VersionList } from "@/server_manager/components/VersionList";
@@ -7,10 +7,11 @@ import {
   useProjectVersions,
   useInstallFromMarketplace,
 } from "@/server_manager/hooks/usePlugins";
+import { createAuthenticatedApi } from "@/services/api";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { toast } from "@/stores/toastStore";
-import type { ServerResponse } from "@/server_manager/types";
+import type { ServerBranch, ServerResponse } from "@/server_manager/types";
 import type {
   PluginSearchResultResponse,
   PluginVersionResponse,
@@ -35,11 +36,12 @@ function isServerCompatibleWithType(server: ServerResponse, projectType: string)
 export interface InstallModalProps {
   project: PluginSearchResultResponse;
   projectType?: "plugin" | "mod";
+  branch?: string;
   onClose: () => void;
   isOpen?: boolean;
 }
 
-export function InstallModal({ project, projectType, onClose, isOpen = true }: InstallModalProps) {
+export function InstallModal({ project, projectType, branch, onClose, isOpen = true }: InstallModalProps) {
   const { data: servers } = useServersList();
   const lastUsedServerId = useLastUsedServerStore((s) => s.lastUsedServerId);
   const setLastUsedServer = useLastUsedServerStore((s) => s.setLastUsedServer);
@@ -87,7 +89,51 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
 
   const [isVersionDropdownOpen, setIsVersionDropdownOpen] = useState(false);
 
-  const install = useInstallFromMarketplace(selectedServerId);
+  const [branches, setBranches] = useState<ServerBranch[]>([]);
+  const [manualBranch, setManualBranch] = useState<string | null>(null);
+  const isAdvancedServer = selectedServer?.mode === "advanced";
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !selectedServerId || !isAdvancedServer) {
+      return;
+    }
+    const api = createAuthenticatedApi();
+    if (typeof api.getServerBranches !== "function") {
+      return;
+    }
+    api
+      .getServerBranches(selectedServerId)
+      .then((res) => {
+        if (!cancelled) {
+          setBranches(Array.isArray(res) ? res : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBranches([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedServerId, isAdvancedServer]);
+
+  const gitBacked = isAdvancedServer && branches.some((b) => b.worktree_path != null);
+  const targetBranch = useMemo(() => {
+    if (!gitBacked) return undefined;
+    if (manualBranch && branches.some((b) => b.name === manualBranch)) {
+      return manualBranch;
+    }
+    if (branch && branch !== "main" && branches.some((b) => b.name === branch)) {
+      return branch;
+    }
+    return branches.find((b) => b.name !== "main")?.name ?? "main";
+  }, [gitBacked, manualBranch, branch, branches]);
+
+  const isMainBlocked = Boolean(gitBacked && targetBranch === "main");
+
+  const install = useInstallFromMarketplace(selectedServerId, targetBranch);
 
   const handleClose = () => {
     if (install.isPending) return;
@@ -166,7 +212,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
           <button
             type="button"
             onClick={handleInstall}
-            disabled={!selectedServerId || !activeVersion || install.isPending || compatibleServers.length === 0}
+            disabled={!selectedServerId || !activeVersion || install.isPending || compatibleServers.length === 0 || isMainBlocked}
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Icon name="plus" size={18} />
@@ -248,6 +294,32 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                 </div>
               )}
             </div>
+
+            {gitBacked && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted mb-1.5">
+                  Target Branch
+                </label>
+                <select
+                  aria-label="Target branch"
+                  data-testid="install-modal-branch-select"
+                  value={targetBranch ?? "main"}
+                  onChange={(e) => setManualBranch(e.target.value)}
+                  className="w-full rounded-xl border border-border-subtle bg-surface-card p-2.5 text-xs font-medium text-text-primary focus:border-border-focus focus:outline-none"
+                >
+                  {branches.map((b) => (
+                    <option key={b.name} value={b.name}>
+                      {b.name} {b.name === "main" ? "(protected)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {isMainBlocked && (
+                  <p className="mt-1.5 text-xs text-status-warning">
+                    &ldquo;main&rdquo; is protected. Create or choose a working branch under Versioning before installing plugins.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted mb-1.5">

@@ -25,12 +25,31 @@ export function useCreateServer() {
   });
 }
 
+const inFlightServerDeletes = new Map<string, Promise<void>>();
+
 export function useDeleteServer() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (serverId: string) => api.deleteServer(serverId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.servers.all }),
+    mutationFn: (serverId: string) => {
+      const existing = inFlightServerDeletes.get(serverId);
+      if (existing) {
+        return existing;
+      }
+      const req = api.deleteServer(serverId).finally(() => {
+        inFlightServerDeletes.delete(serverId);
+      });
+      inFlightServerDeletes.set(serverId, req);
+      return req;
+    },
+    onSuccess: (_data, serverId) => {
+      qc.setQueryData<Array<{ server_id: string }> | undefined>(
+        queryKeys.servers.list(),
+        (old) => (Array.isArray(old) ? old.filter((s) => s.server_id !== serverId) : old),
+      );
+      qc.removeQueries({ queryKey: queryKeys.servers.detail(serverId) });
+      qc.invalidateQueries({ queryKey: queryKeys.servers.list() });
+    },
   });
 }
 
@@ -58,11 +77,11 @@ export function useStopServer() {
   });
 }
 
-export function useServerDetail(serverId: string) {
+export function useServerDetail(serverId: string, branch?: string) {
   const api = useApi();
   return useQuery({
-    queryKey: queryKeys.servers.detail(serverId),
-    queryFn: () => api.getServer(serverId),
+    queryKey: queryKeys.servers.detail(serverId, branch),
+    queryFn: () => api.getServer(serverId, branch),
     enabled: !!serverId,
     refetchInterval: 5000,
   });
@@ -94,11 +113,33 @@ export function useUpdateServer() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ serverId, body }: { serverId: string; body: import("@/server_manager/types").ServerUpdateRequest }) =>
-      api.updateServer(serverId, body),
-    onSuccess: (_data, { serverId }) => {
+    mutationFn: ({
+      serverId,
+      body,
+      branch,
+    }: {
+      serverId: string;
+      body: import("@/server_manager/types").ServerUpdateRequest;
+      branch?: string;
+    }) => api.updateServer(serverId, body, branch),
+    onSuccess: (_data, { serverId, branch }) => {
       qc.invalidateQueries({ queryKey: queryKeys.servers.all });
-      qc.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId) });
+      qc.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId, branch) });
+      qc.invalidateQueries({ queryKey: queryKeys.versioning.branches(serverId) });
+      qc.invalidateQueries({ queryKey: queryKeys.versioning.commits(serverId) });
+    },
+  });
+}
+
+export function useDiscardPendingSettings() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (serverId: string) => api.discardPendingSettings(serverId),
+    onSuccess: (_data, serverId) => {
+      qc.invalidateQueries({ queryKey: queryKeys.servers.all });
+      qc.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId, "main") });
+      qc.invalidateQueries({ queryKey: queryKeys.versioning.branches(serverId) });
     },
   });
 }

@@ -336,6 +336,16 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("Operation startup reconciliation failed")
 
+    # Reconcile persisted Panel Exposure state (after closing startup session cleanly)
+    try:
+        from app.modules.exposure.application.commands import (
+            reconcile_panel_exposure_on_startup,
+        )
+
+        await reconcile_panel_exposure_on_startup(event_bus)
+    except Exception:
+        logger.exception("Panel exposure startup reconciliation failed")
+
     # ── Task Queue & Scheduler (wired up once, during startup) ──────────
     logger.info("Starting task queue and scheduler")
     from app.modules.monitoring.infrastructure.collector import MetricsCollector
@@ -471,6 +481,27 @@ async def lifespan(_app: FastAPI):
             await s_sup.stop()
     except Exception:
         logger.warning("Error stopping cloudflared supervisor on shutdown", exc_info=True)
+
+    try:
+        import asyncio
+
+        from app.modules.exposure.domain.value_objects import DesiredState, PanelExposureMethod
+        from app.modules.exposure.infrastructure.repository import SQLPanelExposureRepository
+        from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
+
+        async with database.session_factory() as sess:
+            panel = await SQLPanelExposureRepository(sess).get()
+        if (
+            panel.method == PanelExposureMethod.PORT_FORWARD
+            and panel.desired_state == DesiredState.ENABLED
+            and panel.external_port
+        ):
+            await asyncio.wait_for(
+                AsyncUPnPService(timeout=1, rpc_timeout=2.0).delete_mapping(panel.external_port),
+                timeout=3.0,
+            )
+    except Exception:
+        logger.debug("Panel UPnP cleanup on shutdown skipped/failed", exc_info=True)
 
     await stop_websocket_services()
     await scheduler.stop()

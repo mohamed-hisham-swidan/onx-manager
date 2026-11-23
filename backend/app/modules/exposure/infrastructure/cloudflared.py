@@ -1,24 +1,35 @@
-"""Orchestrated ``cloudflared`` child-subprocess supervision (Batch 7.2a).
+"""Orchestrated ``cloudflared`` child-subprocess supervision.
 
-Design constraints (Phase-7.2 spec §7 + §8.5):
-  - Orchestrate-only: MCS never bundles the ``cloudflared`` binary.
-  - ``--token-file <path>`` (never ``--token``) so the credential never appears
-    in the process table (VULN-118896).
-  - Token file: temporary, restricted (0o600), least-privilege directory,
-    deleted when safe, never logged.
-  - Linux/Docker: supervised child with bounded restart + exponential backoff
-    and clean shutdown. Windows: bare child subprocess (dies with MCS).
+Design & security invariants:
+  - Orchestrate-only: ONX Manager never bundles the ``cloudflared`` binary; it
+    detects ``cloudflared`` on PATH via :meth:`CloudflaredSupervisor.is_installed`
+    and surfaces a clear actionable error if missing.
+  - Permanent Mode (``start_token``): runs ``cloudflared tunnel --no-autoupdate run``
+    passing the Tunnel Token strictly via the ``TUNNEL_TOKEN`` environment
+    variable, NEVER as a plaintext ``--token`` CLI argument (VULN-118896).
+  - Token-file mode (``start``): runs ``cloudflared tunnel run --token-file <path>``
+    with a mode-0600 file and also provides ``TUNNEL_TOKEN`` via environment.
+  - Quick Preview Mode (``start_quick``): runs
+    ``cloudflared tunnel --no-autoupdate --url http://127.0.0.1:<panel_port>``
+    and streams ``stderr``/``stdout`` to extract the ephemeral
+    ``https://*.trycloudflare.com`` URL.
+  - Subprocess lifecycle: tracked per supervisor instance and terminated cleanly
+    via ``SIGTERM`` -> grace timeout -> ``SIGKILL`` on stop or shutdown.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+import re
+import shutil
 import signal
 import sys
 import tempfile
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -38,14 +49,28 @@ _METRICS_PORTS = list(range(20241, 20246))
 # probe beyond the 30s cadence while the rest of the range is tried.
 PROBE_CONNECT_TIMEOUT_SECONDS = 2.0
 
+_STDLIB_CREATE_SUBPROCESS_EXEC = asyncio.create_subprocess_exec
+
+# Regex to capture ephemeral Quick Tunnel URL emitted by cloudflared on stderr/stdout.
+_TRYCLOUDFLARE_URL_RE = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+
 # stderr markers that indicate the token was rejected/revoked upstream.
 _AUTH_FAILURE_MARKERS = (
     "unauthorized",
     "invalid token",
+    "invalid tunnel token",
     "authentication failed",
     "access token",
-    "tunnel token",
+    "tunnel token is invalid",
+    "not a valid jwt",
+    "failed to parse tunnel token",
     "error code: 1033",
+)
+
+# Output markers indicating cloudflared established at least one edge connection.
+_CONNECTION_READY_MARKERS = (
+    "registered tunnel connection",
+    "connection registered",
 )
 
 
@@ -54,10 +79,11 @@ def is_windows() -> bool:
 
 
 class CloudflaredSupervisor:
-    """Owns the ``cloudflared tunnel run --token-file`` child process.
+    """Owns the ``cloudflared`` child process lifecycle for panel or server tunnels.
 
-    A single instance is reused per process (module-level singleton via
-    :func:`get_cloudflared_supervisor`) so start/stop/reconcile share state.
+    A single instance is reused per process for the panel (via
+    :func:`get_cloudflared_supervisor`) and per server (via
+    :func:`get_server_cloudflared_supervisor`).
     """
 
     def __init__(
@@ -78,15 +104,28 @@ class CloudflaredSupervisor:
         self._lifecycle_lock = asyncio.Lock()
         self._process: asyncio.subprocess.Process | None = None
         self._token_file: Path | None = None
+        self._token_secret: bytes = b""
+        self._mode: str = "token_file"  # "token_file" | "token_env" | "quick"
+        self._quick_local_url: str | None = None
+        self._quick_url: str | None = None
+        self._error_code: str | None = None
         self._monitor_task: asyncio.Task[None] | None = None
         self._stderr_reader: asyncio.Task[None] | None = None
+        self._stdout_reader: asyncio.Task[None] | None = None
         self._drain_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._restart_count = 0
         self._last_health_at = 0.0
+        self._last_stderr_lines: deque[str] = deque(maxlen=10)
         self._status = ExposureStatus.STOPPED
         self._error_message: str | None = None
         self._on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None
+        self._on_url: Callable[[str], Awaitable[None]] | None = None
+
+    @staticmethod
+    def is_installed() -> bool:
+        """Return True if ``cloudflared`` binary is discoverable on PATH."""
+        return shutil.which("cloudflared") is not None
 
     @property
     def server_id(self) -> str | None:
@@ -97,8 +136,20 @@ class CloudflaredSupervisor:
         return self._status
 
     @property
+    def error_code(self) -> str | None:
+        return self._error_code
+
+    @property
     def error_message(self) -> str | None:
         return self._error_message
+
+    @property
+    def quick_url(self) -> str | None:
+        return self._quick_url
+
+    @property
+    def mode(self) -> str:
+        return self._mode
 
     @property
     def is_running(self) -> bool:
@@ -110,19 +161,88 @@ class CloudflaredSupervisor:
         *,
         on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
     ) -> None:
+        """Start ``cloudflared tunnel run`` using a restricted token file + TUNNEL_TOKEN env."""
         async with self._lifecycle_lock:
             if on_status is not None:
                 self._on_status = on_status
+            self._on_url = None
             if self.is_running:
                 logger.info("cloudflared already running — ignoring duplicate start")
                 return
+            self._mode = "token_file"
+            self._quick_local_url = None
+            self._quick_url = None
+            self._token_secret = token
+            self._error_code = None
+            self._error_message = None
+            self._last_stderr_lines.clear()
             self._stop_event.clear()
             self._restart_count = 0
-            await self._spawn(token)
-            self._monitor_task = asyncio.create_task(
-                self._monitor(),
-                name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
-            )
+            spawned = await self._spawn(token)
+            if spawned:
+                self._monitor_task = asyncio.create_task(
+                    self._monitor(),
+                    name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
+                )
+
+    async def start_token(
+        self,
+        token: bytes,
+        *,
+        on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
+    ) -> None:
+        """Start Permanent Mode: ``cloudflared tunnel run`` via ``TUNNEL_TOKEN`` env."""
+        async with self._lifecycle_lock:
+            if on_status is not None:
+                self._on_status = on_status
+            self._on_url = None
+            if self.is_running:
+                await self._terminate_process()
+            self._mode = "token_env"
+            self._quick_local_url = None
+            self._quick_url = None
+            self._token_secret = token
+            self._error_code = None
+            self._error_message = None
+            self._last_stderr_lines.clear()
+            self._stop_event.clear()
+            self._restart_count = 0
+            spawned = await self._spawn_token_env(token)
+            if spawned:
+                self._monitor_task = asyncio.create_task(
+                    self._monitor(),
+                    name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
+                )
+
+    async def start_quick(
+        self,
+        local_url: str,
+        *,
+        on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
+        on_url: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
+        """Start Quick Preview Mode: ``cloudflared tunnel --no-autoupdate --url <local_url>``."""
+        async with self._lifecycle_lock:
+            if on_status is not None:
+                self._on_status = on_status
+            self._on_url = on_url
+            if self.is_running:
+                await self._terminate_process()
+            self._mode = "quick"
+            self._quick_local_url = local_url
+            self._quick_url = None
+            self._token_secret = b""
+            self._error_code = None
+            self._error_message = None
+            self._last_stderr_lines.clear()
+            self._stop_event.clear()
+            self._restart_count = 0
+            spawned = await self._spawn_quick(local_url)
+            if spawned:
+                self._monitor_task = asyncio.create_task(
+                    self._monitor(),
+                    name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
+                )
 
     async def stop(self) -> None:
         async with self._lifecycle_lock:
@@ -147,39 +267,71 @@ class CloudflaredSupervisor:
                     logger.warning("cloudflared drain task raised during stop", exc_info=True)
                 self._drain_task = None
             await self._delete_token_file()
+            self._token_secret = b""
+            self._quick_url = None
+            self._error_code = None
             self._set_status(ExposureStatus.STOPPED)
             logger.info("cloudflared supervisor stopped")
 
     # -- lifecycle internals -----------------------------------------------
 
-    async def _spawn(self, token: bytes) -> None:
-        await self._delete_token_file()
-        token_file = self._write_token_file(token)
-        self._token_file = token_file
+    async def _spawn_cmd(
+        self,
+        cmd: list[str],
+        *,
+        extra_env: dict[str, str] | None = None,
+        use_drain_on_windows: bool = True,
+    ) -> bool:
+        """Execute cloudflared cleanly without leaking secrets on argv."""
         self._last_health_at = time.monotonic()
-
-        cmd = ["cloudflared", "tunnel", "run", "--token-file", str(token_file)]
-        logger.info("spawning cloudflared (pid via subprocess), token via --token-file")
 
         kwargs: dict[str, object] = {
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
         }
+        if extra_env:
+            merged_env = os.environ.copy()
+            merged_env.update(extra_env)
+            kwargs["env"] = merged_env
         if not is_windows():
             kwargs["start_new_session"] = True  # own process group for clean shutdown
 
-        self._process = await asyncio.create_subprocess_exec(*cmd, **kwargs)
+        try:
+            if (
+                cmd
+                and cmd[0] == "cloudflared"
+                and asyncio.create_subprocess_exec is _STDLIB_CREATE_SUBPROCESS_EXEC
+                and not self.is_installed()
+            ):
+                raise FileNotFoundError("cloudflared binary not found on PATH")
+            self._process = await asyncio.create_subprocess_exec(*cmd, **kwargs)
+        except (FileNotFoundError, OSError) as exc:
+            err_msg = (
+                "cloudflared binary is not installed or not executable. "
+                "Install cloudflared on this host and try again."
+            )
+            logger.error("Failed to spawn cloudflared: %s", exc)
+            self._error_code = "CLOUDFLARED_NOT_FOUND"
+            self._stop_event.set()
+            self._set_status(ExposureStatus.ERROR, err_msg)
+            return False
+
         self._set_status(ExposureStatus.STARTING)
-        logger.info("cloudflared spawned pid=%d", self._process.pid)
+        logger.info("cloudflared spawned pid=%d mode=%s", self._process.pid, self._mode)
 
         if self._process.stderr is not None:
             self._stderr_reader = asyncio.create_task(
                 self._read_stderr(self._process.stderr),
                 name="cloudflared-stderr-reader",
             )
+        if self._mode == "quick" and self._process.stdout is not None:
+            self._stdout_reader = asyncio.create_task(
+                self._read_stderr(self._process.stdout),
+                name="cloudflared-stdout-reader",
+            )
 
-        if is_windows():
-            # Windows: bare child — no supervision/restart, dies with MCS.
+        if is_windows() and use_drain_on_windows:
+            # Windows: drain non-active streams cleanly so buffers do not stall.
             self._drain_task = asyncio.create_task(
                 self._drain_output(),
                 name="cloudflared-drain-output",
@@ -193,25 +345,78 @@ class CloudflaredSupervisor:
 
             self._drain_task.add_done_callback(_log_drain_exception)
 
+        return True
+
+    async def _spawn(self, token: bytes) -> bool:
+        await self._delete_token_file()
+        token_file = self._write_token_file(token)
+        self._token_file = token_file
+        token_str = token.decode("utf-8", errors="ignore").strip()
+
+        cmd = ["cloudflared", "tunnel", "run", "--token-file", str(token_file)]
+        logger.info("spawning cloudflared (pid via subprocess), token via --token-file")
+        extra_env = {"TUNNEL_TOKEN": token_str} if token_str else None
+        return await self._spawn_cmd(cmd, extra_env=extra_env)
+
+    async def _spawn_token_env(self, token: bytes) -> bool:
+        await self._delete_token_file()
+        token_str = token.decode("utf-8", errors="ignore").strip()
+        cmd = ["cloudflared", "tunnel", "--no-autoupdate", "run"]
+        logger.info("spawning cloudflared permanent tunnel (token via TUNNEL_TOKEN env)")
+        return await self._spawn_cmd(
+            cmd,
+            extra_env={"TUNNEL_TOKEN": token_str},
+            use_drain_on_windows=False,
+        )
+
+    async def _spawn_quick(self, local_url: str) -> bool:
+        await self._delete_token_file()
+        cmd = ["cloudflared", "tunnel", "--no-autoupdate", "--url", local_url]
+        logger.info("spawning cloudflared quick preview tunnel -> %s", local_url)
+        return await self._spawn_cmd(cmd, use_drain_on_windows=False)
+
     async def _read_stderr(self, stream: asyncio.StreamReader) -> None:
-        """Continuously scan stderr for auth-failure evidence (RECLAIM_REQUIRED)."""
+        """Scan stream output for auth errors, connection readiness, or Quick Tunnel URLs."""
         try:
             while not self._stop_event.is_set():
                 line = await stream.readline()
                 if not line:
                     break
-                text = line.decode("utf-8", errors="replace").lower()
-                if any(marker in text for marker in _AUTH_FAILURE_MARKERS):
+                raw_line = line.decode("utf-8", errors="replace").strip()
+                if raw_line:
+                    self._last_stderr_lines.append(raw_line)
+                lower = raw_line.lower()
+
+                if self._mode == "quick" and not self._quick_url:
+                    url_match = _TRYCLOUDFLARE_URL_RE.search(raw_line)
+                    if url_match:
+                        captured_url = url_match.group(0)
+                        self._quick_url = captured_url
+                        logger.info("cloudflared quick tunnel URL captured: %s", captured_url)
+                        if self._on_url is not None:
+                            with contextlib.suppress(Exception):
+                                await self._on_url(captured_url)
+                        self._set_status(ExposureStatus.ACTIVE)
+
+                if any(marker in lower for marker in _AUTH_FAILURE_MARKERS):
                     logger.error(
                         "cloudflared reported an auth failure — surfacing RECLAIM_REQUIRED"
                     )
+                    self._error_code = "RECLAIM_REQUIRED"
                     self._set_status(
                         ExposureStatus.RECLAIM_REQUIRED,
-                        "cloudflared reported an invalid/revoked tunnel token",
+                        "cloudflared reported an invalid or revoked tunnel token",
                     )
                     await self._terminate_process()
                     self._stop_event.set()
                     return
+
+                if self._mode != "quick" and any(
+                    marker in lower for marker in _CONNECTION_READY_MARKERS
+                ):
+                    self._last_health_at = time.monotonic()
+                    if self._status != ExposureStatus.ACTIVE:
+                        self._set_status(ExposureStatus.ACTIVE)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -221,12 +426,17 @@ class CloudflaredSupervisor:
         try:
             while not self._stop_event.is_set():
                 if self.is_running:
-                    healthy = await self._probe_health()
-                    if healthy:
-                        self._last_health_at = time.monotonic()
-                        self._set_status(ExposureStatus.ACTIVE)
+                    if self._mode == "quick":
+                        if self._quick_url is not None:
+                            self._last_health_at = time.monotonic()
+                            if self._status != ExposureStatus.ACTIVE:
+                                self._set_status(ExposureStatus.ACTIVE)
                     else:
-                        if (
+                        healthy = await self._probe_health()
+                        if healthy:
+                            self._last_health_at = time.monotonic()
+                            self._set_status(ExposureStatus.ACTIVE)
+                        elif (
                             self._status == ExposureStatus.ACTIVE
                             and (time.monotonic() - self._last_health_at) > self._stale_after
                         ):
@@ -238,22 +448,34 @@ class CloudflaredSupervisor:
             raise
         except Exception:
             logger.exception("cloudflared monitor crashed")
-            self._set_status(ExposureStatus.ERROR)
+            self._set_status(
+                ExposureStatus.ERROR, "cloudflared health monitor encountered an error"
+            )
 
     async def _handle_process_exit(self) -> None:
         if self._stop_event.is_set():
             return
         if self._status == ExposureStatus.RECLAIM_REQUIRED:
             return
+
+        stderr_hint = (
+            self._last_stderr_lines[-1] if self._last_stderr_lines else None
+        )
+
         if is_windows():
-            self._set_status(ExposureStatus.ERROR, "cloudflared exited (Windows)")
+            msg = stderr_hint or "cloudflared exited unexpectedly"
+            self._error_code = "CLOUDFLARED_EXITED"
+            self._set_status(ExposureStatus.ERROR, msg)
             self._stop_event.set()
             return
         if self._restart_count >= self._max_restarts:
-            self._set_status(
-                ExposureStatus.ERROR,
-                f"cloudflared restarted too many times ({self._restart_count})",
+            msg = (
+                f"cloudflared exited repeatedly ({self._restart_count} restarts): {stderr_hint}"
+                if stderr_hint
+                else f"cloudflared restarted too many times ({self._restart_count})"
             )
+            self._error_code = "CLOUDFLARED_EXITED"
+            self._set_status(ExposureStatus.ERROR, msg)
             self._stop_event.set()
             return
         self._restart_count += 1
@@ -266,7 +488,13 @@ class CloudflaredSupervisor:
         )
         await asyncio.sleep(min(delay, 60.0))
         if not self._stop_event.is_set():
-            await self._spawn(self._read_token())
+            if self._mode == "quick" and self._quick_local_url:
+                self._quick_url = None
+                await self._spawn_quick(self._quick_local_url)
+            elif self._mode == "token_env" and self._token_secret:
+                await self._spawn_token_env(self._token_secret)
+            else:
+                await self._spawn(self._read_token() or self._token_secret)
 
     async def _probe_health(self) -> bool:
         """Try every documented metrics port; first reachable endpoint is healthy.
@@ -309,6 +537,15 @@ class CloudflaredSupervisor:
             except Exception:
                 logger.debug("cloudflared stderr reader cancellation failed", exc_info=True)
             self._stderr_reader = None
+        if self._stdout_reader is not None and not self._stdout_reader.done():
+            self._stdout_reader.cancel()
+            try:
+                await self._stdout_reader
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.debug("cloudflared stdout reader cancellation failed", exc_info=True)
+            self._stdout_reader = None
         if proc is None:
             return
         self._process = None
@@ -377,7 +614,10 @@ class CloudflaredSupervisor:
 
     def _set_status(self, status: ExposureStatus, error_message: str | None = None) -> None:
         self._status = status
-        self._error_message = error_message
+        if error_message is not None or status == ExposureStatus.ACTIVE:
+            self._error_message = error_message
+        if status == ExposureStatus.ACTIVE:
+            self._error_code = None
         if self._on_status is not None:
             try:
                 loop = asyncio.get_event_loop()

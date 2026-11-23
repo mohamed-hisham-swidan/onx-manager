@@ -998,36 +998,40 @@ Remove stored global Playit agent credentials.
 #### `GET /api/v1/exposure/panel`
 Get current web panel public exposure configuration and status.
 - **Auth:** Required (`require_owner()`)
-- **Response `200 OK`:** `PanelExposureResponse` (`method`, `desired_state`, `status`, `public_address`, `tls`, `protocol`, `external_port`, `cloudflare_tunnel_id`, `playit_tunnel_id`, `upnp_last_result`, `error_code`, `error_message`, `fix_hint`, `auto_fixed`, `security_advisory`)
+- **Response `200 OK`:** `PanelExposureResponse` (`method`, `desired_state`, `status`, `public_address`, `tls`, `protocol`, `external_port`, `cloudflare_tunnel_id`, `cloudflare_mode`, `token_configured`, `ephemeral`, `playit_tunnel_id`, `upnp_last_result`, `error_code`, `error_message`, `fix_hint`, `auto_fixed`, `security_advisory`). Raw Cloudflare tokens are never returned; `token_configured` indicates whether an encrypted token is stored. `CGNAT_DETECTED` is surfaced in `error_code` / `upnp_last_result` when UPnP detects a private or RFC6598 WAN IP.
 
 #### `PUT /api/v1/exposure/panel`
 Configure or update web panel exposure settings.
 - **Auth:** Required (`require_owner()`)
-- **Body:** `PanelExposureUpdateRequest` (`method`: `"none"`|`"cloudflare_tunnel"`|`"playit_http"`|`"port_forward"`, `desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_token`: str, `hostname`: str, `external_port`: int|null)
+- **Body:** `PanelExposureUpdateRequest` (`method`: `"none"`|`"cloudflare_tunnel"`|`"playit_http"`|`"port_forward"`, `desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_mode`: `"token"`|`"quick"`|null, `cloudflare_token`: str, `hostname`: str, `external_port`: strict int 1..65535|null)
 - **Response `200 OK`:** `PanelExposureResponse`
 
 ### Server Exposure & Companion Ports
 
 #### `GET /api/v1/servers/{server_id}/exposure`
-Get game server network exposure configuration, status, and active targets.
+Get game server network exposure configuration, status, and active targets (branch-scoped when `?branch=` is provided on Advanced servers).
 - **Auth:** Required (`server.{id}.exposure.view`)
-- **Response `200 OK`:** `ServerExposureResponse` (`server_id`, `method`, `desired_state`, `aggregate_status`, `error_code`, `error_message`, `cloudflare_tunnel_id`, `has_cloudflare_credentials`, `targets`: list[`TargetResponse`])
+- **Query:** `branch` (optional string, default `"main"`)
+- **Response `200 OK`:** `ServerExposureResponse` (`server_id`, `branch_name`, `branch_runtime_status`, `allocated_game_port`, `allocated_port_set`, `method`, `desired_state`, `aggregate_status`, `error_code`, `error_message`, `cloudflare_tunnel_id`, `has_cloudflare_credentials`, `cloudflare_mode`, `subdomain_prefix`, `base_domain`, `srv_record_enabled`, `srv_record_hint`, `ephemeral`, `upnp_status`, `detected_wan_ip`, `targets`: list[`TargetResponse`])
 
 #### `PUT /api/v1/servers/{server_id}/exposure`
-Configure and update game server public exposure method.
+Configure and update game server (or branch) public exposure method.
 - **Auth:** Required (`server.{id}.exposure`)
-- **Body:** `ServerExposureUpdateRequest` (`method`: `"playit"`|`"port_forward"`|`"cloudflare_tcp"`, `desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_token`: str, `hostname`: str, `acknowledged_warning`: bool)
+- **Query:** `branch` (optional string, default `"main"`)
+- **Body:** `ServerExposureUpdateRequest` (`method`: `"none"`|`"playit"`|`"port_forward"`|`"cloudflare_tcp"`, `desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_mode`: `"quick"`|`"subdomain"`|`"tcp"`|null, `cloudflare_token`: str, `hostname`: str, `subdomain_prefix`: str|null, `base_domain`: str|null, `srv_record_enabled`: bool, `external_port`: int|null, `acknowledged_warning`: bool)
 - **Response `200 OK`:** `ServerExposureResponse`
 
 #### `PATCH /api/v1/servers/{server_id}/exposure`
-Toggle server exposure desired state (`ENABLED` or `DISABLED`).
+Toggle server or branch exposure desired state (`ENABLED` or `DISABLED`).
 - **Auth:** Required (`server.{id}.exposure`)
+- **Query:** `branch` (optional string, default `"main"`)
 - **Body:** `ServerExposureStateUpdateRequest` (`desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_token`: str, `hostname`: str, `acknowledged_warning`: bool)
 - **Response `200 OK`:** `ServerExposureResponse`
 
 #### `DELETE /api/v1/servers/{server_id}/exposure`
-Disable and remove public exposure configuration for a server.
+Disable and remove public exposure configuration for a server or branch.
 - **Auth:** Required (`server.{id}.exposure`)
+- **Query:** `branch` (optional string, default `"main"`)
 - **Response `204 No Content`**
 
 #### `GET /api/v1/servers/{server_id}/exposure/targets`
@@ -1094,6 +1098,19 @@ Retrieve the commit history log for a specific branch.
 Archive an active branch.
 - **Auth:** Required (`server:version:commit`)
 - **Response `200 OK`:** `ServerBranchResponse` (`status: "archived"`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/branches/{name}/destroy`
+Explicitly destroy a stopped branch container, remove its `.onx/branch-exports/<runtime_id>` directory, release its Host Port Set, and reset `container_provisioned` to `false` while preserving Git branch commits.
+- **Auth:** Required (`server:test:execute`)
+- **Body:** `DestroyBranchRunRequest` (`reason`: optional str)
+- **Response `200 OK`:** `DestroyBranchRunResponse` (`server_id`, `branch_name`, `runtime_id`, `destroyed`: bool, `container_provisioned`: false)
+
+### Branch-Scoped Console, Settings & Plugins (`?branch=`)
+
+- **`GET /api/v1/servers/{server_id}/console?branch=<name>` & `POST /api/v1/servers/{server_id}/command?branch=<name>`:** When `branch` is a non-`main` Advanced branch, reads logs from and dispatches RCON commands to that branch's isolated container instead of `main`.
+- **`GET /api/v1/servers/{server_id}?branch=<name>` & `PATCH /api/v1/servers/{server_id}?branch=<name>`:** Reads/writes branch-scoped settings (`name`, `motd`, `port`, `max_players`, `server.properties`, `config/onx-runtime.json`) inside the worktree. `PATCH` on `main` queues changes onto a `settings/...` branch (`pending_settings_branch`), automatically merged during `POST /servers/{id}/restart`.
+- **`DELETE /api/v1/servers/{server_id}/settings/pending`:** Discards any unmerged `settings/...` pending settings branch for the server (`server.{id}.manage`).
+- **`GET/POST/DELETE /api/v1/servers/{server_id}/plugins*?branch=<name>`:** Lists, installs from Modrinth, uploads, toggles, or removes plugins/mods using `ArtifactCas` and the branch worktree's `onx-jars.lock.json`.
 
 #### `GET /api/v1/servers/{server_id}/versioning/branches/{name}/protection`
 Get protection status and policy for a branch.

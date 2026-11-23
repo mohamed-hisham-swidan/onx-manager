@@ -106,47 +106,53 @@ describe("PanelExposureSection Component", () => {
     expect(screen.getByText("Selected")).toBeInTheDocument();
   });
 
-  it("T-74-02: switching to cloudflare displays token and hostname inputs without auto-saving", async () => {
+  it("T-74-02: switching to cloudflare displays modern token/quick toggle without auto-saving", async () => {
     renderPanelExposureSection();
 
     expect(await screen.findByText("Local Only")).toBeInTheDocument();
     const cloudflareCard = screen.getByRole("button", { name: /Cloudflare/i });
     fireEvent.click(cloudflareCard);
 
-    expect(await screen.findByLabelText(/Custom Domain \/ Hostname/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Cloudflare API Token/i)).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /Permanent \(Tunnel Token\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Quick Preview \(Temporary\)/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tunnel Token/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Cloudflare Tunnels/i })).toHaveAttribute(
+      "href",
+      "https://one.dash.cloudflare.com/"
+    );
     expect(mockSetPanelExposure).not.toHaveBeenCalled(); // No auto-save on card switch
   });
 
-  it("T-74-03: cloudflare form disables save button on invalid fqdn", async () => {
+  it("T-74-03: cloudflare token form disables save button on empty or invalid token", async () => {
     renderPanelExposureSection();
 
     const cloudflareCard = await screen.findByRole("button", { name: /Cloudflare/i });
     fireEvent.click(cloudflareCard);
 
-    const hostnameInput = await screen.findByLabelText(/Custom Domain \/ Hostname/i);
-    const tokenInput = screen.getByLabelText(/Cloudflare API Token/i);
+    const tokenInput = await screen.findByLabelText(/Tunnel Token/i);
     const saveBtn = screen.getByRole("button", { name: /Enable Cloudflare Tunnel/i });
 
     // Initial state: empty -> disabled
     expect(saveBtn).toBeDisabled();
 
-    // Invalid domain
-    fireEvent.change(hostnameInput, { target: { value: "invalid_domain" } });
-    fireEvent.change(tokenInput, { target: { value: "valid-token-123" } });
+    // Invalid short/whitespace token
+    fireEvent.change(tokenInput, { target: { value: "bad token" } });
 
     expect(
-      screen.getByText(/Please enter a valid fully-qualified domain name/i)
+      screen.getByText(/Tunnel token cannot contain spaces/i)
     ).toBeInTheDocument();
     expect(saveBtn).toBeDisabled();
   });
 
-  it("T-74-04: cloudflare form enables save button on valid fqdn and token", async () => {
+  it("T-74-04: cloudflare token form enables save button on valid token", async () => {
     mockSetPanelExposure.mockResolvedValueOnce({
       ...defaultPanelResponse,
       method: "cloudflare_tunnel",
       desired_state: "ENABLED",
-      status: "STARTING",
+      cloudflare_mode: "token",
+      token_configured: true,
+      ephemeral: false,
+      status: "ACTIVE",
     });
 
     renderPanelExposureSection();
@@ -154,12 +160,10 @@ describe("PanelExposureSection Component", () => {
     const cloudflareCard = await screen.findByRole("button", { name: /Cloudflare/i });
     fireEvent.click(cloudflareCard);
 
-    const hostnameInput = await screen.findByLabelText(/Custom Domain \/ Hostname/i);
-    const tokenInput = screen.getByLabelText(/Cloudflare API Token/i);
+    const tokenInput = await screen.findByLabelText(/Tunnel Token/i);
     const saveBtn = screen.getByRole("button", { name: /Enable Cloudflare Tunnel/i });
 
-    fireEvent.change(hostnameInput, { target: { value: "panel.example.com" } });
-    fireEvent.change(tokenInput, { target: { value: "cf-token-secret" } });
+    fireEvent.change(tokenInput, { target: { value: "eyJhIjoiValidCloudflareTunnelToken12345" } });
 
     expect(saveBtn).toBeEnabled();
     fireEvent.click(saveBtn);
@@ -168,8 +172,8 @@ describe("PanelExposureSection Component", () => {
       expect(mockSetPanelExposure).toHaveBeenCalledWith({
         method: "cloudflare_tunnel",
         desired_state: "ENABLED",
-        cloudflare_token: "cf-token-secret",
-        hostname: "panel.example.com",
+        cloudflare_mode: "token",
+        cloudflare_token: "eyJhIjoiValidCloudflareTunnelToken12345",
       });
     });
   });
@@ -248,6 +252,9 @@ describe("PanelExposureSection Component", () => {
     expect(
       await screen.findByText(/Action Required: Restart Panel to Complete Port Forwarding/i)
     ).toBeInTheDocument();
+    expect(screen.getByText("Restart Required")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry Check/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Switch to Local Only/i })).toBeInTheDocument();
     expect(
       screen.getByText(/Panel bind address updated to 0.0.0.0 in config\/settings.yaml/i)
     ).toBeInTheDocument();
@@ -266,7 +273,7 @@ describe("PanelExposureSection Component", () => {
     renderPanelExposureSection();
 
     expect(
-      await screen.findByText(/Cloudflare API Token was invalidated or revoked/i)
+      await screen.findByText(/Cloudflare Tunnel Token was invalidated or rejected/i)
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Update Token & Reconnect/i })).toBeInTheDocument();
   });
@@ -363,12 +370,10 @@ describe("PanelExposureSection Component", () => {
     const cloudflareCard = await screen.findByRole("button", { name: /Cloudflare/i });
     fireEvent.click(cloudflareCard);
 
-    const hostnameInput = await screen.findByLabelText(/Custom Domain \/ Hostname/i);
-    const tokenInput = screen.getByLabelText(/Cloudflare API Token/i);
+    const tokenInput = await screen.findByLabelText(/Tunnel Token/i);
     const saveBtn = screen.getByRole("button", { name: /Enable Cloudflare Tunnel/i });
 
-    fireEvent.change(hostnameInput, { target: { value: "panel.myzone.com" } });
-    fireEvent.change(tokenInput, { target: { value: "invalid-token" } });
+    fireEvent.change(tokenInput, { target: { value: "invalid-token-123456" } });
 
     fireEvent.click(saveBtn);
 
@@ -376,8 +381,7 @@ describe("PanelExposureSection Component", () => {
       expect(mockToast).toHaveBeenCalledWith("error", "Exposure Update Failed", "Cloudflare token authentication failed (403)");
     });
 
-    // Form inputs remain fully interactive and editable (not stuck in disabled/loading state)
-    expect(hostnameInput).toBeEnabled();
+    // Form input remains fully interactive and editable (not stuck in disabled/loading state)
     expect(tokenInput).toBeEnabled();
   });
 
@@ -434,15 +438,123 @@ describe("PanelExposureSection Component", () => {
     renderPanelExposureSection();
 
     expect(
-      await screen.findByText(/Cloudflare API Token was invalidated or revoked/i)
+      await screen.findByText(/Cloudflare Tunnel Token was invalidated or rejected/i)
     ).toBeInTheDocument();
     const saveBtn = screen.getByRole("button", { name: /Update Token & Reconnect/i });
     expect(saveBtn).toBeDisabled(); // Disabled until fresh token is typed
 
-    const tokenInput = screen.getByLabelText(/Cloudflare API Token/i);
-    fireEvent.change(tokenInput, { target: { value: "new-fresh-cf-token" } });
+    const tokenInput = screen.getByLabelText(/Tunnel Token/i);
+    fireEvent.change(tokenInput, { target: { value: "new-fresh-cf-token-12345" } });
 
     expect(saveBtn).toBeEnabled();
+  });
+
+  it("Cloudflare Quick Preview segmented toggle requires zero inputs and submits quick mode", async () => {
+    mockSetPanelExposure.mockResolvedValueOnce({
+      ...defaultPanelResponse,
+      method: "cloudflare_tunnel",
+      desired_state: "ENABLED",
+      cloudflare_mode: "quick",
+      ephemeral: true,
+      status: "ACTIVE",
+      public_address: "https://quick-test.trycloudflare.com",
+    });
+
+    renderPanelExposureSection();
+
+    const cloudflareCard = await screen.findByRole("button", { name: /Cloudflare/i });
+    fireEvent.click(cloudflareCard);
+
+    const quickTab = await screen.findByRole("tab", { name: /Quick Preview \(Temporary\)/i });
+    fireEvent.click(quickTab);
+
+    expect(screen.getByText(/changes on every restart\. No domain required/i)).toBeInTheDocument();
+    const startBtn = screen.getByRole("button", { name: /Start Quick Tunnel/i });
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(mockSetPanelExposure).toHaveBeenCalledWith({
+        method: "cloudflare_tunnel",
+        desired_state: "ENABLED",
+        cloudflare_mode: "quick",
+      });
+    });
+  });
+
+  it("Port forward input sanitizes non-digits, blocks e/E/+/-/., and disables submit on out-of-range port", async () => {
+    renderPanelExposureSection();
+
+    const portForwardCard = await screen.findByRole("button", { name: /Port Forward/i });
+    fireEvent.click(portForwardCard);
+
+    const portInput = await screen.findByLabelText(/Requested External Port/i) as HTMLInputElement;
+    const enableBtn = screen.getByRole("button", { name: /Enable Port Forwarding/i });
+
+    // Non-digit characters are stripped on change and blocked keys preventDefault
+    const ev = fireEvent.keyDown(portInput, { key: "e" });
+    expect(ev).toBe(false);
+
+    fireEvent.change(portInput, { target: { value: "70000" } });
+    expect(screen.getByText(/External port must be between 1 and 65535/i)).toBeInTheDocument();
+    expect(enableBtn).toBeDisabled();
+
+    fireEvent.change(portInput, { target: { value: "3306" } });
+    expect(screen.getByText(/Port 3306 is reserved for internal services/i)).toBeInTheDocument();
+    expect(enableBtn).toBeDisabled();
+
+    fireEvent.change(portInput, { target: { value: "8443" } });
+    expect(enableBtn).toBeEnabled();
+  });
+
+  it("CGNAT_DETECTED banner displays CGNAT Detected badge and actionable recovery buttons", async () => {
+    mockGetPanelExposure.mockResolvedValue({
+      ...defaultPanelResponse,
+      method: "port_forward",
+      desired_state: "ENABLED",
+      status: "ERROR",
+      error_code: "CGNAT_DETECTED",
+      error_message: "ISP CGNAT detected on WAN IP 100.64.10.2.",
+      fix_hint: "Switch to Cloudflare Tunnel or playit.gg.",
+    });
+
+    renderPanelExposureSection();
+
+    expect(await screen.findByText("CGNAT Detected")).toBeInTheDocument();
+    expect(screen.getByText(/ISP CGNAT \/ Double-NAT Detected/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Use Cloudflare Tunnel/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Switch to Local Only/i })).toBeInTheDocument();
+  });
+
+  it("HTTP 200 with status=ERROR fires error toast instead of false success toast", async () => {
+    mockSetPanelExposure.mockResolvedValueOnce({
+      ...defaultPanelResponse,
+      method: "port_forward",
+      desired_state: "ENABLED",
+      status: "ERROR",
+      error_code: "CGNAT_DETECTED",
+      error_message: "ISP CGNAT detected (100.64.5.1).",
+    });
+
+    renderPanelExposureSection();
+
+    const portForwardCard = await screen.findByRole("button", { name: /Port Forward/i });
+    fireEvent.click(portForwardCard);
+    fireEvent.click(await screen.findByRole("button", { name: /Enable Port Forwarding/i }));
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        "error",
+        "Exposure Configuration Error",
+        "ISP CGNAT detected (100.64.5.1)."
+      );
+    });
+  });
+
+  it("Local Only card always displays a confirmed action button even when disabled", async () => {
+    renderPanelExposureSection();
+    const localBtn = await screen.findByRole("button", { name: /Local Only Active/i });
+    expect(localBtn).toBeDisabled();
   });
 
   describe("Modal behavior (FIX-3)", () => {

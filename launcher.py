@@ -1443,6 +1443,29 @@ class TerminalOpener:
         return s.rstrip("\\")
 
     @staticmethod
+    def _get_configured_bind_host(env: dict[str, str]) -> str:
+        """Resolve panel bind host with precedence: env > config/settings.yaml > 127.0.0.1."""
+        env_host = env.get("ONX_PANEL_BIND_HOST") or env.get("MCS_PANEL_BIND_HOST")
+        if env_host and env_host.strip():
+            return env_host.strip()
+        settings_path = BACKEND_DIR / "config" / "settings.yaml"
+        if settings_path.is_file():
+            try:
+                content = settings_path.read_text(encoding="utf-8", errors="replace")
+                match = re.search(
+                    r"^\s*panel_bind_host:\s*['\"]?([^'\"\s#]+)['\"]?",
+                    content,
+                    re.MULTILINE,
+                )
+                if match:
+                    val = match.group(1).strip()
+                    if val:
+                        return val
+            except OSError:
+                pass
+        return "127.0.0.1"
+
+    @staticmethod
     def open_backend(
         python: Path,
         port: int,
@@ -1453,7 +1476,7 @@ class TerminalOpener:
             merged_env.update(env)
         no_reload = merged_env.get("ONX_LAUNCHER_NO_RELOAD") == "1"
         reload_flags = "--workers 1" if no_reload else "--reload --reload-dir app"
-        bind_host = merged_env.get("ONX_PANEL_BIND_HOST", "0.0.0.0")
+        bind_host = TerminalOpener._get_configured_bind_host(merged_env)
 
         if os.name == "nt":
             esc_backend = TerminalOpener.escape_cmd_path(BACKEND_DIR)

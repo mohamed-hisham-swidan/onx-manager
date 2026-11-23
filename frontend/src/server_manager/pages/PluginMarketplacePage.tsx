@@ -20,6 +20,7 @@ export function PluginMarketplacePage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlServerId = searchParams.get("server") ?? searchParams.get("serverId") ?? "";
+  const urlBranch = searchParams.get("branch") ?? undefined;
   const urlQuery = searchParams.get("q") ?? "";
   const urlProjectType = (searchParams.get("type") as "plugin" | "mod") || "plugin";
   const urlLoader = searchParams.get("loader") ?? "";
@@ -292,6 +293,7 @@ export function PluginMarketplacePage() {
         <InstallModal
           project={selectedProject}
           projectType={projectType}
+          branch={urlBranch}
           onClose={handleCloseVersions}
         />
       )}

@@ -124,20 +124,21 @@ def _error_response(
         req_id = getattr(request.state, "request_id", "") or request.headers.get("X-Request-ID", "")
 
     is_retryable = retryable if retryable is not None else (status in (429, 503, 504))
+    safe_error = (error or "").strip() or code.replace("_", " ").title()
 
     return JSONResponse(
         status_code=status,
         content={
             # Contract specification keys (contracts/api.yaml)
             "code": code,
-            "message": error,
+            "message": safe_error,
             "details": detail,
             "request_id": req_id,
             "retryable": is_retryable,
             # Legacy keys (backward-compatible)
-            "error": error,
+            "error": safe_error,
             "error_code": code,
-            "detail": detail,
+            "detail": detail if detail is not None else safe_error,
             "timestamp": datetime.now(UTC).isoformat(),
         },
     )

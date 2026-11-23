@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     get_command_bus,
@@ -114,12 +114,29 @@ async def remove_credentials(
     return check_command_result(result)
 
 
+def _to_panel_exposure_response(data: dict) -> PanelExposureResponse:
+    """Project internal panel payload onto API schema without ever returning secrets."""
+    payload = dict(data)
+    has_creds = bool(payload.pop("has_cloudflare_credentials", False))
+    ephemeral = bool(payload.get("ephemeral", False))
+    method = payload.get("method")
+    if method == "cloudflare_tunnel":
+        is_quick = ephemeral or payload.get("cloudflare_tunnel_id") == "quick"
+        cf_mode = "quick" if is_quick else "token"
+    else:
+        cf_mode = None
+    payload["token_configured"] = has_creds
+    payload["cloudflare_mode"] = cf_mode
+    payload["ephemeral"] = ephemeral
+    return PanelExposureResponse(**payload)
+
+
 @router.get("/exposure/panel", response_model=PanelExposureResponse)
 async def get_panel_exposure(
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
     _current_user: dict = Depends(require_owner()),  # noqa: B008
 ) -> PanelExposureResponse:
-    return PanelExposureResponse(**await query_bus.ask(GetPanelExposureQuery()))
+    return _to_panel_exposure_response(await query_bus.ask(GetPanelExposureQuery()))
 
 
 @router.put("/exposure/panel", response_model=PanelExposureResponse)
@@ -132,13 +149,14 @@ async def set_panel_exposure(
         SetPanelExposureCommand(
             method=body.method,
             desired_state=body.desired_state,
+            cloudflare_mode=body.cloudflare_mode,
             cloudflare_token=body.cloudflare_token,
             hostname=body.hostname,
             external_port=body.external_port,
             actor_id=current_user.get("user_id", ""),
         )
     )
-    return PanelExposureResponse(**check_command_result(result))
+    return _to_panel_exposure_response(check_command_result(result))
 
 
 @router.get(
@@ -147,10 +165,13 @@ async def set_panel_exposure(
 )
 async def get_server_exposure(
     server_id: str,
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
     _current_user: dict = Depends(require_exposure_grant("server.{id}.exposure.view")),  # noqa: B008
 ) -> ServerExposureResponse:
-    result = await query_bus.ask(GetServerExposureQuery(server_id=server_id))
+    result = await query_bus.ask(
+        GetServerExposureQuery(server_id=server_id, branch_name=branch or "main")
+    )
     return ServerExposureResponse(**result)
 
 
@@ -161,16 +182,23 @@ async def get_server_exposure(
 async def set_server_exposure(
     server_id: str,
     body: ServerExposureUpdateRequest,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> ServerExposureResponse:
     result = await command_bus.send(
         SetServerExposureCommand(
             server_id=server_id,
+            branch_name=branch or "main",
             method=body.method,
             desired_state=body.desired_state,
+            cloudflare_mode=body.cloudflare_mode,
             cloudflare_token=body.cloudflare_token,
             hostname=body.hostname,
+            subdomain_prefix=body.subdomain_prefix,
+            base_domain=body.base_domain,
+            srv_record_enabled=body.srv_record_enabled,
+            external_port=body.external_port,
             acknowledged_warning=body.acknowledged_warning,
             actor_id=current_user.get("user_id", ""),
         )
@@ -185,18 +213,20 @@ async def set_server_exposure(
 async def set_server_exposure_state(
     server_id: str,
     body: ServerExposureStateUpdateRequest,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     _current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> ServerExposureResponse:
     if body.desired_state == "ENABLED":
         cmd = EnableServerExposureCommand(
             server_id=server_id,
+            branch_name=branch or "main",
             cloudflare_token=body.cloudflare_token,
             hostname=body.hostname,
             acknowledged_warning=body.acknowledged_warning,
         )
     else:
-        cmd = DisableServerExposureCommand(server_id=server_id)
+        cmd = DisableServerExposureCommand(server_id=server_id, branch_name=branch or "main")
     result = await command_bus.send(cmd)
     return ServerExposureResponse(**check_command_result(result))
 
@@ -207,11 +237,16 @@ async def set_server_exposure_state(
 )
 async def remove_server_exposure(
     server_id: str,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> None:
     result = await command_bus.send(
-        RemoveServerExposureCommand(server_id=server_id, actor_id=current_user.get("user_id", ""))
+        RemoveServerExposureCommand(
+            server_id=server_id,
+            branch_name=branch or "main",
+            actor_id=current_user.get("user_id", ""),
+        )
     )
     check_command_result(result)
 
@@ -222,12 +257,15 @@ async def remove_server_exposure(
 )
 async def list_exposure_targets(
     server_id: str,
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
     _current_user: dict = Depends(require_exposure_grant("server.{id}.exposure.view")),  # noqa: B008
 ) -> list[TargetResponse]:
     return [
         TargetResponse(**t)
-        for t in await query_bus.ask(ListExposureTargetsQuery(server_id=server_id))
+        for t in await query_bus.ask(
+            ListExposureTargetsQuery(server_id=server_id, branch_name=branch or "main")
+        )
     ]
 
 
@@ -239,12 +277,14 @@ async def list_exposure_targets(
 async def create_exposure_target(
     server_id: str,
     body: TargetCreateRequest | None = None,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> TargetResponse:
     result = await command_bus.send(
         CreateExposureTargetCommand(
             server_id=server_id,
+            branch_name=branch or "main",
             service_type=body.service_type if body else "java",
             protocol=body.protocol if body else None,
             local_port=body.local_port if body else None,
@@ -263,12 +303,14 @@ async def update_exposure_target(
     server_id: str,
     target_id: str,
     body: TargetUpdateRequest,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> TargetResponse:
     result = await command_bus.send(
         UpdateExposureTargetCommand(
             server_id=server_id,
+            branch_name=branch or "main",
             target_id=target_id,
             public_address=body.public_address,
             actor_id=current_user.get("user_id", ""),

@@ -384,23 +384,35 @@ class ServerExposure(AggregateRoot):
         server_id: str,
         method: ExposureMethod | str,
         id: str | None = None,
+        branch_name: str = "main",
         desired_state: DesiredState | str = DesiredState.DISABLED,
         aggregate_status: ExposureStatus | str = ExposureStatus.DISABLED,
         targets: list[ServerExposureTarget] | None = None,
         cloudflare_tunnel_id: str | None = None,
         cloudflare_token_ciphertext: bytes | None = None,
+        cloudflare_mode: str | None = None,
+        subdomain_prefix: str | None = None,
+        base_domain: str | None = None,
+        srv_record_enabled: bool = False,
+        ephemeral: bool = False,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
         super().__init__()
         self._id = id
         self._server_id = server_id
+        self._branch_name = branch_name or "main"
         self._method = _coerce_exposure_method(method)
         self._desired_state = _coerce_desired_state(desired_state)
         self._aggregate_status = _coerce_exposure_status(aggregate_status)
         self._targets = targets or []
         self._cloudflare_tunnel_id = cloudflare_tunnel_id
         self._cloudflare_token_ciphertext = cloudflare_token_ciphertext
+        self._cloudflare_mode = cloudflare_mode
+        self._subdomain_prefix = subdomain_prefix
+        self._base_domain = base_domain
+        self._srv_record_enabled = bool(srv_record_enabled)
+        self._ephemeral = bool(ephemeral)
         now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -412,6 +424,46 @@ class ServerExposure(AggregateRoot):
     @property
     def server_id(self) -> str:
         return self._server_id
+
+    @property
+    def branch_name(self) -> str:
+        return self._branch_name
+
+    @property
+    def cloudflare_mode(self) -> str | None:
+        return self._cloudflare_mode
+
+    @property
+    def subdomain_prefix(self) -> str | None:
+        return self._subdomain_prefix
+
+    @property
+    def base_domain(self) -> str | None:
+        return self._base_domain
+
+    @property
+    def srv_record_enabled(self) -> bool:
+        return self._srv_record_enabled
+
+    @property
+    def ephemeral(self) -> bool:
+        return self._ephemeral
+
+    def set_branch_routing(
+        self,
+        *,
+        cloudflare_mode: str | None = None,
+        subdomain_prefix: str | None = None,
+        base_domain: str | None = None,
+        srv_record_enabled: bool = False,
+        ephemeral: bool = False,
+    ) -> None:
+        self._cloudflare_mode = cloudflare_mode
+        self._subdomain_prefix = subdomain_prefix
+        self._base_domain = base_domain
+        self._srv_record_enabled = bool(srv_record_enabled)
+        self._ephemeral = bool(ephemeral)
+        self._updated_at = datetime.now(UTC)
 
     @property
     def method(self) -> ExposureMethod:
@@ -580,17 +632,23 @@ class ServerExposure(AggregateRoot):
             target = self._targets[0]
         self._updated_at = datetime.now(UTC)
         self._add_event(
-            ServerExposureEnabledEvent(server_id=self._server_id, method=self._method.value)
+            ServerExposureEnabledEvent(
+                server_id=self._server_id, method=self._method.value, branch_name=self._branch_name
+            )
         )
         return target
 
     def disable(self) -> None:
         self._desired_state = DesiredState.DISABLED
         self._updated_at = datetime.now(UTC)
-        self._add_event(ServerExposureDisabledEvent(server_id=self._server_id))
+        self._add_event(
+            ServerExposureDisabledEvent(server_id=self._server_id, branch_name=self._branch_name)
+        )
 
     def mark_deleted(self) -> None:
-        self._add_event(ServerExposureRemovedEvent(server_id=self._server_id))
+        self._add_event(
+            ServerExposureRemovedEvent(server_id=self._server_id, branch_name=self._branch_name)
+        )
 
 
 class PanelExposure(AggregateRoot):
@@ -722,6 +780,12 @@ class PanelExposure(AggregateRoot):
     def set_cloudflare_credentials(self, tunnel_id: str, token_ciphertext: bytes) -> None:
         self._cloudflare_tunnel_id = tunnel_id
         self._cloudflare_token_ciphertext = token_ciphertext
+        self._updated_at = datetime.now(UTC)
+
+    def set_cloudflare_quick_mode(self) -> None:
+        """Mark panel exposure as using an ephemeral Quick Tunnel (no persistent token)."""
+        self._cloudflare_tunnel_id = "quick"
+        self._cloudflare_token_ciphertext = None
         self._updated_at = datetime.now(UTC)
 
     def clear_cloudflare_credentials(self) -> None:

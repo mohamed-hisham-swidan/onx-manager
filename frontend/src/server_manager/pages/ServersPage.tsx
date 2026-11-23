@@ -75,6 +75,8 @@ export function ServersPage() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [deleteTarget, setDeleteTarget] = useState<ServerResponse | null>(null);
+  const [deletingIds, setDeletingIds] = useState<Record<string, boolean>>({});
+  const deletingRef = useRef<Set<string>>(new Set());
   const [stopTarget, setStopTarget] = useState<ServerResponse | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -194,16 +196,43 @@ export function ServersPage() {
 
   function handleDeleteClick(server: ServerResponse, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
+    if (
+      deleteServer.isPending ||
+      deletingRef.current.has(server.server_id) ||
+      deletingIds[server.server_id]
+    ) {
+      return;
+    }
     setDeleteTarget(server);
   }
 
   function handleConfirmDelete() {
     if (!deleteTarget) return;
     const s = deleteTarget;
-    setDeleteTarget(null);
+    if (deleteServer.isPending || deletingRef.current.has(s.server_id)) return;
+    deletingRef.current.add(s.server_id);
+    setDeletingIds((prev) => ({ ...prev, [s.server_id]: true }));
     deleteServer.mutate(s.server_id, {
-      onSuccess: () => toast("success", "Server deleted", `"${s.name}" was removed.`),
-      onError: (err) => toast("error", "Delete failed", errorMessage(err)),
+      onSuccess: () => {
+        deletingRef.current.delete(s.server_id);
+        setDeletingIds((prev) => {
+          const next = { ...prev };
+          delete next[s.server_id];
+          return next;
+        });
+        setDeleteTarget(null);
+        toast("success", "Server deleted", `"${s.name}" was removed.`);
+      },
+      onError: (err) => {
+        deletingRef.current.delete(s.server_id);
+        setDeletingIds((prev) => {
+          const next = { ...prev };
+          delete next[s.server_id];
+          return next;
+        });
+        setDeleteTarget(null);
+        toast("error", "Delete failed", errorMessage(err));
+      },
     });
   }
 
@@ -391,11 +420,20 @@ export function ServersPage() {
             <div className="space-y-6">
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {paginatedServers.map((s) => {
+                  const isDeleting =
+                    Boolean(deletingIds[s.server_id]) || deleteTarget?.server_id === s.server_id;
                   return (
                     <div
                       key={s.server_id}
-                      onClick={() => navigate(`/servers/${s.server_id}/console`)}
-                      className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+                      onClick={() => {
+                        if (isDeleting) return;
+                        navigate(`/servers/${s.server_id}/console`);
+                      }}
+                      className={`group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all duration-150 ${
+                        isDeleting
+                          ? "opacity-60 pointer-events-none"
+                          : "hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+                      }`}
                     >
                       <div>
                         {/* Card Header Row */}
@@ -406,7 +444,10 @@ export function ServersPage() {
                               <Link
                                 to={`/servers/${s.server_id}/console`}
                                 title={s.name}
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isDeleting) e.preventDefault();
+                                }}
                                 className="block truncate text-base font-bold text-text-primary group-hover:text-accent-primary"
                               >
                                 {s.name}
@@ -510,6 +551,9 @@ export function ServersPage() {
 
                           <Link
                             to={`/servers/${s.server_id}/console`}
+                            onClick={(e) => {
+                              if (isDeleting) e.preventDefault();
+                            }}
                             className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
                             title="Open Console"
                           >
@@ -519,7 +563,7 @@ export function ServersPage() {
                           <button
                             type="button"
                             onClick={(e) => handleDeleteClick(s, e)}
-                            disabled={deleteServer.isPending}
+                            disabled={deleteServer.isPending || isDeleting}
                             aria-label={`Delete ${s.name}`}
                             title="Delete"
                             className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -558,22 +602,35 @@ export function ServersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-subtle">
-                  {paginatedServers.map((s) => (
-                    <tr
-                      key={s.server_id}
-                      onClick={() => navigate(`/servers/${s.server_id}/console`)}
-                      className="transition-colors hover:bg-surface-hover/50 cursor-pointer"
-                    >
-                      <td className="max-w-0 px-4 py-3">
-                        <Link
-                          to={`/servers/${s.server_id}/console`}
-                          title={s.name}
-                          onClick={(e) => e.stopPropagation()}
-                          className="block truncate font-semibold text-accent-primary hover:underline"
-                        >
-                          {s.name}
-                        </Link>
-                      </td>
+                  {paginatedServers.map((s) => {
+                    const isDeleting =
+                      Boolean(deletingIds[s.server_id]) || deleteTarget?.server_id === s.server_id;
+                    return (
+                      <tr
+                        key={s.server_id}
+                        onClick={() => {
+                          if (isDeleting) return;
+                          navigate(`/servers/${s.server_id}/console`);
+                        }}
+                        className={`transition-colors ${
+                          isDeleting
+                            ? "opacity-60 pointer-events-none"
+                            : "hover:bg-surface-hover/50 cursor-pointer"
+                        }`}
+                      >
+                        <td className="max-w-0 px-4 py-3">
+                          <Link
+                            to={`/servers/${s.server_id}/console`}
+                            title={s.name}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isDeleting) e.preventDefault();
+                            }}
+                            className="block truncate font-semibold text-accent-primary hover:underline"
+                          >
+                            {s.name}
+                          </Link>
+                        </td>
                       <td className="hidden px-4 py-3 text-text-secondary sm:table-cell">
                         <div className="flex items-center gap-1.5">
                           <LoaderBadge loader={s.server_type} />
@@ -658,7 +715,7 @@ export function ServersPage() {
                           <button
                             type="button"
                             onClick={(e) => handleDeleteClick(s, e)}
-                            disabled={deleteServer.isPending}
+                            disabled={deleteServer.isPending || isDeleting}
                             aria-label={`Delete ${s.name}`}
                             title="Delete"
                             className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -668,7 +725,8 @@ export function ServersPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -696,11 +754,15 @@ export function ServersPage() {
             ? `This permanently deletes "${deleteTarget.name}" and all of its files and world data. This action cannot be undone.`
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={deleteServer.isPending ? "Deleting..." : "Delete"}
         cancelLabel="Cancel"
         variant="danger"
+        isPending={deleteServer.isPending}
         onConfirm={handleConfirmDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => {
+          if (deleteServer.isPending) return;
+          setDeleteTarget(null);
+        }}
       />
 
       {/* Shared Stop Confirmation Dialog */}

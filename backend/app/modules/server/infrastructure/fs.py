@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -120,6 +121,54 @@ class LocalFileSystem(FileSystem):
             if p.exists():
                 raise PermissionError(f"File could not be completely removed: {path}")
 
+    @staticmethod
+    def _try_docker_root_cleanup(p: Path) -> None:
+        docker_bin = shutil.which("docker")
+        if not docker_bin:
+            return
+        candidate_images = (
+            "busybox:latest",
+            "alpine:latest",
+            "python:3.12-alpine",
+            "eclipse-temurin:25-jre",
+            "eclipse-temurin:21-jre-jammy",
+            "eclipse-temurin:17-jre",
+        )
+        chosen_image: str | None = None
+        for img in candidate_images:
+            with contextlib.suppress(Exception):
+                res = subprocess.run(
+                    [docker_bin, "image", "inspect", img],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    chosen_image = img
+                    break
+        if not chosen_image:
+            return
+        with contextlib.suppress(Exception):
+            subprocess.run(
+                [
+                    docker_bin,
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{p.resolve()}:/target",
+                    chosen_image,
+                    "sh",
+                    "-c",
+                    "rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+            )
+            shutil.rmtree(p, ignore_errors=True)
+
     def delete_dir(self, path: str, *, root: str | None = None) -> None:
         p = Path(path)
         if not p.is_dir():
@@ -149,6 +198,9 @@ class LocalFileSystem(FileSystem):
                 os.rmdir(p)
             except Exception:
                 pass
+
+        if p.exists() and os.name == "posix":
+            self._try_docker_root_cleanup(p)
 
         if p.exists():
             raise PermissionError(f"Directory could not be completely removed: {path}")

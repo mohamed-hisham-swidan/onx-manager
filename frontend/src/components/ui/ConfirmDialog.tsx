@@ -28,6 +28,13 @@ export function ConfirmDialog({
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const confirmLockRef = useRef(false);
+
+  useEffect(() => {
+    if (!open || !isPending) {
+      confirmLockRef.current = false;
+    }
+  }, [open, isPending]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,7 +106,11 @@ export function ConfirmDialog({
       : "bg-accent-primary hover:bg-accent-hover text-accent-contrast-text";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-xs"
         onClick={isPending ? undefined : onCancel}
@@ -134,7 +145,11 @@ export function ConfirmDialog({
             ref={confirmButtonRef}
             type="button"
             disabled={isPending}
-            onClick={isPending ? undefined : onConfirm}
+            onClick={() => {
+              if (isPending || confirmLockRef.current) return;
+              confirmLockRef.current = true;
+              onConfirm();
+            }}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${confirmColors}`}
           >
             {confirmLabel}

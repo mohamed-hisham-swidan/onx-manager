@@ -29,6 +29,8 @@ class PluginResponse(BaseResponse):
     mod_id: str | None = None
     is_disabled_on_disk: bool = False
     warning: str | None = None
+    branch_name: str | None = None
+    is_committed: bool = True
 
 
 class PluginSearchResultResponse(BaseResponse):
@@ -110,6 +112,7 @@ class InstallModrinthPluginRequest(BaseModel):
     project_id: str = Field(..., min_length=1)
     version_id: str | None = None
     minecraft_version: str | None = None
+    branch: str | None = None
 
 
 class InstallModrinthPluginResponse(BaseResponse):
@@ -119,6 +122,8 @@ class InstallModrinthPluginResponse(BaseResponse):
     source: str = "modrinth"
     notice: str = ""
     notice_kind: str = ""
+    branch_name: str | None = None
+    is_committed: bool = True
 
 
 class ToggleModStateRequest(BaseModel):

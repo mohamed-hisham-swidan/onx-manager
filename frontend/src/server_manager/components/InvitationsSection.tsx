@@ -14,7 +14,7 @@ export function InvitationsSection() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [createdInvite, setCreatedInvite] = useState<{ token: string; link: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedField, setCopiedField] = useState<"link" | "token" | null>(null);
 
   // Form State
   const [email, setEmail] = useState("");
@@ -119,11 +119,15 @@ export function InvitationsSection() {
     createMutation.mutate(payload);
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, field: "link" | "token") => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    toast("info", "Copied", "Link copied to clipboard!");
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedField(field);
+    toast(
+      "info",
+      "Copied",
+      field === "token" ? "Token copied to clipboard!" : "Link copied to clipboard!",
+    );
+    setTimeout(() => setCopiedField((cur) => (cur === field ? null : cur)), 2000);
   };
 
   const openModal = () => {
@@ -165,23 +169,43 @@ export function InvitationsSection() {
               <span className="font-semibold text-sm">Invitation Link Generated!</span>
             </div>
             <p className="text-xs text-status-success opacity-90">
-              This secret raw token is displayed <strong>only once</strong>. Copy the link below to share it.
+              This secret raw token is displayed <strong>only once</strong>. Copy the link or token below to share it.
             </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                value={createdInvite.link}
-                className="w-full px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page text-xs font-mono text-text-primary"
-              />
-              <button
-                type="button"
-                onClick={() => copyToClipboard(createdInvite.link)}
-                className="px-3 py-1.5 rounded-lg bg-status-success text-accent-contrast-text text-xs font-medium shrink-0 flex items-center gap-1 cursor-pointer"
-              >
-                <Icon name="copy" size={14} />
-                {copied ? "Copied!" : "Copy Link"}
-              </button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  aria-label="Invitation Link"
+                  value={createdInvite.link}
+                  className="w-full px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page text-xs font-mono text-text-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(createdInvite.link, "link")}
+                  className="px-3 py-1.5 rounded-lg bg-status-success text-accent-contrast-text text-xs font-medium shrink-0 flex items-center gap-1 cursor-pointer"
+                >
+                  <Icon name="copy" size={14} />
+                  {copiedField === "link" ? "Copied!" : "Copy Link"}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  aria-label="Invitation Token"
+                  value={createdInvite.token}
+                  className="w-full px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page text-xs font-mono text-text-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(createdInvite.token, "token")}
+                  className="px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page hover:bg-surface-hover text-status-success text-xs font-medium shrink-0 flex items-center gap-1 cursor-pointer"
+                >
+                  <Icon name="copy" size={14} />
+                  {copiedField === "token" ? "Copied!" : "Copy Token"}
+                </button>
+              </div>
             </div>
           </div>
         )}

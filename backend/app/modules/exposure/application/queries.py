@@ -10,6 +10,7 @@ from app.modules.exposure.application.commands import (
     _fold_aggregate,
     _panel_payload,
     _target_payload,
+    resolve_server_branch_exposure_context,
 )
 from app.modules.exposure.domain.repository import (
     HostAgentRepository,
@@ -28,6 +29,7 @@ from app.modules.shared.value_objects import ServerId
 
 class GetServerExposureQuery(Query):
     server_id: str
+    branch_name: str = "main"
 
 
 class GetServerExposureHandler(QueryHandler[GetServerExposureQuery]):
@@ -41,10 +43,17 @@ class GetServerExposureHandler(QueryHandler[GetServerExposureQuery]):
                     f"Server {query.server_id} not found",
                 )
 
-            exposure = await repo.get(query.server_id)
+            ctx = await resolve_server_branch_exposure_context(
+                uow.session, server, query.branch_name
+            )
+            exposure = await repo.get(query.server_id, branch_name=ctx["branch_name"])
             if exposure is None:
                 return {
                     "server_id": query.server_id,
+                    "branch_name": ctx["branch_name"],
+                    "branch_runtime_status": ctx.get("branch_runtime_status"),
+                    "allocated_game_port": ctx.get("game_port"),
+                    "allocated_port_set": ctx.get("allocated_port_set"),
                     "method": "none",
                     "desired_state": "DISABLED",
                     "aggregate_status": "DISABLED",
@@ -52,12 +61,20 @@ class GetServerExposureHandler(QueryHandler[GetServerExposureQuery]):
                     "error_message": None,
                     "cloudflare_tunnel_id": None,
                     "has_cloudflare_credentials": False,
+                    "cloudflare_mode": None,
+                    "subdomain_prefix": None,
+                    "base_domain": None,
+                    "srv_record_enabled": False,
+                    "srv_record_hint": None,
+                    "ephemeral": False,
+                    "upnp_status": "IDLE",
+                    "detected_wan_ip": None,
                     "targets": [],
                 }
             _fold_aggregate(exposure)
             await repo.save(exposure)
             await uow.commit()
-            return _exposure_payload(exposure)
+            return _exposure_payload(exposure, branch_context=ctx)
 
 
 class GetAgentStatusQuery(Query):
@@ -78,23 +95,54 @@ class GetPanelExposureQuery(Query):
 
 class GetPanelExposureHandler(QueryHandler[GetPanelExposureQuery]):
     async def handle(self, _query: GetPanelExposureQuery) -> dict:
+        from app.core.config import get_active_panel_bind
+        from app.core.event_bus import EventBus
+        from app.modules.exposure.application.commands import (
+            SetPanelExposureCommand,
+            SetPanelExposureHandler,
+            _is_loopback_bind_host,
+        )
+        from app.modules.exposure.domain.value_objects import DesiredState, PanelExposureMethod
+
         async with UnitOfWork() as uow:
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
             state_repo = SQLSystemStateRepository(uow.session)
             panel = await repo.get()
             system_state = await state_repo.get()
-            return _panel_payload(panel, access_mode=system_state.access_mode)
+            access_mode = system_state.access_mode
+
+            should_recheck_bind = (
+                panel.method == PanelExposureMethod.PORT_FORWARD
+                and panel.desired_state == DesiredState.ENABLED
+                and panel.error_code == "BIND_MISMATCH"
+            )
+
+        if should_recheck_bind:
+            active_host, _ = get_active_panel_bind()
+            if not _is_loopback_bind_host(active_host):
+                result = await SetPanelExposureHandler(EventBus()).handle(
+                    SetPanelExposureCommand(
+                        method="port_forward",
+                        desired_state="ENABLED",
+                        external_port=panel.external_port,
+                    )
+                )
+                if result.success and result.data:
+                    return result.data
+
+        return _panel_payload(panel, access_mode=access_mode)
 
 
 class ListExposureTargetsQuery(Query):
     server_id: str
+    branch_name: str = "main"
 
 
 class ListExposureTargetsHandler(QueryHandler[ListExposureTargetsQuery]):
     async def handle(self, query: ListExposureTargetsQuery) -> list[dict]:
         async with UnitOfWork() as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
-            exposure = await repo.get(query.server_id)
+            exposure = await repo.get(query.server_id, branch_name=query.branch_name)
             if exposure is None:
                 raise NotFoundError(
                     f"Exposure not found for server {query.server_id}",

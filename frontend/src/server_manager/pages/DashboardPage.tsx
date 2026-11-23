@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import { useHostResources } from "@/server_manager/hooks/useHostResources";
 import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
@@ -13,13 +14,82 @@ import {
   getInitialDaemonLogs,
 } from "@/server_manager/utils/telemetryAdapter";
 import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
+import { createAuthenticatedApi, type MetricsSnapshot } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
+import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
+import { useWSStore } from "@/stores/wsStore";
+import { MAX_POINTS } from "@/server_manager/hooks/useServerMetrics";
+import type { ServerDetailResponse } from "@/server_manager/types";
 
 export function DashboardPage() {
   const { data: servers, isLoading, error } = useServersList();
   const { data: hostBudget } = useHostResources();
   const { isLocal, showFullControls } = useDeploymentProfile();
+  const api = createAuthenticatedApi();
+  const queryClient = useQueryClient();
+  const isWsConnected = useWSStore((s) => s.connected);
 
   const serverList = useMemo(() => servers ?? [], [servers]);
+  const runningServerIds = useMemo(
+    () => serverList.filter((s) => s.status === "running").map((s) => s.server_id),
+    [serverList],
+  );
+  const runningIdsKey = runningServerIds.join(",");
+
+  const canFetchDetails = typeof api?.getServer === "function";
+  const detailQueries = useQueries({
+    queries: serverList.map((s) => ({
+      queryKey: queryKeys.servers.detail(s.server_id),
+      queryFn: () => api.getServer(s.server_id),
+      enabled: canFetchDetails && Boolean(s.server_id),
+      staleTime: 10_000,
+      retry: false,
+    })),
+  });
+
+  const canFetchMetrics = typeof api?.getMetrics === "function";
+  const metricQueries = useQueries({
+    queries: runningServerIds.map((id) => ({
+      queryKey: queryKeys.monitoring.metrics(id),
+      queryFn: () => api.getMetrics(id, MAX_POINTS),
+      enabled: canFetchMetrics && Boolean(id),
+      refetchInterval: isWsConnected ? false : 2000,
+      refetchIntervalInBackground: true,
+      staleTime: 1000,
+      retry: false,
+    })),
+  });
+
+  useEffect(() => {
+    if (!runningIdsKey) return;
+    const ids = runningIdsKey.split(",");
+    const channels = ids.map((id) => `metrics:${id}`);
+    subscribeChannels(channels);
+    if (isWsConnected) {
+      for (const id of ids) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.monitoring.metrics(id),
+        });
+      }
+    }
+    return () => unsubscribeChannels(channels);
+  }, [runningIdsKey, isWsConnected, queryClient]);
+
+  const detailsMap = useMemo(() => {
+    const map: Record<string, ServerDetailResponse | undefined> = {};
+    serverList.forEach((s, idx) => {
+      map[s.server_id] = detailQueries[idx]?.data;
+    });
+    return map;
+  }, [serverList, detailQueries]);
+
+  const metricsMap = useMemo(() => {
+    const map: Record<string, MetricsSnapshot[] | undefined> = {};
+    runningServerIds.forEach((id, idx) => {
+      map[id] = metricQueries[idx]?.data;
+    });
+    return map;
+  }, [runningServerIds, metricQueries]);
 
   const counts = useMemo(() => {
     return serverList.reduce<Record<string, number>>((acc, s) => {
@@ -45,7 +115,10 @@ export function DashboardPage() {
   const crashedCount = crashedServers.length;
   const totalCount = serverList.length;
 
-  const telemetry = useMemo(() => getHostTelemetry(serverList), [serverList]);
+  const telemetry = useMemo(
+    () => getHostTelemetry(serverList, detailsMap, metricsMap, hostBudget),
+    [serverList, detailsMap, metricsMap, hostBudget],
+  );
   const initialLogs = useMemo(() => getInitialDaemonLogs(serverList), [serverList]);
 
   return (
@@ -214,7 +287,11 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 items-stretch gap-5 @5xl:grid-cols-12">
             {/* Left Panel: Interactive Server Fleet Table/Cards (col-span-8) */}
             <section className="@5xl:col-span-8 @container min-w-0">
-              <CommandCenterFleetList servers={serverList} />
+              <CommandCenterFleetList
+                servers={serverList}
+                detailsMap={detailsMap}
+                metricsMap={metricsMap}
+              />
             </section>
 
             {/* Right Panel: Real-Time Event Stream & Quick Diagnostics (col-span-4) */}

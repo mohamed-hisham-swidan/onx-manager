@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useServerDetail,
   useServerRuntime,
   useRetryProvisioningServer,
 } from "@/server_manager/hooks/useServers";
 import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Icon } from "@/components/ui/Icon";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { resolveAccessAddress } from "@/server_manager/utils/accessAddress";
@@ -19,7 +22,9 @@ import { Sparkline } from "@/server_manager/components/Sparkline";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
 import { useClipboard } from "@/hooks/useClipboard";
-import { ApiError } from "@/services/api";
+import { ApiError, createAuthenticatedApi } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
+import { toast } from "@/stores/toastStore";
 import {
   ModpackInstallWizardModal,
   SafeUpgradeWizardModal,
@@ -64,23 +69,117 @@ function renderMotd(motd: string | undefined): string {
 
 export function ServerDetailPage() {
   const { serverId } = useParams<{ serverId: string }>();
-  const { data: server, isLoading, error, refetch: refetchServer } = useServerDetail(serverId ?? "");
-  const { data: runtime } = useServerRuntime(serverId ?? "");
-  const { data: metrics } = useServerMetrics(serverId ?? "");
-  const { exposure } = useServerExposure(serverId ?? "");
+  const branchCtx = useServerBranchContext();
+  const activeBranch = branchCtx?.gitBacked ? branchCtx.branch : undefined;
+  const isBranchView = Boolean(branchCtx?.gitBacked && branchCtx.branch !== "main");
+
+  const { data: server, isLoading, error, refetch: refetchServer } = useServerDetail(
+    serverId ?? "",
+    activeBranch,
+  );
+  const { data: runtime } = useServerRuntime(isBranchView ? "" : (serverId ?? ""));
+  const { data: metrics } = useServerMetrics(isBranchView ? "" : (serverId ?? ""));
+  const { exposure } = useServerExposure(serverId ?? "", activeBranch);
   const retryProvisioning = useRetryProvisioningServer();
   const { copy } = useClipboard();
+
+  const api = useMemo(() => createAuthenticatedApi(), []);
+  const queryClient = useQueryClient();
+
+  const branchRuntimeQuery = useQuery({
+    queryKey: queryKeys.versioning.branchRuntime(serverId ?? "", branchCtx?.branch ?? "main"),
+    queryFn: () => api.getBranchRuntime(serverId!, branchCtx!.branch),
+    enabled: Boolean(serverId && isBranchView),
+    refetchInterval: 5000,
+  });
+  const branchRuntime = branchRuntimeQuery.data ?? null;
+
+  const templatesQuery = useQuery({
+    queryKey: queryKeys.versioning.dataTemplates(serverId ?? ""),
+    queryFn: () => api.listDataTemplates(serverId!),
+    enabled: Boolean(serverId && isBranchView),
+  });
+
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [showDestroyConfirm, setShowDestroyConfirm] = useState(false);
+
+  const invalidateBranchQueries = () => {
+    if (!serverId || !branchCtx?.branch) return;
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.versioning.branchRuntime(serverId, branchCtx.branch),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.versioning.branches(serverId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.console.history(serverId, branchCtx.branch),
+    });
+  };
+
+  const branchStartMutation = useMutation({
+    mutationFn: () =>
+      api.startBranchRun(
+        serverId!,
+        branchCtx!.branch,
+        selectedTemplateId ? { data_template_id: selectedTemplateId } : undefined,
+      ),
+    onSuccess: () => {
+      invalidateBranchQueries();
+      toast("success", "Branch container started", `Branch "${branchCtx!.branch}" is starting.`);
+    },
+    onError: (err) => {
+      toast("error", "Start failed", err instanceof Error ? err.message : "Failed to start branch container.");
+    },
+  });
+
+  const branchStopMutation = useMutation({
+    mutationFn: () => api.stopBranchRun(serverId!, branchCtx!.branch),
+    onSuccess: () => {
+      invalidateBranchQueries();
+      toast("success", "Branch container stopped", `Branch "${branchCtx!.branch}" stopped (data preserved).`);
+    },
+    onError: (err) => {
+      toast("error", "Stop failed", err instanceof Error ? err.message : "Failed to stop branch container.");
+    },
+  });
+
+  const branchRestartMutation = useMutation({
+    mutationFn: async () => {
+      await api.stopBranchRun(serverId!, branchCtx!.branch);
+      return api.startBranchRun(serverId!, branchCtx!.branch);
+    },
+    onSuccess: () => {
+      invalidateBranchQueries();
+      toast("success", "Branch container restarted", `Branch "${branchCtx!.branch}" restarted.`);
+    },
+    onError: (err) => {
+      toast("error", "Restart failed", err instanceof Error ? err.message : "Failed to restart branch container.");
+    },
+  });
+
+  const branchDestroyMutation = useMutation({
+    mutationFn: () => api.destroyBranchRun(serverId!, branchCtx!.branch),
+    onSuccess: () => {
+      setShowDestroyConfirm(false);
+      invalidateBranchQueries();
+      toast("success", "Branch container destroyed", `Container and export for "${branchCtx!.branch}" removed.`);
+    },
+    onError: (err) => {
+      setShowDestroyConfirm(false);
+      toast("error", "Destroy failed", err instanceof Error ? err.message : "Failed to destroy branch container.");
+    },
+  });
 
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [isModpackWizardOpen, setIsModpackWizardOpen] = useState(false);
   const [isSafeUpgradeWizardOpen, setIsSafeUpgradeWizardOpen] = useState(false);
 
   useEffect(() => {
-    if (!serverId) return;
+    if (!serverId || isBranchView) return;
     const channel = `metrics:${serverId}`;
     subscribeChannels([channel]);
     return () => unsubscribeChannels([channel]);
-  }, [serverId]);
+  }, [serverId, isBranchView]);
 
   if (!serverId) {
     return (
@@ -122,20 +221,28 @@ export function ServerDetailPage() {
         <p className="mt-2 text-sm text-text-muted">
           This server does not exist or may have been deleted.
         </p>
+        <Link
+          to="/servers"
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text hover:bg-accent-hover transition-colors"
+        >
+          Back to Servers
+        </Link>
       </div>
     );
   }
 
-  const isRunning = server.status === "running";
+  const isBranchProvisioned = Boolean(branchRuntime?.container_provisioned);
+  const branchStatus = branchRuntime?.runtime_status ?? "stopped";
+  const isRunning = isBranchView ? branchStatus === "running" : server.status === "running";
 
   const currentMetric =
-    isRunning && metrics?.length
+    !isBranchView && isRunning && metrics?.length
       ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
       : undefined;
 
-  const ramData = isRunning ? (metrics ?? []).map((m) => m.ram_used_mb) : [];
-  const cpuData = isRunning ? (metrics ?? []).map((m) => m.cpu_percent) : [];
-  const tpsData = isRunning
+  const ramData = !isBranchView && isRunning ? (metrics ?? []).map((m) => m.ram_used_mb) : [];
+  const cpuData = !isBranchView && isRunning ? (metrics ?? []).map((m) => m.cpu_percent) : [];
+  const tpsData = !isBranchView && isRunning
     ? (metrics ?? []).map((m) => m.tps).filter((t): t is number => t != null)
     : [];
 
@@ -144,23 +251,43 @@ export function ServerDetailPage() {
       ? (currentMetric.ram_used_mb / server.max_memory_mb) * 100
       : null;
 
+  const branchGamePort = branchRuntime?.port_set?.game_port;
   const resolvedAddress = resolveAccessAddress(server, exposure);
-  const address = resolvedAddress.address ?? "—";
+  const address = isBranchView
+    ? exposure?.targets?.[0]?.public_address ||
+      (branchGamePort ? `127.0.0.1:${branchGamePort}` : "—")
+    : resolvedAddress.address ?? "—";
 
-  const connectableHost =
-    server.deployment_host &&
-    server.deployment_host !== "undefined" &&
-    server.deployment_host !== "null"
+  const connectableHost = isBranchView
+    ? ""
+    : server.deployment_host &&
+      server.deployment_host !== "undefined" &&
+      server.deployment_host !== "null"
       ? server.deployment_host.trim()
       : "";
-  const connectablePort = server.deployment_port ?? server.port;
-  const portWidgetDisplay = connectableHost || String(server.port);
-  const portWidgetCopyValue = connectableHost
-    ? `${connectableHost}:${connectablePort}`
-    : String(server.port);
+  const connectablePort = isBranchView
+    ? branchGamePort ?? server.port
+    : server.deployment_port ?? server.port;
+  const portWidgetDisplay = isBranchView
+    ? branchGamePort
+      ? String(branchGamePort)
+      : "Unallocated"
+    : connectableHost || String(server.port);
+  const portWidgetCopyValue = isBranchView
+    ? branchGamePort
+      ? `127.0.0.1:${branchGamePort}`
+      : ""
+    : connectableHost
+      ? `${connectableHost}:${connectablePort}`
+      : String(server.port);
 
-  const hasLiveTps = isRunning && currentMetric?.tps != null;
+  const hasLiveTps = !isBranchView && isRunning && currentMetric?.tps != null;
   const supportsModpacks = isModpackSupportedLoader(server.server_type);
+  const isBranchBusy =
+    branchStartMutation.isPending ||
+    branchStopMutation.isPending ||
+    branchRestartMutation.isPending ||
+    branchDestroyMutation.isPending;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-5">
@@ -208,17 +335,163 @@ export function ServerDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 lg:items-stretch">
         {/* Left (col-span-8 or 9 on wide monitors): IDE-Grade Terminal Emulator */}
         <div className="lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 gap-4">
+          {isBranchView && (
+            <div
+              data-testid="branch-console-lifecycle-card"
+              className="rounded-xl border border-border-subtle bg-surface-card p-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3"
+            >
+              <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                <span className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2 py-0.5 font-mono font-semibold text-accent-primary">
+                  Branch: {branchCtx!.branch}
+                </span>
+                <StatusBadge status={isBranchProvisioned ? branchStatus : "stopped"} />
+                <span className="font-medium text-text-secondary">
+                  {!isBranchProvisioned
+                    ? "Unprovisioned"
+                    : branchStatus === "running"
+                      ? "Container Running"
+                      : "Container Stopped (Persisted)"}
+                </span>
+                {branchRuntime?.port_set && (
+                  <span className="font-mono text-[11px] text-text-muted">
+                    Ports: Game {branchRuntime.port_set.game_port} · RCON{" "}
+                    {branchRuntime.port_set.rcon_port} · Query{" "}
+                    {branchRuntime.port_set.query_port}
+                  </span>
+                )}
+              </div>
+
+              {isBranchProvisioned && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {branchStatus === "running" ? (
+                    <>
+                      <button
+                        type="button"
+                        data-testid="branch-console-restart-btn"
+                        disabled={isBranchBusy}
+                        onClick={() => branchRestartMutation.mutate()}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+                      >
+                        <Icon name="restart" size={12} />
+                        Restart
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="branch-console-stop-btn"
+                        disabled={isBranchBusy}
+                        onClick={() => branchStopMutation.mutate()}
+                        className="inline-flex items-center gap-1 rounded-lg bg-status-danger px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                      >
+                        <Icon name="stop" size={12} />
+                        Stop
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="branch-console-start-btn"
+                      disabled={isBranchBusy}
+                      onClick={() => branchStartMutation.mutate()}
+                      className="inline-flex items-center gap-1 rounded-lg bg-accent-primary px-2.5 py-1 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-50 cursor-pointer"
+                    >
+                      <Icon name="play" size={12} />
+                      Start
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="branch-console-destroy-btn"
+                    disabled={isBranchBusy || branchStatus === "running"}
+                    title={
+                      branchStatus === "running"
+                        ? "Stop the branch container before destroying it"
+                        : "Remove container, export directory, and release ports"
+                    }
+                    onClick={() => setShowDestroyConfirm(true)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-status-danger-border bg-status-danger-bg px-2.5 py-1 text-xs font-medium text-status-danger hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Icon name="trash" size={12} />
+                    Destroy Container
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="rounded-xl border border-border-subtle bg-surface-card p-3 sm:p-4 shadow-2xs flex-1 min-h-0 flex flex-col">
-            <ServerConsole
-              serverId={serverId}
-              serverStatus={server.status}
-              tps={currentMetric?.tps}
-              players={currentMetric?.players}
-              provider={server.provider}
-              host={server.deployment_host}
-              port={server.deployment_port ?? server.port}
-              compactHeader
-            />
+            {isBranchView && !isBranchProvisioned ? (
+              <div
+                data-testid="branch-container-unprovisioned-state"
+                className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border-default bg-surface-elevated/30 p-8 text-center min-h-[360px]"
+              >
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
+                  <Icon name="server" size={24} />
+                </div>
+                <h3 className="text-base font-semibold text-text-primary">
+                  No container created for branch &ldquo;{branchCtx!.branch}&rdquo; yet
+                </h3>
+                <p className="mt-1.5 max-w-md text-xs text-text-muted">
+                  Branch containers run in full isolation from main using this branch&apos;s own
+                  worktree configuration and plugins. Choose optional world data and provision a
+                  container when ready to test.
+                </p>
+
+                <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-text-secondary">
+                    <span>Data Template</span>
+                    <select
+                      aria-label="Data template"
+                      data-testid="branch-console-template-select"
+                      value={selectedTemplateId}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs text-text-primary focus:border-accent-primary focus:outline-none"
+                    >
+                      <option value="">Fresh World</option>
+                      {(templatesQuery.data ?? []).map((tpl) => (
+                        <option key={tpl.id} value={tpl.id}>
+                          {tpl.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    data-testid="branch-console-create-start-btn"
+                    disabled={isBranchBusy}
+                    onClick={() => branchStartMutation.mutate()}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-50 cursor-pointer shadow-xs"
+                  >
+                    <Icon name="play" size={14} />
+                    {branchStartMutation.isPending
+                      ? "Creating & Starting..."
+                      : "Create & Start Branch Container"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <ServerConsole
+                serverId={serverId}
+                branch={activeBranch}
+                serverStatus={isBranchView ? branchStatus : server.status}
+                tps={isBranchView ? null : currentMetric?.tps}
+                players={isBranchView ? undefined : currentMetric?.players}
+                provider={isBranchView ? "docker" : server.provider}
+                host={
+                  isBranchView
+                    ? branchGamePort
+                      ? "127.0.0.1"
+                      : undefined
+                    : server.deployment_host
+                }
+                port={
+                  isBranchView
+                    ? branchGamePort ?? undefined
+                    : server.deployment_port ?? server.port
+                }
+                compactHeader
+              />
+            )}
           </div>
 
           {/* Collapsible Properties Section */}
@@ -426,7 +699,7 @@ export function ServerDetailPage() {
               Uptime
             </h3>
             <p className="font-mono text-sm font-bold tabular-nums text-text-primary">
-              {runtime?.uptime_seconds ? formatUptime(runtime.uptime_seconds) : "—"}
+              {!isBranchView && runtime?.uptime_seconds ? formatUptime(runtime.uptime_seconds) : "—"}
             </p>
           </div>
 
@@ -538,6 +811,16 @@ export function ServerDetailPage() {
         serverMode={server.mode}
         serverType={server.server_type}
         currentMc={server.minecraft_version}
+      />
+
+      <ConfirmDialog
+        open={showDestroyConfirm}
+        title={`Destroy container for "${branchCtx?.branch}"?`}
+        description="This permanently removes the branch Docker container, deletes its isolated /data export, and releases its allocated ports. The Git branch itself and its code/config commits are kept."
+        confirmLabel="Destroy Container"
+        variant="danger"
+        onConfirm={() => branchDestroyMutation.mutate()}
+        onCancel={() => setShowDestroyConfirm(false)}
       />
     </div>
   );

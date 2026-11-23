@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, type KeyboardEvent } from "react";
 import { usePanelExposure } from "@/server_manager/hooks/usePanelExposure";
 import { PlayitClaimCard } from "@/server_manager/components/PlayitClaimCard";
 import { useClipboard } from "@/hooks/useClipboard";
@@ -10,28 +10,88 @@ import { Skeleton } from "@/components/Skeleton";
 import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
-import type { PanelExposureMethodType, PanelExposureResponse } from "@/types";
+import type { CloudflareModeType, PanelExposureMethodType, PanelExposureResponse } from "@/types";
 
-const FQDN_REGEX = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
-
-function isValidFQDN(val: string): boolean {
-  const clean = val.trim().toLowerCase();
-  return clean.length >= 4 && clean.length <= 253 && FQDN_REGEX.test(clean);
-}
+const RESERVED_PANEL_PORTS = new Set([25575, 3306, 5432, 6379, 27017, 9090, 9100]);
+const BLOCKED_PORT_KEYS = new Set(["e", "E", "+", "-", "."]);
 
 function isPasswordRequiredError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   return (err as { code?: unknown }).code === "PASSWORD_REQUIRED_FOR_EXPOSURE";
 }
 
+function validatePortInput(raw: string): string | null {
+  if (!raw.trim()) return null;
+  if (!/^\d+$/.test(raw.trim())) {
+    return "External port must contain digits only (1–65535).";
+  }
+  const num = Number(raw.trim());
+  if (!Number.isInteger(num) || num < 1 || num > 65535) {
+    return "External port must be between 1 and 65535.";
+  }
+  if (RESERVED_PANEL_PORTS.has(num)) {
+    return `Port ${num} is reserved for internal services and cannot be exposed.`;
+  }
+  return null;
+}
+
+function validateTunnelTokenInput(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/\s/.test(trimmed)) {
+    return "Tunnel token cannot contain spaces or line breaks.";
+  }
+  if (trimmed.length < 12) {
+    return "Tunnel token appears too short. Paste the full token from Cloudflare Zero Trust.";
+  }
+  return null;
+}
+
+function EyeIcon({ open }: { open: boolean }) {
+  if (open) {
+    return (
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+        <line x1="1" y1="1" x2="23" y2="23" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 export function PanelExposureSection() {
   const { isLocalZeroLogin } = useDeploymentProfile();
-  // Form State
   const [draftMethod, setDraftMethod] = useState<PanelExposureMethodType>("none");
+  const [cloudflareMode, setCloudflareMode] = useState<CloudflareModeType>("token");
   const [cloudflareToken, setCloudflareToken] = useState("");
-  const [hostname, setHostname] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [externalPort, setExternalPort] = useState<number | null>(null);
+  const [portInput, setPortInput] = useState<string>("");
   const [isConfirmDisableOpen, setIsConfirmDisableOpen] = useState(false);
   const [isRotatingToken, setIsRotatingToken] = useState(false);
   const [isGeneratingClaim, setIsGeneratingClaim] = useState(false);
@@ -52,33 +112,41 @@ export function PanelExposureSection() {
   const { copy } = useClipboard();
   const api = useMemo(() => createAuthenticatedApi(), []);
 
-  // Refs for focus management (F-74-08)
+  // Refs for focus management
   const firstInputRef = useRef<HTMLInputElement>(null);
   const disableButtonRef = useRef<HTMLButtonElement>(null);
   const modalCancelButtonRef = useRef<HTMLButtonElement>(null);
   const activeAddressRef = useRef<HTMLAnchorElement>(null);
 
-  // Sync draft state during rendering when panel query data arrives (React 19 pattern)
+  // Sync draft state during rendering when panel query data arrives
   const [syncedPanel, setSyncedPanel] = useState<PanelExposureResponse | null | undefined>(null);
   if (panel && syncedPanel !== panel) {
     setSyncedPanel(panel);
     setDraftMethod(panel.method);
-    if (panel.public_address && !hostname) {
-      const cleanHost = panel.public_address.replace(/^https?:\/\//, "").split(":")[0];
-      setHostname(cleanHost);
+    if (panel.method === "cloudflare_tunnel") {
+      if (panel.cloudflare_mode === "quick" || panel.ephemeral || panel.cloudflare_tunnel_id === "quick") {
+        setCloudflareMode("quick");
+      } else {
+        setCloudflareMode("token");
+      }
     }
-    if (panel.external_port && !externalPort) {
-      setExternalPort(panel.external_port);
+    if (panel.external_port && !portInput) {
+      setPortInput(String(panel.external_port));
     }
   }
   if (agent?.claimed && claimData) {
     setClaimData(null);
   }
 
-  // Focus management when switching method cards
+  const portError = validatePortInput(portInput);
+  const tokenInputError = validateTunnelTokenInput(cloudflareToken);
+  const hasSavedToken = Boolean(
+    panel?.token_configured ||
+      (panel?.cloudflare_tunnel_id && panel.cloudflare_tunnel_id !== "quick"),
+  );
+
   const handleSelectMethod = (method: PanelExposureMethodType) => {
     setDraftMethod(method);
-    // Asynchronous focus shift to allow DOM to render form inputs
     setTimeout(() => {
       firstInputRef.current?.focus();
     }, 50);
@@ -97,7 +165,7 @@ export function PanelExposureSection() {
         setIsCredentialsModalOpen(true);
         return;
       }
-      const msg = err instanceof Error ? err.message : "Failed to generate claim link";
+      const msg = err instanceof Error && err.message.trim() ? err.message : "Failed to generate claim link";
       toast("error", "Claim Generation Failed", msg);
     } finally {
       setIsGeneratingClaim(false);
@@ -120,15 +188,15 @@ export function PanelExposureSection() {
       await refetch();
       toast("success", "Agent Reset", "Playit agent credentials cleared.");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to reset agent";
+      const msg = err instanceof Error && err.message.trim() ? err.message : "Failed to reset agent";
       toast("error", "Reset Failed", msg);
     } finally {
       setIsResettingAgent(false);
     }
   };
 
-  const executeSaveConfiguration = () => {
-    if (draftMethod === "none") {
+  const executeSaveForMethod = (targetMethod: PanelExposureMethodType, modeOverride?: CloudflareModeType) => {
+    if (targetMethod === "none") {
       updateExposure({
         method: "none",
         desired_state: "DISABLED",
@@ -138,19 +206,40 @@ export function PanelExposureSection() {
 
     const handleGateError = (err: unknown) => {
       if (isPasswordRequiredError(err)) {
-        setPendingAction(() => () => executeSaveConfiguration());
+        setPendingAction(() => () => executeSaveForMethod(targetMethod, modeOverride));
         setIsCredentialsModalOpen(true);
       }
     };
 
-    if (draftMethod === "cloudflare_tunnel") {
-      if (!isValidFQDN(hostname)) return;
+    if (targetMethod === "cloudflare_tunnel") {
+      const effectiveMode = modeOverride ?? cloudflareMode;
+      if (effectiveMode === "quick") {
+        updateExposure(
+          {
+            method: "cloudflare_tunnel",
+            desired_state: "ENABLED",
+            cloudflare_mode: "quick",
+          },
+          {
+            onSuccess: () => {
+              setTimeout(() => activeAddressRef.current?.focus(), 100);
+            },
+            onError: handleGateError,
+          },
+        );
+        return;
+      }
+
+      if (tokenInputError) return;
+      if (!cloudflareToken.trim() && (!hasSavedToken || isRotatingToken || panel?.status === "RECLAIM_REQUIRED")) {
+        return;
+      }
       updateExposure(
         {
           method: "cloudflare_tunnel",
           desired_state: "ENABLED",
-          cloudflare_token: cloudflareToken.trim(),
-          hostname: hostname.trim().toLowerCase(),
+          cloudflare_mode: "token",
+          ...(cloudflareToken.trim() ? { cloudflare_token: cloudflareToken.trim() } : {}),
         },
         {
           onSuccess: () => {
@@ -164,7 +253,7 @@ export function PanelExposureSection() {
       return;
     }
 
-    if (draftMethod === "playit_http") {
+    if (targetMethod === "playit_http") {
       updateExposure(
         {
           method: "playit_http",
@@ -180,12 +269,14 @@ export function PanelExposureSection() {
       return;
     }
 
-    if (draftMethod === "port_forward") {
+    if (targetMethod === "port_forward") {
+      if (portError) return;
+      const parsedPort = portInput.trim() ? Number(portInput.trim()) : undefined;
       updateExposure(
         {
           method: "port_forward",
           desired_state: "ENABLED",
-          external_port: externalPort || undefined,
+          external_port: parsedPort,
         },
         {
           onSuccess: () => {
@@ -194,18 +285,40 @@ export function PanelExposureSection() {
           onError: handleGateError,
         },
       );
-      return;
     }
   };
 
-  const handleSaveConfiguration = () => {
+  const handleSaveConfiguration = (modeOverride?: CloudflareModeType) => {
+    if (draftMethod === "port_forward" && portError) return;
+    if (
+      draftMethod === "cloudflare_tunnel" &&
+      (modeOverride ?? cloudflareMode) === "token" &&
+      tokenInputError
+    ) {
+      return;
+    }
     if (draftMethod !== "none" && isLocalZeroLogin) {
-      if (draftMethod === "cloudflare_tunnel" && !isValidFQDN(hostname)) return;
-      setPendingAction(() => () => executeSaveConfiguration());
+      setPendingAction(() => () => executeSaveForMethod(draftMethod, modeOverride));
       setIsCredentialsModalOpen(true);
       return;
     }
-    executeSaveConfiguration();
+    executeSaveForMethod(draftMethod, modeOverride);
+  };
+
+  const handleSwitchToLocalOnly = () => {
+    updateExposure(
+      {
+        method: "none",
+        desired_state: "DISABLED",
+      },
+      {
+        onSuccess: () => {
+          setIsConfirmDisableOpen(false);
+          setDraftMethod("none");
+          disableButtonRef.current?.focus();
+        },
+      },
+    );
   };
 
   const handleConfirmDisable = () => {
@@ -224,6 +337,12 @@ export function PanelExposureSection() {
     );
   };
 
+  const handlePortKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (BLOCKED_PORT_KEYS.has(e.key)) {
+      e.preventDefault();
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-4">
@@ -237,12 +356,33 @@ export function PanelExposureSection() {
   const isCurrentlyActive = isEnabled && (panel?.status === "ACTIVE" || panel?.status === "DEGRADED");
   const isReclaimRequired = panel?.status === "RECLAIM_REQUIRED";
   const isBindMismatch = panel?.error_code === "BIND_MISMATCH";
+  const isCgnatDetected =
+    panel?.error_code === "CGNAT_DETECTED" || panel?.error_code === "DOUBLE_NAT_DETECTED";
+  const isQuickActive =
+    panel?.method === "cloudflare_tunnel" &&
+    (panel?.cloudflare_mode === "quick" || panel?.ephemeral || panel?.cloudflare_tunnel_id === "quick");
+  const isTokenModeActive =
+    panel?.method === "cloudflare_tunnel" && isEnabled && !isQuickActive;
+
+  const headerBadgeStatus = isBindMismatch
+    ? "BIND_MISMATCH"
+    : isCgnatDetected
+    ? "CGNAT_DETECTED"
+    : panel?.status || "DISABLED";
+
+  const showSecurityAdvisory = Boolean(
+    panel?.security_advisory &&
+      isEnabled &&
+      (panel.method === "port_forward" || (panel.method === "playit_http" && !panel.tls)),
+  );
 
   const publicUrl = panel?.public_address
     ? panel.public_address.startsWith("http")
       ? panel.public_address
       : `${panel.protocol || "https"}://${panel.public_address}`
     : null;
+
+  const panelPort = 8000;
 
   return (
     <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-6">
@@ -253,11 +393,11 @@ export function PanelExposureSection() {
             Panel Network Exposure
           </h3>
           <p className="text-xs text-text-muted mt-1">
-            Configure external network access to this onx-manager web interface.
+            Configure external network access to this ONX Manager web interface.
           </p>
         </div>
         <div>
-          <StatusBadge status={panel?.status || "DISABLED"} />
+          <StatusBadge status={headerBadgeStatus} />
         </div>
       </div>
 
@@ -289,8 +429,8 @@ export function PanelExposureSection() {
         </div>
       )}
 
-      {/* Security Advisory Banner (LOCAL Mode Unencrypted Port Forwarding) */}
-      {panel?.security_advisory && (
+      {/* Security Advisory Banner (relevant only to unencrypted HTTP exposure) */}
+      {showSecurityAdvisory && panel?.security_advisory && (
         <div
           role="alert"
           className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border flex items-start gap-3"
@@ -307,62 +447,132 @@ export function PanelExposureSection() {
         </div>
       )}
 
-      {/* BIND_MISMATCH Auto-Fixed Banner */}
-      {isBindMismatch && (
+      {/* BIND_MISMATCH Diagnostic Banner */}
+      {isBindMismatch && panel && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border space-y-2"
+          className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border space-y-3"
         >
-          <div className="flex items-center gap-2 text-status-warning font-semibold text-sm">
-            <Icon name="alert" size={18} />
-            <span>Action Required: Restart Panel to Complete Port Forwarding</span>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2 text-status-warning font-semibold text-sm">
+              <Icon name="alert" size={18} />
+              <span>Action Required: Restart Panel to Complete Port Forwarding</span>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-status-warning/20 text-status-warning shrink-0">
+              BIND_MISMATCH
+            </span>
           </div>
           <p className="text-xs text-status-warning leading-relaxed">
             {panel.fix_hint ||
+              panel.error_message ||
               "Panel bind address updated to 0.0.0.0 in config/settings.yaml. Restart the panel service for changes to take effect."}
           </p>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => executeSaveForMethod(panel.method)}
+              disabled={isUpdating}
+              className="px-3 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              {isUpdating ? "Checking..." : "Retry Check"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSwitchToLocalOnly}
+              disabled={isUpdating}
+              className="px-3 py-1.5 rounded-lg border border-border-default bg-surface-card hover:bg-surface-hover text-text-secondary text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              Switch to Local Only
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Generic Error Banner */}
+      {/* CGNAT / Generic Error Diagnostic Banner */}
       {panel?.status === "ERROR" && !isBindMismatch && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-status-danger-bg border border-status-danger-border space-y-2"
+          className="p-4 rounded-xl bg-status-danger-bg border border-status-danger-border space-y-3"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-status-danger font-semibold text-xs">
-              <Icon name="alert" size={16} />
-              <span>{panel.error_message || "Exposure operation encountered an error"}</span>
+              <Icon name="alert" size={16} className="shrink-0" />
+              <span>
+                {isCgnatDetected
+                  ? "ISP CGNAT / Double-NAT Detected"
+                  : panel.error_message || "Exposure operation encountered an error"}
+              </span>
             </div>
             {panel.error_code && (
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-status-danger/20 text-status-danger">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-status-danger/20 text-status-danger shrink-0">
                 {panel.error_code}
               </span>
             )}
           </div>
+          {isCgnatDetected && panel.error_message && (
+            <p className="text-xs text-status-danger leading-relaxed pl-6">
+              {panel.error_message}
+            </p>
+          )}
           {panel.fix_hint && (
-            <p className="text-xs text-status-danger pl-6">
+            <p className="text-xs text-status-danger/90 pl-6">
               {panel.fix_hint}
             </p>
           )}
+          <div className="flex flex-wrap items-center gap-2 pl-6 pt-1">
+            <button
+              type="button"
+              onClick={() => executeSaveForMethod(panel.method)}
+              disabled={isUpdating}
+              className="px-3 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              {isUpdating ? "Retrying..." : "Retry"}
+            </button>
+            {isCgnatDetected && (
+              <button
+                type="button"
+                onClick={() => handleSelectMethod("cloudflare_tunnel")}
+                disabled={isUpdating}
+                className="px-3 py-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary text-xs font-medium transition-colors disabled:opacity-50"
+              >
+                Use Cloudflare Tunnel
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSwitchToLocalOnly}
+              disabled={isUpdating}
+              className="px-3 py-1.5 rounded-lg border border-border-default bg-surface-card hover:bg-surface-hover text-text-secondary text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              Switch to Local Only
+            </button>
+          </div>
         </div>
       )}
 
       {/* Active Public Address Card */}
       {isCurrentlyActive && publicUrl && (
         <div className="p-4 rounded-xl bg-status-success-bg border border-status-success-border space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold text-status-success uppercase tracking-wider">
               Live Public Panel Address
             </span>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-              panel.tls
-                ? "bg-status-success/20 text-status-success"
-                : "bg-status-warning/20 text-status-warning"
-            }`}>
-              {panel.tls ? "HTTPS (Encrypted)" : "HTTP (Unencrypted)"}
-            </span>
+            <div className="flex items-center gap-2">
+              {panel?.ephemeral && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-status-warning/20 text-status-warning">
+                  Temporary Quick URL
+                </span>
+              )}
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                  panel.tls
+                    ? "bg-status-success/20 text-status-success"
+                    : "bg-status-warning/20 text-status-warning"
+                }`}
+              >
+                {panel.tls ? "HTTPS (Encrypted)" : "HTTP (Unencrypted)"}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-surface-elevated border border-border-default shadow-xs">
@@ -377,7 +587,7 @@ export function PanelExposureSection() {
               <Icon name="external" size={14} />
             </a>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => copy(publicUrl, "Public address copied to clipboard")}
@@ -400,7 +610,45 @@ export function PanelExposureSection() {
         </div>
       )}
 
-      {/* Method Selector Cards (Grid) */}
+      {/* Active Permanent Token Status Card (when Zero Trust manages hostname remotely) */}
+      {isTokenModeActive && !publicUrl && panel?.status !== "ERROR" && panel?.status !== "RECLAIM_REQUIRED" && (
+        <div className="p-4 rounded-xl bg-status-success-bg/70 border border-status-success-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-status-success uppercase tracking-wider">
+                Cloudflare Tunnel {panel?.status === "ACTIVE" ? "Connected" : "Connecting"}
+              </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-status-success/20 text-status-success">
+                HTTPS (Zero Trust)
+              </span>
+            </div>
+            <p className="text-xs text-text-secondary">
+              Traffic routes via your configured Public Hostname in Cloudflare Zero Trust.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href="https://one.dash.cloudflare.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg border border-border-default bg-surface-card text-xs font-medium text-text-secondary hover:bg-surface-hover inline-flex items-center gap-1.5 transition-colors"
+            >
+              <span>Zero Trust</span>
+              <Icon name="external" size={12} />
+            </a>
+            <button
+              ref={disableButtonRef}
+              type="button"
+              onClick={() => setIsConfirmDisableOpen(true)}
+              className="px-3 py-1.5 rounded-lg border border-status-danger-border text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors"
+            >
+              Disable Exposure
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Method Selector Cards */}
       <div className="space-y-3">
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
           Select Exposure Method
@@ -423,7 +671,7 @@ export function PanelExposureSection() {
               )}
             </div>
             <p className="text-xs text-text-muted leading-relaxed">
-              Disabled. Panel is accessible only via local LAN or VPN.
+              Disabled. Panel stays bound to localhost / local LAN only.
             </p>
           </button>
 
@@ -449,7 +697,7 @@ export function PanelExposureSection() {
               )}
             </div>
             <p className="text-xs text-text-muted leading-relaxed">
-              Named tunnel via custom domain. Automatic HTTPS and DDoS protection.
+              Permanent Tunnel Token or zero-config Quick Preview HTTPS URL. Works behind CGNAT.
             </p>
           </button>
 
@@ -470,7 +718,7 @@ export function PanelExposureSection() {
               )}
             </div>
             <p className="text-xs text-text-muted leading-relaxed">
-              HTTP edge tunnel via shared playit agent. Works behind CGNAT.
+              Edge tunnel via shared playit agent. Works behind ISP CGNAT.
             </p>
           </button>
 
@@ -491,7 +739,7 @@ export function PanelExposureSection() {
               )}
             </div>
             <p className="text-xs text-text-muted leading-relaxed">
-              UPnP IGD local router mapping. Direct unencrypted HTTP access.
+              UPnP IGD local router mapping. Requires public WAN IP &amp; HTTP access.
             </p>
           </button>
         </div>
@@ -499,80 +747,120 @@ export function PanelExposureSection() {
 
       {/* Configuration Panel for Selected Method */}
       <div className="rounded-xl border border-border-default bg-surface-muted p-5 space-y-4">
-        {/* None Form */}
+        {/* 1. Local Only Form */}
         {draftMethod === "none" && (
           <div className="space-y-4">
-            <p className="text-xs text-text-secondary">
-              External panel exposure is disabled. The panel is only reachable from this machine or devices on the same local network.
+            <p className="text-xs text-text-secondary leading-relaxed">
+              External panel exposure is disabled. The panel listens safely on{" "}
+              <code className="font-mono px-1.5 py-0.5 rounded bg-surface-elevated">127.0.0.1</code>{" "}
+              and is only reachable locally or via VPN.
             </p>
-            {isEnabled && (
-              <div className="pt-2">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              {isEnabled ? (
                 <button
                   type="button"
-                  onClick={handleSaveConfiguration}
+                  onClick={() => handleSaveConfiguration()}
                   disabled={isUpdating}
                   className="px-4 py-2 rounded-lg bg-status-danger hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-50"
                 >
-                  {isUpdating ? "Disabling..." : "Save & Disable Exposure"}
+                  {isUpdating ? "Disabling..." : "Switch to Local Only"}
                 </button>
-              </div>
-            )}
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="px-4 py-2 rounded-lg border border-border-default bg-surface-card text-text-muted text-xs font-medium cursor-default opacity-80 inline-flex items-center gap-1.5"
+                >
+                  <Icon name="check" size={14} className="text-status-success" />
+                  <span>Local Only Active</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Cloudflare Form */}
+        {/* 2. Cloudflare Modern Form (Permanent Token Mode + Quick Preview Mode) */}
         {draftMethod === "cloudflare_tunnel" && (
           <div className="space-y-4">
-            {isReclaimRequired && (
-              <div role="alert" className="p-3 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger">
-                Cloudflare API Token was invalidated or revoked. Please enter a fresh token to restore the tunnel.
-              </div>
-            )}
+            {/* Segmented Mode Toggle */}
+            <div
+              role="tablist"
+              aria-label="Cloudflare tunnel mode"
+              className="inline-flex p-1 rounded-lg bg-surface-elevated border border-border-default gap-1"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cloudflareMode === "token"}
+                onClick={() => setCloudflareMode("token")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  cloudflareMode === "token"
+                    ? "bg-accent-primary text-accent-contrast-text shadow-xs"
+                    : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                Permanent (Tunnel Token)
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cloudflareMode === "quick"}
+                onClick={() => setCloudflareMode("quick")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  cloudflareMode === "quick"
+                    ? "bg-accent-primary text-accent-contrast-text shadow-xs"
+                    : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                Quick Preview (Temporary)
+              </button>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Hostname Input */}
-              <div className="space-y-1.5">
-                <label htmlFor="cloudflare-hostname" className="block text-xs font-semibold text-text-secondary">
-                  Custom Domain / Hostname <span className="text-status-danger">*</span>
-                </label>
-                <input
-                  ref={firstInputRef}
-                  id="cloudflare-hostname"
-                  type="text"
-                  value={hostname}
-                  onChange={(e) => setHostname(e.target.value)}
-                  placeholder="panel.example.com"
-                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
-                />
-                {hostname && !isValidFQDN(hostname) ? (
-                  <p className="text-[11px] text-status-danger">
-                    Please enter a valid fully-qualified domain name (e.g. panel.example.com).
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-text-muted">
-                    Must be a domain managed in your Cloudflare account.
-                  </p>
+            {cloudflareMode === "token" ? (
+              <div className="space-y-4">
+                {isReclaimRequired && (
+                  <div
+                    role="alert"
+                    className="p-3 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger"
+                  >
+                    Cloudflare Tunnel Token was invalidated or rejected. Please paste a fresh Tunnel Token to reconnect.
+                  </div>
                 )}
-              </div>
 
-              {/* API Token Input */}
-              <div className="space-y-1.5">
-                <label htmlFor="cloudflare-token" className="block text-xs font-semibold text-text-secondary">
-                  Cloudflare API Token {panel?.cloudflare_tunnel_id && !isRotatingToken && !isReclaimRequired ? "(Stored)" : <span className="text-status-danger">*</span>}
-                </label>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label htmlFor="cloudflare-token" className="block text-xs font-semibold text-text-secondary">
+                    Tunnel Token{" "}
+                    {hasSavedToken && !isRotatingToken && !isReclaimRequired ? (
+                      <span className="text-status-success font-normal">(Saved)</span>
+                    ) : (
+                      <span className="text-status-danger">*</span>
+                    )}
+                  </label>
+                  <a
+                    href="https://one.dash.cloudflare.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-primary hover:underline"
+                  >
+                    <span>Open Cloudflare Tunnels</span>
+                    <Icon name="external" size={13} />
+                  </a>
+                </div>
+
                 <div className="relative">
                   <input
+                    ref={firstInputRef}
                     id="cloudflare-token"
                     type={showToken ? "text" : "password"}
                     value={cloudflareToken}
                     onChange={(e) => setCloudflareToken(e.target.value)}
                     placeholder={
-                      panel?.cloudflare_tunnel_id && !isRotatingToken && !isReclaimRequired
-                        ? "••••••••••••••••••••••••••••••••"
-                        : "Enter Cloudflare API token..."
+                      hasSavedToken && !isRotatingToken && !isReclaimRequired
+                        ? "•••••••••••••••• (Saved — enter new token to replace)"
+                        : "eyJhIjoi..."
                     }
                     className={`w-full px-3 py-2 pr-10 rounded-lg border bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all ${
-                      isReclaimRequired && !cloudflareToken
+                      (isReclaimRequired && !cloudflareToken) || tokenInputError
                         ? "border-status-danger"
                         : "border-border-default"
                     }`}
@@ -580,53 +868,147 @@ export function PanelExposureSection() {
                   <button
                     type="button"
                     onClick={() => setShowToken(!showToken)}
-                    aria-label={showToken ? "Hide API token" : "Show API token"}
+                    aria-label={showToken ? "Hide token" : "Show token"}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
                   >
-                    <Icon name={showToken ? "moon" : "sun"} size={14} />
+                    <EyeIcon open={showToken} />
                   </button>
                 </div>
-                <p className="text-[11px] text-text-muted">
-                  Requires <code>Zone.DNS:Edit</code> and <code>Account.Cloudflare Tunnel:Edit</code> scopes.
-                </p>
+
+                {tokenInputError && (
+                  <p role="alert" className="text-[11px] text-status-danger">
+                    {tokenInputError}
+                  </p>
+                )}
+
+                {/* Concise 3-step inline guide */}
+                <ol className="rounded-lg bg-surface-card border border-border-default p-3.5 space-y-1.5 text-xs text-text-secondary list-decimal list-inside">
+                  <li>
+                    Open Cloudflare Zero Trust (<span className="font-medium text-text-primary">Networks → Tunnels</span>) and create a Cloudflared tunnel.
+                  </li>
+                  <li>Copy the Tunnel Token (<code className="font-mono text-[11px]">eyJ...</code>) and paste it above.</li>
+                  <li>
+                    Point a Public Hostname to{" "}
+                    <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-surface-elevated">
+                      http://127.0.0.1:{panelPort}
+                    </code>{" "}
+                    (HTTP).
+                  </li>
+                </ol>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveConfiguration("token")}
+                    disabled={
+                      isUpdating ||
+                      Boolean(tokenInputError) ||
+                      (!cloudflareToken.trim() && (!hasSavedToken || isRotatingToken || isReclaimRequired))
+                    }
+                    className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
+                  >
+                    {isUpdating
+                      ? "Configuring Tunnel..."
+                      : isReclaimRequired
+                      ? "Update Token & Reconnect"
+                      : isTokenModeActive
+                      ? "Restart / Update Tunnel"
+                      : "Enable Cloudflare Tunnel"}
+                  </button>
+
+                  {hasSavedToken && !isRotatingToken && !isReclaimRequired && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRotatingToken(true);
+                        setCloudflareToken("");
+                      }}
+                      className="px-3 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+                    >
+                      Replace Token
+                    </button>
+                  )}
+
+                  {panel?.method === "cloudflare_tunnel" && isEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmDisableOpen(true)}
+                      disabled={isUpdating}
+                      className="px-3 py-2 rounded-lg border border-status-danger-border text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors disabled:opacity-50"
+                    >
+                      Disable
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleSaveConfiguration}
-                disabled={
-                  isUpdating ||
-                  !isValidFQDN(hostname) ||
-                  (!cloudflareToken && (!panel?.cloudflare_tunnel_id || isRotatingToken || isReclaimRequired))
-                }
-                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
-              >
-                {isUpdating
-                  ? "Configuring Tunnel..."
-                  : isReclaimRequired
-                  ? "Update Token & Reconnect"
-                  : "Enable Cloudflare Tunnel"}
-              </button>
-
-              {panel?.cloudflare_tunnel_id && !isRotatingToken && !isReclaimRequired && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRotatingToken(true);
-                    setCloudflareToken("");
-                  }}
-                  className="px-3 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+            ) : (
+              <div className="space-y-4">
+                <div
+                  role="note"
+                  className="p-3.5 rounded-lg bg-status-warning-bg border border-status-warning-border flex items-start gap-2.5 text-xs text-status-warning"
                 >
-                  Rotate API Token
-                </button>
-              )}
-            </div>
+                  <Icon name="info" size={16} className="shrink-0 mt-0.5" />
+                  <span>
+                    Temporary <code className="font-mono">trycloudflare.com</code> URL for quick testing — changes on every restart. No domain required.
+                  </span>
+                </div>
+
+                {isQuickActive && publicUrl && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-surface-card border border-status-success-border">
+                    <span className="font-mono text-xs text-accent-primary break-all">{publicUrl}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => copy(publicUrl, "Quick URL copied to clipboard")}
+                        className="px-2.5 py-1 rounded border border-border-default text-xs text-text-secondary hover:bg-surface-hover inline-flex items-center gap-1"
+                      >
+                        <Icon name="copy" size={12} />
+                        <span>Copy</span>
+                      </button>
+                      <a
+                        href={publicUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 rounded border border-border-default text-xs text-accent-primary hover:bg-surface-hover inline-flex items-center gap-1"
+                      >
+                        <span>Open</span>
+                        <Icon name="external" size={12} />
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveConfiguration("quick")}
+                    disabled={isUpdating}
+                    className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
+                  >
+                    {isUpdating
+                      ? "Starting Quick Tunnel..."
+                      : isQuickActive && isEnabled
+                      ? "Restart Quick Tunnel"
+                      : "Start Quick Tunnel"}
+                  </button>
+
+                  {panel?.method === "cloudflare_tunnel" && isEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmDisableOpen(true)}
+                      disabled={isUpdating}
+                      className="px-3 py-2 rounded-lg border border-status-danger-border text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors disabled:opacity-50"
+                    >
+                      Disable
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* playit.gg Form */}
+        {/* 3. playit.gg Form */}
         {draftMethod === "playit_http" && (
           <div className="space-y-4">
             <PlayitClaimCard
@@ -643,22 +1025,35 @@ export function PanelExposureSection() {
               description="A playit claim authorizes this host to publish the web panel through an encrypted edge tunnel."
             />
 
-            {agent?.claimed && (
-              <div className="pt-2">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => handleSaveConfiguration()}
+                disabled={isUpdating}
+                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
+              >
+                {isUpdating
+                  ? "Connecting Tunnel..."
+                  : panel?.method === "playit_http" && isEnabled
+                  ? "Restart playit.gg Tunnel"
+                  : "Enable playit.gg Tunnel"}
+              </button>
+
+              {panel?.method === "playit_http" && isEnabled && (
                 <button
                   type="button"
-                  onClick={handleSaveConfiguration}
+                  onClick={() => setIsConfirmDisableOpen(true)}
                   disabled={isUpdating}
-                  className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
+                  className="px-3 py-2 rounded-lg border border-status-danger-border text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors disabled:opacity-50"
                 >
-                  {isUpdating ? "Connecting Tunnel..." : "Enable playit.gg Tunnel"}
+                  Disable
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
-        {/* Port Forwarding Form */}
+        {/* 4. Port Forwarding Form */}
         {draftMethod === "port_forward" && (
           <div className="space-y-4">
             <div className="max-w-xs space-y-1.5">
@@ -668,20 +1063,28 @@ export function PanelExposureSection() {
               <input
                 ref={firstInputRef}
                 id="external-port"
-                type="number"
-                min={1}
-                max={65535}
-                value={externalPort ?? ""}
+                type="text"
+                inputMode="numeric"
+                value={portInput}
+                onKeyDown={handlePortKeyDown}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  setExternalPort(val ? parseInt(val, 10) : null);
+                  const digitsOnly = e.target.value.replace(/\D/g, "");
+                  setPortInput(digitsOnly);
                 }}
                 placeholder="Auto (8000)"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
+                className={`w-full px-3 py-2 rounded-lg border bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all ${
+                  portError ? "border-status-danger" : "border-border-default"
+                }`}
               />
-              <p className="text-[11px] text-text-muted">
-                Leave blank to request the standard panel port (8000).
-              </p>
+              {portError ? (
+                <p role="alert" className="text-[11px] text-status-danger">
+                  {portError}
+                </p>
+              ) : (
+                <p className="text-[11px] text-text-muted">
+                  Enter a port from 1 to 65535, or leave blank for default (8000).
+                </p>
+              )}
             </div>
 
             {panel?.upnp_last_result && (
@@ -693,15 +1096,30 @@ export function PanelExposureSection() {
               </div>
             )}
 
-            <div className="pt-2">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
               <button
                 type="button"
-                onClick={handleSaveConfiguration}
-                disabled={isUpdating}
+                onClick={() => handleSaveConfiguration()}
+                disabled={isUpdating || Boolean(portError)}
                 className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
               >
-                {isUpdating ? "Configuring UPnP..." : "Enable Port Forwarding"}
+                {isUpdating
+                  ? "Configuring UPnP..."
+                  : panel?.method === "port_forward" && panel?.status === "ERROR"
+                  ? "Retry Port Forwarding"
+                  : "Enable Port Forwarding"}
               </button>
+
+              {panel?.method === "port_forward" && isEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmDisableOpen(true)}
+                  disabled={isUpdating}
+                  className="px-3 py-2 rounded-lg border border-status-danger-border text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors disabled:opacity-50"
+                >
+                  Disable
+                </button>
+              )}
             </div>
           </div>
         )}

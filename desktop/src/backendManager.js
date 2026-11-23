@@ -67,6 +67,18 @@ function findVenvPython(installDir) {
   return null;
 }
 
+function _readConfiguredBindHost(backendDir) {
+  try {
+    const settingsPath = path.join(backendDir, "config", "settings.yaml");
+    if (!fs.existsSync(settingsPath)) return null;
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const match = raw.match(/^\s*panel_bind_host:\s*['"]?([^'"\s#]+)['"]?/m);
+    return match && match[1] ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function isPortFree(port, host = "127.0.0.1") {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -266,18 +278,20 @@ class LocalBackendManager {
 
     const backendDir = path.join(this.installDir, "backend");
     const staticDir = path.join(this.installDir, "frontend", "dist");
+    const envBindHost = process.env.ONX_PANEL_BIND_HOST || process.env.MCS_PANEL_BIND_HOST;
+    const configuredBindHost = _readConfiguredBindHost(backendDir);
+    const bindHost = envBindHost || configuredBindHost || "127.0.0.1";
     const env = {
       ...process.env,
       PYTHONUNBUFFERED: "1",
       ONX_DEPLOYMENT_PROFILE: "local",
-      ONX_PANEL_BIND_HOST: "127.0.0.1",
       ONX_PANEL_BIND_PORT: String(port),
       ONX_STATIC_DIR: fs.existsSync(path.join(staticDir, "index.html")) ? staticDir : "off",
     };
 
     const child = spawn(
       pyBin,
-      ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port), "--workers", "1"],
+      ["-m", "uvicorn", "app.main:app", "--host", bindHost, "--port", String(port), "--workers", "1"],
       {
         cwd: backendDir,
         env,

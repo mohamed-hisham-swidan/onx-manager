@@ -2,7 +2,7 @@ import secrets
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 
@@ -15,6 +15,7 @@ from app.api.deps import (
     require_server_permission,
 )
 from app.api.errors import check_command_result
+from app.api.v1.routers.versioning import get_branch_runtime_service
 from app.api.v1.schemas.import_server import (
     ImportServerRequest,
     ScanDirectoryRequest,
@@ -309,10 +310,11 @@ async def import_server(
 @router.get("/{server_id}", response_model=ServerDetailResponse)
 async def get_server(
     server_id: str,
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(get_current_user),
 ) -> ServerDetailResponse:
-    result = await query_bus.ask(GetServerQuery(server_id=server_id))
+    result = await query_bus.ask(GetServerQuery(server_id=server_id, branch_name=branch))
     return ServerDetailResponse(**result.__dict__)
 
 
@@ -320,12 +322,14 @@ async def get_server(
 async def update_server(
     server_id: str,
     body: ServerUpdateRequest,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
     _current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     has_startup_timeout = "startup_timeout_seconds" in body.model_fields_set
     cmd = UpdateServerConfigCommand(
         server_id=server_id,
+        branch_name=branch,
         name=body.name,
         properties=body.properties,
         min_memory_mb=body.min_memory_mb,
@@ -338,6 +342,26 @@ async def update_server(
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)
+
+
+@router.delete("/{server_id}/settings/pending", response_model=dict)
+async def discard_pending_settings(
+    server_id: str,
+    _current_user: dict = Depends(require_permission("server:write")),
+) -> dict:
+    from app.core.exceptions import NotFoundError
+    from app.modules.server.application.branch_settings import discard_pending_settings_branch
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+
+    async with database.session_factory() as session:
+        repo = SQLServerRepository(session)
+        server = await repo.get(ServerId(server_id))
+        if server is None:
+            raise NotFoundError(f"Server '{server_id}' not found")
+        discarded = await discard_pending_settings_branch(session, server)
+        await session.commit()
+    return {"server_id": server_id, "discarded": discarded}
 
 
 @router.delete("/{server_id}", status_code=204)
@@ -396,9 +420,20 @@ async def retry_provisioning(
 async def get_server_console(
     server_id: str,
     tail: int = Query(default=100, ge=1, le=10000),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
+    runtime_service: Any = Depends(get_branch_runtime_service),
     _current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> ConsoleResponse:
+    if branch and branch.strip() and branch.strip() != "main":
+        server = await query_bus.ask(GetServerQuery(server_id=server_id))
+        if server is None:
+            raise HTTPException(status_code=404, detail="Server not found")
+        if getattr(server, "mode", "simple") == "advanced":
+            payload = await runtime_service.get_branch_console_logs(
+                server_id, branch.strip(), tail=tail
+            )
+            return ConsoleResponse(server_id=server_id, lines=payload.get("lines", []))
     result = await query_bus.ask(GetServerConsoleQuery(server_id=server_id, tail=tail))
     return ConsoleResponse(server_id=result.server_id, lines=result.lines)
 
@@ -478,10 +513,21 @@ class _SendConsoleCommandImpl:
 async def send_server_command(
     server_id: str,
     body: CommandRequest,
+    branch: str | None = Query(default=None),
     _command_bus: CommandBus = Depends(get_command_bus),
     event_bus: EventBus = Depends(get_event_bus),
+    query_bus: QueryBus = Depends(get_query_bus),
+    runtime_service: Any = Depends(get_branch_runtime_service),
     _current_user: dict = Depends(require_server_permission("server.{id}.console")),
 ) -> dict:
+    if branch and branch.strip() and branch.strip() != "main":
+        server = await query_bus.ask(GetServerQuery(server_id=server_id))
+        if server is None:
+            raise HTTPException(status_code=404, detail="Server not found")
+        if getattr(server, "mode", "simple") == "advanced":
+            return await runtime_service.send_branch_console_command(
+                server_id, branch.strip(), body.command
+            )
     impl = _SendConsoleCommandImpl(event_bus)
     result = await impl.handle(server_id=server_id, command=body.command)
     return check_command_result(result)

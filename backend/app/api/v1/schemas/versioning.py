@@ -25,11 +25,15 @@ class BranchResponse(BaseResponse):
     worktree_path: str | None = None
     worktree_locked: bool = False
     runtime_status: str = "stopped"
+    container_provisioned: bool = False
     port_set: dict[str, Any] | None = None
     active_runtime_id: str | None = None
     active_commit_sha: str | None = None
     active_data_template_id: str | None = None
     worktree_lock_reason: str | None = None
+    pending_merge_on_restart: bool = False
+    pending_merge_status: str | None = None
+    pending_merge_error: str | None = None
 
 
 class CreateCommitRequest(BaseModel):
@@ -587,6 +591,8 @@ class BranchRuntimeStatusResponse(BaseResponse):
     server_id: str
     branch_name: str
     runtime_status: str = "stopped"
+    container_provisioned: bool = False
+    container_name: str | None = None
     runtime_id: str | None = None
     active_commit_sha: str | None = None
     data_template_id: str | None = None
@@ -645,6 +651,24 @@ class StopBranchRunResponse(BaseResponse):
     oom_killed: bool = False
     saved_template_id: str | None = None
     saved_template_name: str | None = None
+
+
+class DestroyBranchRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runtime_id: str | None = Field(default=None, min_length=1, max_length=64)
+    timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    keep_port_assignment: bool = False
+
+
+class DestroyBranchRunResponse(BaseResponse):
+    runtime_id: str
+    server_id: str
+    branch_name: str
+    container_name: str
+    status: str = "destroyed"
+    container_provisioned: bool = False
+    released_ports: bool = True
 
 
 class SaveBranchDataTemplateRequest(BaseModel):

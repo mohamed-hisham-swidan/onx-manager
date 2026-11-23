@@ -1,6 +1,10 @@
 import { useState, useRef, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServersList } from "@/server_manager/hooks/useServers";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
+import { createAuthenticatedApi } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
 import {
   isModpackSupportedLoader,
   isPluginLoader,
@@ -248,10 +252,58 @@ export function ServerModsPage() {
     : true;
   const isNonModdedServer = Boolean(activeServerType) && !supportsModpacks;
 
-  const { data: mods, isLoading, error } = usePluginsList(effectiveServerId);
-  const uploadMod = useUploadPluginOrMod(effectiveServerId);
-  const toggleMod = useToggleModState(effectiveServerId);
-  const uninstallMod = useUninstallPlugin(effectiveServerId);
+  const branchCtx = useServerBranchContext();
+  const gitBacked = Boolean(branchCtx?.gitBacked);
+  const activeBranch = gitBacked ? branchCtx?.branch : undefined;
+  const isMainProtected = Boolean(gitBacked && activeBranch === "main");
+  const isWorkingBranch = Boolean(gitBacked && activeBranch && activeBranch !== "main");
+
+  const api = useMemo(() => createAuthenticatedApi(), []);
+  const queryClient = useQueryClient();
+  const branchesQuery = useQuery({
+    queryKey: queryKeys.versioning.branches(effectiveServerId),
+    queryFn: () => api.getServerBranches(effectiveServerId),
+    enabled: Boolean(effectiveServerId && gitBacked),
+  });
+  const firstWorkingBranch = useMemo(
+    () => (branchesQuery.data ?? []).find((b) => b.name !== "main")?.name ?? null,
+    [branchesQuery.data],
+  );
+
+  const [quickBranchName, setQuickBranchName] = useState("");
+  const createBranchMutation = useMutation({
+    mutationFn: (name: string) =>
+      api.createServerBranch(effectiveServerId, { name }),
+    onSuccess: (_created, branchName) => {
+      setQuickBranchName("");
+      queryClient.invalidateQueries({ queryKey: queryKeys.versioning.branches(effectiveServerId) });
+      branchCtx?.setBranch(branchName);
+      toast("success", "Branch created", `Switched to working branch "${branchName}".`);
+    },
+    onError: (err) => toast("error", "Create branch failed", errorMessage(err)),
+  });
+
+  const commitLockfileMutation = useMutation({
+    mutationFn: () =>
+      api.createServerCommit(effectiveServerId, {
+        branch_name: activeBranch!,
+        message: "Update branch mods lockfile",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.list(effectiveServerId, activeBranch),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.versioning.commits(effectiveServerId) });
+      toast("success", "Changes committed", `Committed mod changes to "${activeBranch}".`);
+    },
+    onError: (err) => toast("error", "Commit failed", errorMessage(err)),
+  });
+
+  const { data: mods, isLoading, error } = usePluginsList(effectiveServerId, activeBranch);
+  const uploadMod = useUploadPluginOrMod(effectiveServerId, activeBranch);
+  const toggleMod = useToggleModState(effectiveServerId, activeBranch);
+  const uninstallMod = useUninstallPlugin(effectiveServerId, activeBranch);
+  const hasUncommitted = Boolean(isWorkingBranch && mods?.some((m) => m.is_committed === false));
 
   function handleServerChange(e: React.ChangeEvent<HTMLSelectElement>) {
     setTouched(true);
@@ -259,10 +311,12 @@ export function ServerModsPage() {
   }
 
   function handleBrowseMarketplace() {
-    navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}`);
+    const branchSuffix = isWorkingBranch && activeBranch ? `&branch=${encodeURIComponent(activeBranch)}` : "";
+    navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}&type=mod${branchSuffix}`);
   }
 
   function handleUpload(file: File) {
+    if (isMainProtected) return;
     uploadMod.mutate(file, {
       onSuccess: () => {
         toast("success", "Mod uploaded", `"${file.name}" uploaded successfully.`);
@@ -343,11 +397,23 @@ export function ServerModsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Mods"
-        description="Manage mods, loaders, and custom addons for this server"
+        description={
+          gitBacked && activeBranch
+            ? `Manage mods, loaders, and custom addons for branch "${activeBranch}"`
+            : "Manage mods, loaders, and custom addons for this server"
+        }
         icon="plugin"
         actions={
           effectiveServerId ? (
             <>
+              {gitBacked && activeBranch && (
+                <span
+                  data-testid="mods-branch-badge"
+                  className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2.5 py-1 font-mono text-xs font-semibold text-accent-primary"
+                >
+                  Branch: {activeBranch}
+                </span>
+              )}
               {supportsModpacks && (
                 <button
                   type="button"
@@ -370,8 +436,9 @@ export function ServerModsPage() {
               </button>
               <button
                 type="button"
+                disabled={isMainProtected}
                 onClick={handleBrowseMarketplace}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
               >
                 <Icon name="plus" size={16} />
                 Browse Marketplace
@@ -434,8 +501,77 @@ export function ServerModsPage() {
             </div>
           )}
 
+          {isMainProtected && (
+            <div
+              data-testid="mods-main-protected-banner"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-warning-border bg-status-warning-bg px-4 py-3 text-xs text-text-primary"
+            >
+              <div className="space-y-0.5">
+                <p className="font-semibold text-status-warning">
+                  Branch &ldquo;main&rdquo; is protected
+                </p>
+                <p className="text-text-secondary">
+                  Mod uploads, toggles, and removals cannot mutate main directly. Switch to or create a working branch to edit mods.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {firstWorkingBranch && (
+                  <button
+                    type="button"
+                    onClick={() => branchCtx?.setBranch(firstWorkingBranch)}
+                    className="inline-flex items-center gap-1 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer"
+                  >
+                    Switch to {firstWorkingBranch}
+                  </button>
+                )}
+                <input
+                  type="text"
+                  value={quickBranchName}
+                  onChange={(e) => setQuickBranchName(e.target.value)}
+                  placeholder="mod-test"
+                  aria-label="New working branch name"
+                  className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary focus:border-accent-primary focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={!quickBranchName.trim() || createBranchMutation.isPending}
+                  onClick={() => createBranchMutation.mutate(quickBranchName.trim())}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-semibold text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+                >
+                  {createBranchMutation.isPending ? "Creating..." : "Create Working Branch"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hasUncommitted && (
+            <div
+              data-testid="mods-uncommitted-banner"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-info-border bg-status-info-bg px-4 py-3 text-xs text-text-primary"
+            >
+              <div>
+                <p className="font-semibold text-status-info">
+                  Uncommitted lockfile changes on &ldquo;{activeBranch}&rdquo;
+                </p>
+                <p className="text-text-secondary">
+                  Save &amp; commit your updated <code className="font-mono">onx-jars.lock.json</code> before starting a branch container or merging.
+                </p>
+              </div>
+              <button
+                type="button"
+                data-testid="mods-commit-btn"
+                disabled={commitLockfileMutation.isPending}
+                onClick={() => commitLockfileMutation.mutate()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-50 cursor-pointer"
+              >
+                <Icon name="check" size={14} />
+                {commitLockfileMutation.isPending ? "Committing..." : "Save & Commit"}
+              </button>
+            </div>
+          )}
+
           {/* Upload Zone */}
-          <ModUploadZone onUpload={handleUpload} isUploading={uploadMod.isPending} />
+          <ModUploadZone onUpload={handleUpload} isUploading={uploadMod.isPending || isMainProtected} />
 
           {/* Search and Filters */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -562,14 +698,14 @@ export function ServerModsPage() {
                         <ModStatusToggle
                           mod={m}
                           onToggle={() => handleToggle(m)}
-                          isPending={toggleMod.isPending}
+                          isPending={isMainProtected || toggleMod.isPending}
                         />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => setUninstallTarget(m)}
-                          disabled={uninstallMod.isPending}
+                          disabled={isMainProtected || uninstallMod.isPending}
                           aria-label={`Uninstall ${m.name}`}
                           title="Uninstall"
                           className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"

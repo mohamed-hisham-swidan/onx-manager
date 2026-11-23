@@ -13,20 +13,21 @@ import type {
 } from "@/types";
 import { SERVICE_METADATA } from "@/types";
 
-export function useServerExposure(serverId: string) {
+export function useServerExposure(serverId: string, branch?: string) {
   const api = createAuthenticatedApi();
   const queryClient = useQueryClient();
 
   // 1. Server Exposure Query with Adaptive Polling (Spec §5.1)
   const serverExposureQuery = useQuery<ServerExposureResponse>({
-    queryKey: queryKeys.exposure.server(serverId),
+    queryKey: queryKeys.exposure.server(serverId, branch),
     queryFn: async () => {
       try {
-        return await api.getServerExposure(serverId);
+        return await api.getServerExposure(serverId, branch);
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
           return {
             server_id: serverId,
+            branch_name: branch || "main",
             method: "none",
             desired_state: "DISABLED",
             aggregate_status: "DISABLED",
@@ -89,10 +90,10 @@ export function useServerExposure(serverId: string) {
 
   // 4. Mutations
   const setExposureMutation = useMutation({
-    mutationFn: (body: ServerExposureUpdateRequest) => api.setServerExposure(serverId, body),
+    mutationFn: (body: ServerExposureUpdateRequest) => api.setServerExposure(serverId, body, branch),
     onSuccess: (updated) => {
-      queryClient.setQueryData(queryKeys.exposure.server(serverId), updated);
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
+      queryClient.setQueryData(queryKeys.exposure.server(serverId, branch), updated);
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
       if (updated.method === "playit") {
         queryClient.invalidateQueries({ queryKey: queryKeys.exposure.agent() });
       }
@@ -109,10 +110,10 @@ export function useServerExposure(serverId: string) {
   });
 
   const setExposureStateMutation = useMutation({
-    mutationFn: (body: ServerExposureStateUpdateRequest) => api.setServerExposureState(serverId, body),
+    mutationFn: (body: ServerExposureStateUpdateRequest) => api.setServerExposureState(serverId, body, branch),
     onSuccess: (updated) => {
-      queryClient.setQueryData(queryKeys.exposure.server(serverId), updated);
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
+      queryClient.setQueryData(queryKeys.exposure.server(serverId, branch), updated);
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
       const action = updated.desired_state === "ENABLED" ? "enabled" : "disabled";
       toast(
         "success",
@@ -126,9 +127,9 @@ export function useServerExposure(serverId: string) {
   });
 
   const removeExposureMutation = useMutation({
-    mutationFn: () => api.removeServerExposure(serverId),
+    mutationFn: () => api.removeServerExposure(serverId, branch),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
       toast("success", "Exposure Removed", "Server network exposure has been cleared.");
     },
     onError: (err: Error) => {
@@ -150,11 +151,11 @@ export function useServerExposure(serverId: string) {
           // Ignore if already registered
         }
       }
-      return api.createExposureTarget(serverId, body);
+      return api.createExposureTarget(serverId, body, branch);
     },
     onSuccess: (newTarget) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId, branch) });
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.ports(serverId) });
       toast("success", "Target Added", `Companion target '${newTarget.service_type}' created.`);
     },
@@ -165,10 +166,10 @@ export function useServerExposure(serverId: string) {
 
   const updateTargetAddressMutation = useMutation({
     mutationFn: ({ targetId, publicAddress }: { targetId: string; publicAddress: string }) =>
-      api.updateExposureTarget(serverId, targetId, { public_address: publicAddress }),
+      api.updateExposureTarget(serverId, targetId, { public_address: publicAddress }, branch),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId, branch) });
       toast("success", "Address Updated", "Public address saved successfully.");
     },
     onError: (err: Error) => {
@@ -179,8 +180,8 @@ export function useServerExposure(serverId: string) {
   const deleteTargetMutation = useMutation({
     mutationFn: (targetId: string) => api.deleteExposureTarget(serverId, targetId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId, branch) });
       toast("success", "Target Removed", "Companion target removed successfully.");
     },
     onError: (err: Error) => {

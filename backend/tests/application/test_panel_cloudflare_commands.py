@@ -590,3 +590,102 @@ class TestPanelTokenReclaimRotation:
         assert "token" not in repr(result.data).lower()
         assert "cloudflare_token_ciphertext" not in result.data
         assert _ROTATION_TOKEN not in str(result.data)
+
+
+class FakeModernSupervisor(FakeSupervisor):
+    """Fake supervisor supporting modern Permanent Token and Quick Preview modes."""
+
+    def __init__(self, *, quick_url: str = "https://preview-test-123.trycloudflare.com") -> None:
+        super().__init__()
+        self.token_env_starts: list[bytes] = []
+        self.quick_starts: list[str] = []
+        self.quick_url: str | None = None
+        self.status = ExposureStatus.STOPPED
+        self.error_code = None
+        self.error_message = None
+        self._resolved_quick_url = quick_url
+
+    async def start_token(self, token: bytes, *, on_status=None) -> None:
+        self.token_env_starts.append(token)
+        self._running = True
+        self.status = ExposureStatus.ACTIVE
+        if on_status is not None:
+            await on_status(ExposureStatus.ACTIVE)
+
+    async def start_quick(self, local_url: str, *, on_status=None, on_url=None) -> None:
+        self.quick_starts.append(local_url)
+        self._running = True
+        self.quick_url = self._resolved_quick_url
+        self.status = ExposureStatus.ACTIVE
+        if on_url is not None:
+            await on_url(self._resolved_quick_url)
+        if on_status is not None:
+            await on_status(ExposureStatus.ACTIVE)
+
+
+class TestPanelCloudflareModernModes:
+    async def test_token_mode_no_hostname_encrypts_and_starts_without_api_calls(
+        self, key_path, monkeypatch
+    ) -> None:
+        from app.modules.exposure.application import commands as exposure_commands
+
+        client = FakeCloudflareClient()
+        supervisor = FakeModernSupervisor()
+        _patch_boundaries(monkeypatch, client, supervisor)
+        monkeypatch.setenv("ONX_PANEL_BIND_HOST", "0.0.0.0")
+        handler = SetPanelExposureHandler(event_bus=EventBus())
+
+        tunnel_token = "eyJhIjoiTestPermanentTunnelToken12345"
+        res = await handler.handle(
+            SetPanelExposureCommand(
+                method="cloudflare_tunnel",
+                desired_state="ENABLED",
+                cloudflare_mode="token",
+                cloudflare_token=tunnel_token,
+            )
+        )
+        assert res.success is True
+        assert res.data["method"] == "cloudflare_tunnel"
+        assert res.data["status"] == "ACTIVE"
+        assert res.data["has_cloudflare_credentials"] is True
+        assert res.data["ephemeral"] is False
+        assert tunnel_token not in repr(res.data)
+        # Permanent mode skips Cloudflare DNS/tunnel provisioning API calls
+        assert client.create_attempts == 0
+        assert supervisor.token_env_starts == [tunnel_token.encode("utf-8")]
+
+        panel = await _load_panel()
+        assert panel.cloudflare_tunnel_id == "token"
+        assert (
+            build_backup_encryption(key_path).decrypt(panel.cloudflare_token_ciphertext)
+            == tunnel_token.encode("utf-8")
+        )
+        # Disabling stops the running supervisor
+        off = await handler.handle(
+            SetPanelExposureCommand(method="none", desired_state="DISABLED")
+        )
+        assert off.data["status"] == "DISABLED"
+        assert supervisor.stops == 1
+        monkeypatch.setattr(exposure_commands, "get_cloudflared_supervisor", lambda: supervisor)
+
+    async def test_quick_mode_captures_ephemeral_url_with_zero_inputs(self, monkeypatch) -> None:
+        client = FakeCloudflareClient()
+        supervisor = FakeModernSupervisor(quick_url="https://quick-demo-panel.trycloudflare.com")
+        _patch_boundaries(monkeypatch, client, supervisor)
+        handler = SetPanelExposureHandler(event_bus=EventBus())
+
+        res = await handler.handle(
+            SetPanelExposureCommand(
+                method="cloudflare_tunnel",
+                desired_state="ENABLED",
+                cloudflare_mode="quick",
+            )
+        )
+        assert res.success is True
+        assert res.data["method"] == "cloudflare_tunnel"
+        assert res.data["status"] == "ACTIVE"
+        assert res.data["ephemeral"] is True
+        assert res.data["public_address"] == "https://quick-demo-panel.trycloudflare.com"
+        assert res.data["security_advisory"] is None
+        assert supervisor.quick_starts == ["http://127.0.0.1:8000"]
+        assert client.create_attempts == 0

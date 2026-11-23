@@ -15,6 +15,7 @@ export interface ServerContext {
   supportsMods?: boolean;
   supportsPlugins?: boolean;
   mode?: ServerMode;
+  branch?: string;
 }
 
 export interface SidebarProps {
@@ -91,6 +92,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
     handleNavigate();
   };
 
+  const withBranch = (path: string) =>
+    serverContext?.branch && serverContext.branch !== "main"
+      ? `${path}?branch=${encodeURIComponent(serverContext.branch)}`
+      : path;
+
   return (
     <>
       {/* Mobile backdrop */}
@@ -149,19 +155,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                 </div>
                 <div className="mt-1 flex flex-col gap-0.5">
                   <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/console`}
+                    to={withBranch(`/servers/${serverContext.serverId}/console`)}
                     label="Console"
                     icon="dashboard"
                     onNavigate={handleNavigate}
                   />
                   <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/files`}
+                    to={withBranch(`/servers/${serverContext.serverId}/files`)}
                     label="Files"
                     icon="folder"
                     onNavigate={handleNavigate}
                   />
                   <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/settings`}
+                    to={withBranch(`/servers/${serverContext.serverId}/settings`)}
                     label="Settings"
                     icon="settings"
                     onNavigate={handleNavigate}
@@ -178,7 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                   <div className="mt-1 flex flex-col gap-0.5">
                     {serverContext.supportsMods && (
                       <ServerNavLink
-                        to={`/servers/${serverContext.serverId}/mods`}
+                        to={withBranch(`/servers/${serverContext.serverId}/mods`)}
                         label="Mods"
                         icon="plugin"
                         onNavigate={handleNavigate}
@@ -186,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                     )}
                     {serverContext.supportsPlugins && (
                       <ServerNavLink
-                        to={`/servers/${serverContext.serverId}/plugins`}
+                        to={withBranch(`/servers/${serverContext.serverId}/plugins`)}
                         label="Plugins"
                         icon="plugin"
                         onNavigate={handleNavigate}
@@ -203,21 +209,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                 </div>
                 <div className="mt-1 flex flex-col gap-0.5">
                   <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/network`}
+                    to={withBranch(`/servers/${serverContext.serverId}/network`)}
                     label="Network & Exposure"
                     icon="activity"
                     onNavigate={handleNavigate}
                   />
                   {showVersioning && (
                     <ServerNavLink
-                      to={`/servers/${serverContext.serverId}/versioning`}
+                      to={withBranch(`/servers/${serverContext.serverId}/versioning`)}
                       label="Versions & Testing"
                       icon="backup"
                       onNavigate={handleNavigate}
                     />
                   )}
                   <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/activity`}
+                    to={withBranch(`/servers/${serverContext.serverId}/activity`)}
                     label="Change History"
                     icon="clock"
                     onNavigate={handleNavigate}

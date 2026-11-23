@@ -349,11 +349,12 @@ export function createApiClient(
 
     if (!response.ok) {
       const body = data as Record<string, unknown>;
-      let detailMsg: string | null = null;
-      if (typeof body?.detail === "string") {
-        detailMsg = body.detail;
-      } else if (Array.isArray(body?.detail)) {
-        detailMsg = body.detail
+      const nonEmpty = (val: unknown): string | null =>
+        typeof val === "string" && val.trim().length > 0 ? val.trim() : null;
+
+      let detailMsg: string | null = nonEmpty(body?.detail);
+      if (!detailMsg && Array.isArray(body?.detail)) {
+        const joined = body.detail
           .map((item) => {
             if (typeof item === "string") return item;
             if (item && typeof item === "object") {
@@ -364,20 +365,26 @@ export function createApiClient(
             }
             return String(item);
           })
+          .filter(Boolean)
           .join("; ");
-      } else if (body?.detail && typeof body.detail === "object") {
-        detailMsg = ((body.detail as Record<string, unknown>).error as string) ?? null;
+        detailMsg = nonEmpty(joined);
+      } else if (!detailMsg && body?.detail && typeof body.detail === "object") {
+        const detailObj = body.detail as Record<string, unknown>;
+        detailMsg =
+          nonEmpty(detailObj.message) ||
+          nonEmpty(detailObj.error) ||
+          nonEmpty(detailObj.detail);
       }
 
       const errMsg =
-        (body?.error as string) ??
-        (body?.message as string) ??
-        detailMsg ??
-        "Request failed";
+        nonEmpty(body?.error) ||
+        nonEmpty(body?.message) ||
+        detailMsg ||
+        `Request failed (${response.status})`;
       const errCode =
-        (body?.error_code as string) ??
-        (body?.code as string) ??
-        ((body?.detail as Record<string, unknown>)?.error_code as string) ??
+        nonEmpty(body?.error_code) ||
+        nonEmpty(body?.code) ||
+        nonEmpty((body?.detail as Record<string, unknown> | undefined)?.error_code) ||
         (response.status === 422 ? "VALIDATION_ERROR" : "UNKNOWN");
       const errDetail = (body?.detail as Record<string, unknown> | unknown[] | string | null) ?? null;
       throw new ApiError(response.status, errCode, errMsg, errDetail);
@@ -423,10 +430,20 @@ export function createApiClient(
       request<ServerResponse[]>("/api/v1/servers", { params }),
     createServer: (body: ServerCreateRequest) =>
       request<Record<string, unknown>>("/api/v1/servers", { method: "POST", body }),
-    getServer: (serverId: string) =>
-      request<ServerDetailResponse>(`/api/v1/servers/${serverId}`),
-    updateServer: (serverId: string, body: ServerUpdateRequest) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}`, { method: "PATCH", body }),
+    getServer: (serverId: string, branch?: string) =>
+      request<ServerDetailResponse>(`/api/v1/servers/${serverId}`, {
+        params: branch && branch !== "main" ? { branch } : undefined,
+      }),
+    updateServer: (serverId: string, body: ServerUpdateRequest, branch?: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}`, {
+        method: "PATCH",
+        params: branch ? { branch } : undefined,
+        body,
+      }),
+    discardPendingSettings: (serverId: string) =>
+      request<{ server_id: string; discarded: boolean }>(`/api/v1/servers/${serverId}/settings/pending`, {
+        method: "DELETE",
+      }),
     deleteServer: (serverId: string) =>
       request<void>(`/api/v1/servers/${serverId}`, { method: "DELETE" }),
     getServerRuntime: (serverId: string) =>
@@ -439,8 +456,13 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/restart`, { method: "POST" }),
     retryProvisioning: (serverId: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/retry-provisioning`, { method: "POST" }),
-    getServerConsole: (serverId: string, tail?: number) =>
-      request<ConsoleResponse>(`/api/v1/servers/${serverId}/console`, { params: { tail: tail?.toString() } }),
+    getServerConsole: (serverId: string, tail?: number, branch?: string) =>
+      request<ConsoleResponse>(`/api/v1/servers/${serverId}/console`, {
+        params: {
+          tail: tail?.toString(),
+          branch: branch && branch !== "main" ? branch : undefined,
+        },
+      }),
     getServerCrashReports: (serverId: string, limit?: number) =>
       request<CrashReportSummary[]>(`/api/v1/servers/${serverId}/crash-reports`, {
         params: { limit: limit?.toString() },
@@ -621,6 +643,15 @@ export function createApiClient(
     ) =>
       request<StopBranchRunResponse>(
         `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/stop`,
+        { method: "POST", body: body ?? {} },
+      ),
+    destroyBranchRun: (
+      serverId: string,
+      branchName: string,
+      body?: import("@/server_manager/types").DestroyBranchRunRequest,
+    ) =>
+      request<import("@/server_manager/types").DestroyBranchRunResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/destroy`,
         { method: "POST", body: body ?? {} },
       ),
     saveBranchDataTemplate: (
@@ -898,8 +929,12 @@ export function createApiClient(
         params: { from: fromCommitId, to: toCommitId },
       }),
 
-    sendServerCommand: (serverId: string, body: CommandRequest) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/command`, { method: "POST", body }),
+    sendServerCommand: (serverId: string, body: CommandRequest, branch?: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/command`, {
+        method: "POST",
+        body,
+        params: branch && branch !== "main" ? { branch } : undefined,
+      }),
 
     // Backups
     listBackups: (serverId?: string, tier?: string) =>
@@ -925,27 +960,46 @@ export function createApiClient(
       }),
 
     // Plugins
-    listPlugins: (serverId: string) =>
-      request<PluginResponse[]>(`/api/v1/servers/${serverId}/plugins`),
-    getPlugin: (serverId: string, pluginId: string) =>
-      request<PluginResponse>(`/api/v1/servers/${serverId}/plugins/${pluginId}`),
-    uninstallPlugin: (serverId: string, pluginId: string) =>
-      request<void>(`/api/v1/servers/${serverId}/plugins/${pluginId}`, { method: "DELETE" }),
-    enablePlugin: (serverId: string, pluginId: string) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/enable`, { method: "POST" }),
-    disablePlugin: (serverId: string, pluginId: string) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/disable`, { method: "POST" }),
-    uploadPluginOrMod: (serverId: string, file: File) => {
+    listPlugins: (serverId: string, branch?: string) =>
+      request<PluginResponse[]>(`/api/v1/servers/${serverId}/plugins`, {
+        params: branch ? { branch } : undefined,
+      }),
+    getPlugin: (serverId: string, pluginId: string, branch?: string) =>
+      request<PluginResponse>(`/api/v1/servers/${serverId}/plugins/${pluginId}`, {
+        params: branch ? { branch } : undefined,
+      }),
+    uninstallPlugin: (serverId: string, pluginId: string, branch?: string) =>
+      request<void>(`/api/v1/servers/${serverId}/plugins/${pluginId}`, {
+        method: "DELETE",
+        params: branch ? { branch } : undefined,
+      }),
+    enablePlugin: (serverId: string, pluginId: string, branch?: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/enable`, {
+        method: "POST",
+        params: branch ? { branch } : undefined,
+      }),
+    disablePlugin: (serverId: string, pluginId: string, branch?: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/disable`, {
+        method: "POST",
+        params: branch ? { branch } : undefined,
+      }),
+    uploadPluginOrMod: (serverId: string, file: File, branch?: string) => {
       const formData = new FormData();
       formData.append("file", file);
       return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/upload`, {
         method: "POST",
+        params: branch ? { branch } : undefined,
         body: formData,
       });
     },
-    toggleModState: (serverId: string, body: { mod_id?: string | null; plugin_id?: string | null; enabled: boolean }) =>
+    toggleModState: (
+      serverId: string,
+      body: { mod_id?: string | null; plugin_id?: string | null; enabled: boolean },
+      branch?: string,
+    ) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/toggle`, {
         method: "POST",
+        params: branch ? { branch } : undefined,
         body,
       }),
 
@@ -969,10 +1023,11 @@ export function createApiClient(
       request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`, {
         params: { limit: limit?.toString(), offset: offset?.toString() },
       }),
-    installFromMarketplace: (serverId: string, body: InstallModrinthPluginRequest) =>
+    installFromMarketplace: (serverId: string, body: InstallModrinthPluginRequest, branch?: string) =>
       request<InstallModrinthPluginResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/install`, {
         method: "POST",
-        body,
+        params: branch ? { branch } : undefined,
+        body: branch && !body.branch ? { ...body, branch } : body,
       }),
 
     // Monitoring
@@ -1170,32 +1225,41 @@ export function createApiClient(
       }),
 
     // Server Exposure & Targets (Phase 7.5)
-    getServerExposure: (serverId: string) =>
-      request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`),
-    setServerExposure: (serverId: string, body: ServerExposureUpdateRequest) =>
+    getServerExposure: (serverId: string, branch?: string) =>
+      request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
+        params: branch && branch !== "main" ? { branch } : undefined,
+      }),
+    setServerExposure: (serverId: string, body: ServerExposureUpdateRequest, branch?: string) =>
       request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
         method: "PUT",
+        params: branch && branch !== "main" ? { branch } : undefined,
         body,
       }),
-    setServerExposureState: (serverId: string, body: ServerExposureStateUpdateRequest) =>
+    setServerExposureState: (serverId: string, body: ServerExposureStateUpdateRequest, branch?: string) =>
       request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
         method: "PATCH",
+        params: branch && branch !== "main" ? { branch } : undefined,
         body,
       }),
-    removeServerExposure: (serverId: string) =>
+    removeServerExposure: (serverId: string, branch?: string) =>
       request<void>(`/api/v1/servers/${serverId}/exposure`, {
         method: "DELETE",
+        params: branch && branch !== "main" ? { branch } : undefined,
       }),
-    listExposureTargets: (serverId: string) =>
-      request<TargetResponse[]>(`/api/v1/servers/${serverId}/exposure/targets`),
-    createExposureTarget: (serverId: string, body: TargetCreateRequest) =>
+    listExposureTargets: (serverId: string, branch?: string) =>
+      request<TargetResponse[]>(`/api/v1/servers/${serverId}/exposure/targets`, {
+        params: branch && branch !== "main" ? { branch } : undefined,
+      }),
+    createExposureTarget: (serverId: string, body: TargetCreateRequest, branch?: string) =>
       request<TargetResponse>(`/api/v1/servers/${serverId}/exposure/targets`, {
         method: "POST",
+        params: branch && branch !== "main" ? { branch } : undefined,
         body,
       }),
-    updateExposureTarget: (serverId: string, targetId: string, body: TargetUpdateRequest) =>
+    updateExposureTarget: (serverId: string, targetId: string, body: TargetUpdateRequest, branch?: string) =>
       request<TargetResponse>(`/api/v1/servers/${serverId}/exposure/targets/${targetId}`, {
         method: "PUT",
+        params: branch && branch !== "main" ? { branch } : undefined,
         body,
       }),
     deleteExposureTarget: (serverId: string, targetId: string) =>

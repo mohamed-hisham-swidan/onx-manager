@@ -1,10 +1,11 @@
 # SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02
 
-Status: design specification **v8.7** (owner-confirmed v5/v6/v7/v8 plus 2026-11-10 decisions
+Status: design specification **v8.8** (owner-confirmed v5/v6/v7/v8 plus 2026-11-10 decisions
 OD-1..OD-9, 2026-11-11 decisions ND-1..ND-9, 2026-11-11 Red-Team hardening decisions
 OD-v8.4-1..OD-v8.4-11, second Red-Team remediation decisions OD-v8.5-1..OD-v8.5-8,
-2026-11-11 final closure decisions OD-v8.6-1..OD-v8.6-8, and 2026-11-11 Red-Team Round 3
-remediation decisions OD-v8.7-1..OD-v8.7-16 covering findings R1-R18), CLOSED, DESIGN-COMPLETE,
+2026-11-11 final closure decisions OD-v8.6-1..OD-v8.6-8, 2026-11-11 Red-Team Round 3
+remediation decisions OD-v8.7-1..OD-v8.7-16 covering findings R1-R18, and 2026-11-23 Track A/B
+overhaul decisions OD-v8.8-1..OD-v8.8-5), CLOSED, DESIGN-COMPLETE,
 and READY FOR BUILD across all phases P1-P7 (including P5.5 and D7 conversion). Zero open unknowns
 and zero design blockers remain inside this specification. The normative classifier is
 **Allow-list v2.3**.
@@ -28,6 +29,48 @@ Evidence tags: FACT (verified by command this session, cite file:line), ASSUMPTI
 verified), UNKNOWN (missing), CONFLICT (two sources disagree), OWNER-STATED (owner decision),
 PROTOTYPE-REPORT (external prototype result quoted from the 2026-11-10 prototype report; not
 reproducible in this repository; never restated as FACT).
+
+## Revision log v8.7 -> v8.8 (owner decisions 2026-11-23 — Network Exposure Overhaul & Multi-Tab Branch Isolation)
+
+Completes end-to-end panel/server network exposure hardening (Track A) and full multi-tab branch
+isolation across `ServerShell` and all seven server tabs (Track B, Alembic `b1e2100000034`):
+
+- OWNER-STATED (OD-v8.8-1, persistent-stop + explicit-destroy branch containers & console routing):
+  `stop_branch_runtime` stops the Docker container (`status="stopped"`), tears down any active
+  branch network exposure, and unlocks the branch worktree while preserving container identity,
+  `.onx/branch-exports/<runtime_id>`, historical console logs, and `port_set_json` so **Start**
+  resumes the existing container cleanly. Explicit `POST /versioning/branches/{name}/destroy`
+  (and branch deletion) removes the container, wipes the export directory, releases allocated
+  ports, and resets `container_provisioned=False`. `GET /{server_id}/console?branch=` and
+  `POST /{server_id}/command?branch=` route non-`main` Advanced branches strictly to
+  `BranchRuntimeService`, while unprovisioned branches display a Data Template selector and
+  **Create & Start Branch Container** empty state.
+- OWNER-STATED (OD-v8.8-2, branch-aware plugins via CAS + per-branch lockfile): on
+  `ServerMode.ADVANCED`, plugin/mod endpoints accept `?branch=` and manage `onx-jars.lock.json`
+  plus CAS links inside the branch worktree without mutating `main`'s live `/data`. Direct plugin
+  mutations on `main` are blocked in UI/API; working branches track `is_committed` and surface
+  **Save & Commit**. `ServerMode.SIMPLE` remains strictly Git-free (`/versioning/*` -> HTTP 409).
+- OWNER-STATED (OD-v8.8-3, branch/main settings split & auto-merge-on-restart): `GET/PATCH
+  /servers/{id}?branch=` separates branch-scoped settings (`name`, `motd`, `port`, `max_players`,
+  `server.properties`, and JVM/CPU overrides in `config/onx-runtime.json`) from server-wide
+  settings (`P5.5`, mode conversion, delete). Saving on a working branch writes and auto-commits;
+  saving on `main` creates/updates a `settings/...` branch without mutating running live files and
+  persists `pending_settings_branch` on `server_branches`. `RestartServerHandler` auto-merges
+  pending `settings/...` into `main` on the next confirmed stop before restart (recording merge
+  conflicts non-fatally in `pending_merge_status`/`pending_merge_error`), and `DELETE
+  /servers/{server_id}/settings/pending` discards queued settings.
+- OWNER-STATED (OD-v8.8-4, per-branch exposure & panel exposure overhaul): `server_exposure` rows
+  are uniquely keyed by `(server_id, branch_name)` (`uq_server_exposure_server_branch`). Branch
+  exposures target the branch container's Host Port Set (`game_port`), support `cloudflare_tcp`
+  (`quick`, `subdomain`, `tcp`), UPnP `port_forward` with strict `ipaddress` CGNAT detection
+  (`CGNAT_DETECTED`) and optional SRV record helper, `playit`, and `none`, and tear down on branch
+  stop/destroy/delete. Panel exposure loads bind address/port from `config/settings.yaml`
+  (eliminating `BIND_MISMATCH` on restart while preserving `127.0.0.1` for Cloudflare/playit) and
+  replaces over-privileged Cloudflare API tokens with `TUNNEL_TOKEN` env var + `quick` preview.
+- OWNER-STATED (OD-v8.8-5, unified multi-tab `ServerBranchContext` & activity logging):
+  `ServerShell`, `Sidebar`, header power actions, and all 7 server tabs share `ServerBranchContext`
+  with `?branch=` URL synchronization. Branch container, exposure, plugin, and settings mutations
+  emit branch-attributed domain events persisted with `branch_name` in `server_activity_logs`.
 
 ## Revision log v8.6 -> v8.7 (owner decisions 2026-11-11 — Red-Team Round 3 Remediation R1–R18)
 

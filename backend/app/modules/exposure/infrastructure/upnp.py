@@ -19,6 +19,11 @@ from app.modules.exposure.domain.aggregate import DENY_LIST_PORTS
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure.upnp")
 
 _CGNAT_NET = ipaddress.ip_network("100.64.0.0/10")
+_RFC1918_NETS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
 DEFAULT_SSDP_TIMEOUT_SECONDS = 3
 MAX_ALTERNATE_PORT_ATTEMPTS = 3
 
@@ -48,10 +53,22 @@ class AsyncUPnPService:
 
     @staticmethod
     def is_private_or_cgnat(ip_str: str) -> bool:
-        """Check if an IP is RFC 1918 private, link-local, loopback, or RFC 6598 CGNAT."""
+        """Check if an IP is RFC 1918 private, RFC 6598 CGNAT, loopback, link-local, or unspecified.
+
+        Home routers behind ISP Carrier-Grade NAT (100.64.0.0/10) or upstream
+        double-NAT (RFC 1918 ranges) report a non-public WAN IP from IGD
+        ``GetExternalIPAddress`` even when ``AddPortMapping`` returns HTTP 200.
+        """
         try:
             addr = ipaddress.ip_address(ip_str.strip())
-            return addr.is_private or addr.is_loopback or addr.is_link_local or addr in _CGNAT_NET
+            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_unspecified:
+                return True
+            if addr.version == 4:
+                if addr in _CGNAT_NET:
+                    return True
+                if any(addr in net for net in _RFC1918_NETS):
+                    return True
+            return False
         except ValueError:
             return True
 
@@ -138,19 +155,20 @@ class AsyncUPnPService:
                 fix_hint="Ensure router WAN connection is active and UPnP is enabled.",
             )
 
-        # 4. Check Double-NAT / CGNAT
+        # 4. Check Double-NAT / CGNAT (ISP WAN IP check)
         if self.is_private_or_cgnat(external_ip):
-            logger.warning("Double-NAT/CGNAT detected on external IP %s", external_ip)
+            logger.warning("CGNAT/Double-NAT detected on external WAN IP %s", external_ip)
             return UPnPResult(
                 success=False,
                 external_ip=external_ip,
-                error_code="DOUBLE_NAT_DETECTED",
+                error_code="CGNAT_DETECTED",
                 error_message=(
-                    "Your router is behind Double-NAT or CGNAT; port forwarding cannot "
-                    "reach the public Internet."
+                    f"ISP CGNAT or Double-NAT detected: router reported non-public WAN IP "
+                    f"({external_ip}). Port forwarding cannot reach the public Internet."
                 ),
                 fix_hint=(
-                    "Use Cloudflare Tunnel or playit.gg to expose your panel without a public IP."
+                    f"Detected non-public WAN IP ({external_ip}). Switch to Cloudflare Tunnel "
+                    "or playit.gg to expose your panel without router port forwarding."
                 ),
             )
 

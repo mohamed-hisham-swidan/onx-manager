@@ -467,3 +467,102 @@ class TestPortForwardPanelExposure:
             assert result.data["status"] == "DISABLED"
             assert result.data["public_address"] is None
             mock_del.assert_awaited_once_with(8080)
+
+    async def test_enable_port_forward_cgnat_detected_with_fix_hint(self) -> None:
+        init_active_panel_bind("0.0.0.0", 8000)
+        handler = SetPanelExposureHandler(EventBus())
+        cmd = SetPanelExposureCommand(
+            method="port_forward",
+            desired_state="ENABLED",
+            external_port=8000,
+        )
+
+        mock_result = UPnPResult(
+            success=False,
+            external_ip="100.64.10.2",
+            error_code="CGNAT_DETECTED",
+            error_message="ISP CGNAT detected on WAN IP 100.64.10.2.",
+        )
+
+        with patch(
+            "app.modules.exposure.application.commands.AsyncUPnPService.attempt_mapping",
+            return_value=mock_result,
+        ):
+            result = await handler.handle(cmd)
+            assert result.success is True
+            data = result.data
+            assert data["status"] == "ERROR"
+            assert data["error_code"] == "CGNAT_DETECTED"
+            assert "Cloudflare" in (data["fix_hint"] or "")
+
+    async def test_bind_mismatch_clears_automatically_on_startup_reconcile(self) -> None:
+        from app.modules.exposure.application.commands import reconcile_panel_exposure_on_startup
+        from app.modules.exposure.application.queries import (
+            GetPanelExposureHandler,
+            GetPanelExposureQuery,
+        )
+
+        # Step 1: Loopback 127.0.0.1 -> BIND_MISMATCH + settings updated to 0.0.0.0
+        init_active_panel_bind("127.0.0.1", 8000)
+        bus = EventBus()
+        handler = SetPanelExposureHandler(bus)
+        first = await handler.handle(
+            SetPanelExposureCommand(
+                method="port_forward",
+                desired_state="ENABLED",
+                external_port=8080,
+            )
+        )
+        assert first.data["error_code"] == "BIND_MISMATCH"
+        assert get_live_settings().panel_bind_host == "0.0.0.0"
+
+        # Step 2: Simulate restart bound to 0.0.0.0 -> startup reconcile clears mismatch
+        init_active_panel_bind("0.0.0.0", 8000)
+        mock_ok = UPnPResult(
+            success=True,
+            external_ip="203.0.113.42",
+            external_port=8080,
+            internal_port=8000,
+        )
+        with patch(
+            "app.modules.exposure.application.commands.AsyncUPnPService.attempt_mapping",
+            return_value=mock_ok,
+        ):
+            await reconcile_panel_exposure_on_startup(bus)
+            after = await GetPanelExposureHandler().handle(GetPanelExposureQuery())
+            assert after["status"] == "ACTIVE"
+            assert after["error_code"] is None
+            assert after["public_address"] == "http://203.0.113.42:8080"
+
+    async def test_switching_from_port_forward_to_none_restores_loopback_and_deletes_mapping(
+        self,
+    ) -> None:
+        from app.core.settings_store import update_settings as update_settings_store
+
+        init_active_panel_bind("0.0.0.0", 8000)
+        update_settings_store({"panel_bind_host": "0.0.0.0"})
+        async with UnitOfWork() as uow:
+            repo = SQLPanelExposureRepository(uow.session)
+            panel = PanelExposure(
+                id="default",
+                method=PanelExposureMethod.PORT_FORWARD,
+                desired_state=DesiredState.ENABLED,
+                status=ExposureStatus.ACTIVE,
+                public_address="http://203.0.113.42:8080",
+                external_port=8080,
+            )
+            await repo.save(panel)
+            await uow.commit()
+
+        handler = SetPanelExposureHandler(EventBus())
+        with patch(
+            "app.modules.exposure.application.commands.AsyncUPnPService.delete_mapping",
+            return_value=True,
+        ) as mock_del:
+            res = await handler.handle(
+                SetPanelExposureCommand(method="none", desired_state="DISABLED")
+            )
+            assert res.data["method"] == "none"
+            assert res.data["status"] == "DISABLED"
+            mock_del.assert_awaited_once_with(8080)
+            assert get_live_settings().panel_bind_host == "127.0.0.1"

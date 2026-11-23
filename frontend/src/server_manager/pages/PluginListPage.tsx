@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import {
   usePluginsList,
@@ -7,6 +8,9 @@ import {
   useDisablePlugin,
   useUninstallPlugin,
 } from "@/server_manager/hooks/usePlugins";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
+import { createAuthenticatedApi } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState, ErrorState } from "@/components/ui/States";
@@ -185,10 +189,58 @@ export function PluginListPage() {
         ? lastUsedServerId
         : selectedServerId;
 
-  const { data: plugins, isLoading, error } = usePluginsList(effectiveServerId);
-  const enablePlugin = useEnablePlugin(effectiveServerId);
-  const disablePlugin = useDisablePlugin(effectiveServerId);
-  const uninstallPlugin = useUninstallPlugin(effectiveServerId);
+  const branchCtx = useServerBranchContext();
+  const gitBacked = Boolean(branchCtx?.gitBacked);
+  const activeBranch = gitBacked ? branchCtx?.branch : undefined;
+  const isMainProtected = Boolean(gitBacked && activeBranch === "main");
+  const isWorkingBranch = Boolean(gitBacked && activeBranch && activeBranch !== "main");
+
+  const api = useMemo(() => createAuthenticatedApi(), []);
+  const queryClient = useQueryClient();
+  const branchesQuery = useQuery({
+    queryKey: queryKeys.versioning.branches(effectiveServerId),
+    queryFn: () => api.getServerBranches(effectiveServerId),
+    enabled: Boolean(effectiveServerId && gitBacked),
+  });
+  const firstWorkingBranch = useMemo(
+    () => (branchesQuery.data ?? []).find((b) => b.name !== "main")?.name ?? null,
+    [branchesQuery.data],
+  );
+
+  const [quickBranchName, setQuickBranchName] = useState("");
+  const createBranchMutation = useMutation({
+    mutationFn: (name: string) =>
+      api.createServerBranch(effectiveServerId, { name }),
+    onSuccess: (_created, branchName) => {
+      setQuickBranchName("");
+      queryClient.invalidateQueries({ queryKey: queryKeys.versioning.branches(effectiveServerId) });
+      branchCtx?.setBranch(branchName);
+      toast("success", "Branch created", `Switched to working branch "${branchName}".`);
+    },
+    onError: (err) => toast("error", "Create branch failed", errorMessage(err)),
+  });
+
+  const commitLockfileMutation = useMutation({
+    mutationFn: () =>
+      api.createServerCommit(effectiveServerId, {
+        branch_name: activeBranch!,
+        message: "Update branch plugins lockfile",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.list(effectiveServerId, activeBranch),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.versioning.commits(effectiveServerId) });
+      toast("success", "Changes committed", `Committed plugin changes to "${activeBranch}".`);
+    },
+    onError: (err) => toast("error", "Commit failed", errorMessage(err)),
+  });
+
+  const { data: plugins, isLoading, error } = usePluginsList(effectiveServerId, activeBranch);
+  const enablePlugin = useEnablePlugin(effectiveServerId, activeBranch);
+  const disablePlugin = useDisablePlugin(effectiveServerId, activeBranch);
+  const uninstallPlugin = useUninstallPlugin(effectiveServerId, activeBranch);
+  const hasUncommitted = Boolean(isWorkingBranch && plugins?.some((p) => p.is_committed === false));
 
   const filteredPlugins = useMemo(() => {
     if (!plugins) return [];
@@ -217,11 +269,12 @@ export function PluginListPage() {
   }
 
   function handleInstall() {
-    navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}`);
+    const branchSuffix = isWorkingBranch && activeBranch ? `&branch=${encodeURIComponent(activeBranch)}` : "";
+    navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}${branchSuffix}`);
   }
 
   function handleConfirmUninstall() {
-    if (!uninstallTarget) return;
+    if (!uninstallTarget || isMainProtected) return;
     uninstallPlugin.mutate(uninstallTarget.plugin_id, {
       onSuccess: () =>
         toast(
@@ -238,21 +291,107 @@ export function PluginListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Plugins"
-        description="Manage plugins for your servers"
+        description={
+          gitBacked && activeBranch
+            ? `Manage plugins for branch "${activeBranch}"`
+            : "Manage plugins for your servers"
+        }
         icon="plugin"
         actions={
           effectiveServerId ? (
-            <button
-              type="button"
-              onClick={handleInstall}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
-            >
-              <Icon name="plus" size={16} />
-              Install Plugin
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {gitBacked && activeBranch && (
+                <span
+                  data-testid="plugins-branch-badge"
+                  className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2.5 py-1 font-mono text-xs font-semibold text-accent-primary"
+                >
+                  Branch: {activeBranch}
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={isMainProtected}
+                onClick={handleInstall}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              >
+                <Icon name="plus" size={16} />
+                Install Plugin
+              </button>
+            </div>
           ) : undefined
         }
       />
+
+      {isMainProtected && effectiveServerId && (
+        <div
+          data-testid="plugins-main-protected-banner"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-warning-border bg-status-warning-bg px-4 py-3 text-xs text-text-primary"
+        >
+          <div className="space-y-0.5">
+            <p className="font-semibold text-status-warning">
+              Branch &ldquo;main&rdquo; is protected
+            </p>
+            <p className="text-text-secondary">
+              Plugin installs, toggles, and removals cannot mutate main directly. Switch to or create a working branch to edit plugins, then merge via Versioning.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {firstWorkingBranch && (
+              <button
+                type="button"
+                data-testid="plugins-switch-working-branch-btn"
+                onClick={() => branchCtx?.setBranch(firstWorkingBranch)}
+                className="inline-flex items-center gap-1 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer"
+              >
+                Switch to {firstWorkingBranch}
+              </button>
+            )}
+            <input
+              type="text"
+              value={quickBranchName}
+              onChange={(e) => setQuickBranchName(e.target.value)}
+              placeholder="plugin-test"
+              aria-label="New working branch name"
+              className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary focus:border-accent-primary focus:outline-none"
+            />
+            <button
+              type="button"
+              data-testid="plugins-create-working-branch-btn"
+              disabled={!quickBranchName.trim() || createBranchMutation.isPending}
+              onClick={() => createBranchMutation.mutate(quickBranchName.trim())}
+              className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-semibold text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+            >
+              {createBranchMutation.isPending ? "Creating..." : "Create Working Branch"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {hasUncommitted && effectiveServerId && (
+        <div
+          data-testid="plugins-uncommitted-banner"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-info-border bg-status-info-bg px-4 py-3 text-xs text-text-primary"
+        >
+          <div>
+            <p className="font-semibold text-status-info">
+              Uncommitted lockfile changes on &ldquo;{activeBranch}&rdquo;
+            </p>
+            <p className="text-text-secondary">
+              Save &amp; commit your updated <code className="font-mono">onx-jars.lock.json</code> before starting a branch container or merging.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="plugins-commit-btn"
+            disabled={commitLockfileMutation.isPending}
+            onClick={() => commitLockfileMutation.mutate()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-50 cursor-pointer"
+          >
+            <Icon name="check" size={14} />
+            {commitLockfileMutation.isPending ? "Committing..." : "Save & Commit"}
+          </button>
+        </div>
+      )}
 
       {!routeServerId && (
         <div className="max-w-xs">
@@ -395,6 +534,23 @@ export function PluginListPage() {
                             </h3>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <SourceBadge plugin={p} />
+                              {isWorkingBranch && (
+                                <span
+                                  data-testid={`plugin-commit-badge-${p.plugin_id}`}
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border ${
+                                    p.is_committed === false
+                                      ? "bg-status-warning-bg text-status-warning border-status-warning-border"
+                                      : "bg-status-success-bg text-status-success border-status-success-border"
+                                  }`}
+                                >
+                                  {p.is_committed === false ? "Uncommitted" : "Committed"}
+                                </span>
+                              )}
+                              {isWorkingBranch && p.checksum && (
+                                <span className="font-mono text-[10px] text-text-muted" title={p.checksum}>
+                                  sha256:{p.checksum.slice(0, 8)}
+                                </span>
+                              )}
                               {meta.version && meta.version !== "unknown" && (
                                 <span className="inline-flex items-center gap-0.5 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 font-mono text-[11px] font-medium text-text-muted">
                                   <span className="text-text-muted">v</span>
@@ -443,7 +599,7 @@ export function PluginListPage() {
                                 });
                               }
                             }}
-                            disabled={disablePlugin.isPending || enablePlugin.isPending}
+                            disabled={isMainProtected || disablePlugin.isPending || enablePlugin.isPending}
                             aria-label={toggleLabel}
                             title={toggleLabel}
                             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 disabled:opacity-40 ${
@@ -516,7 +672,7 @@ export function PluginListPage() {
                       <button
                         type="button"
                         onClick={() => setUninstallTarget(p)}
-                        disabled={uninstallPlugin.isPending}
+                        disabled={isMainProtected || uninstallPlugin.isPending}
                         aria-label={uninstallLabel}
                         title={uninstallLabel}
                         className="inline-flex items-center gap-1 rounded-md border border-status-danger/20 bg-status-danger-bg px-2.5 py-1 text-xs font-medium text-status-danger hover:bg-status-danger/20 transition-colors disabled:opacity-40 cursor-pointer"
@@ -583,6 +739,17 @@ export function PluginListPage() {
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-text-primary">{meta.title}</p>
                               <SourceBadge plugin={p} />
+                              {isWorkingBranch && (
+                                <span
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border ${
+                                    p.is_committed === false
+                                      ? "bg-status-warning-bg text-status-warning border-status-warning-border"
+                                      : "bg-status-success-bg text-status-success border-status-success-border"
+                                  }`}
+                                >
+                                  {p.is_committed === false ? "Uncommitted" : "Committed"}
+                                </span>
+                              )}
                             </div>
                             {p.description && (
                               <p className="mt-0.5 truncate text-xs text-text-muted" title={p.description}>
@@ -656,7 +823,7 @@ export function PluginListPage() {
                                   onError: (err) => toast("error", "Disable failed", errorMessage(err)),
                                 })
                               }
-                              disabled={disablePlugin.isPending}
+                              disabled={isMainProtected || disablePlugin.isPending}
                               aria-label={toggleLabel}
                               title={toggleLabel}
                               className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -672,7 +839,7 @@ export function PluginListPage() {
                                   onError: (err) => toast("error", "Enable failed", errorMessage(err)),
                                 })
                               }
-                              disabled={enablePlugin.isPending}
+                              disabled={isMainProtected || enablePlugin.isPending}
                               aria-label={toggleLabel}
                               title={toggleLabel}
                               className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -683,7 +850,7 @@ export function PluginListPage() {
                           <button
                             type="button"
                             onClick={() => setUninstallTarget(p)}
-                            disabled={uninstallPlugin.isPending}
+                            disabled={isMainProtected || uninstallPlugin.isPending}
                             aria-label={uninstallLabel}
                             title={uninstallLabel}
                             className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"

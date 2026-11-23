@@ -15,6 +15,7 @@ function useApi() {
 
 interface ServerConsoleProps {
   serverId: string;
+  branch?: string;
   serverStatus?: string;
   tps?: number | null;
   players?: number;
@@ -58,6 +59,7 @@ function getLineStyle(line: string): { className: string; level: string } {
 
 export function ServerConsole({
   serverId,
+  branch,
   serverStatus,
   tps,
   players,
@@ -66,6 +68,7 @@ export function ServerConsole({
   port,
   compactHeader = false,
 }: ServerConsoleProps) {
+  const isBranchMode = Boolean(branch && branch !== "main");
   const isContainer = provider === "docker" || provider === "container";
   const displayAddress = host ? (port ? `${host}:${port}` : host) : null;
   const api = useApi();
@@ -79,13 +82,28 @@ export function ServerConsole({
 
   const isWsConnected = useWSStore((s) => s.connected);
   const connectionState = useWSStore((s) => s.connectionState);
+  const isRunning = serverStatus === "running";
+
+  const consoleScopeKey = `${serverId}:${branch ?? "main"}`;
+  const [prevScopeKey, setPrevScopeKey] = useState(consoleScopeKey);
+  if (prevScopeKey !== consoleScopeKey) {
+    setPrevScopeKey(consoleScopeKey);
+    setLiveLines([]);
+    setCommandHistory([]);
+  }
 
   // Fetch initial console history (with offline fallback on disk)
   // Stage E: Disable 3s polling query while WS connection is active to avoid double-fetching.
   const { data: history, refetch: refetchHistory } = useQuery({
-    queryKey: queryKeys.console.history(serverId),
-    queryFn: () => api.getServerConsole(serverId, 200),
-    refetchInterval: isWsConnected ? false : 3000,
+    queryKey: queryKeys.console.history(serverId, branch),
+    queryFn: () => api.getServerConsole(serverId, 200, branch),
+    refetchInterval: isBranchMode
+      ? isRunning
+        ? 3000
+        : false
+      : isWsConnected
+        ? false
+        : 3000,
   });
 
   // Reconnect re-tail: when WS connection re-establishes (from RECONNECTING/DISCONNECTED to CONNECTED),
@@ -122,29 +140,33 @@ export function ServerConsole({
   const { data: crashReports, isLoading: isLoadingCrashes } = useQuery({
     queryKey: queryKeys.console.crashReports(serverId),
     queryFn: () => api.getServerCrashReports(serverId, 5),
+    enabled: !isBranchMode,
   });
 
-  // Subscribe to WebSocket console stream
+  // Subscribe to WebSocket console stream (main runtime only)
   const handleIncomingLines = useCallback((lines: string[]) => {
     setLiveLines((prev) => [...prev, ...lines]);
   }, []);
 
-  useConsoleStream(serverId, handleIncomingLines);
+  useConsoleStream(isBranchMode ? null : serverId, handleIncomingLines);
 
-  const { data: metrics } = useServerMetrics(serverId);
-  const latestMetric = metrics?.length
-    ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
-    : undefined;
+  const { data: metrics } = useServerMetrics(isBranchMode ? "" : serverId);
+  const latestMetric =
+    !isBranchMode && metrics?.length
+      ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
+      : undefined;
 
-  const isRunning = serverStatus === "running";
   const rawTps = tps !== undefined ? tps : latestMetric?.tps;
-  const liveTps = isRunning && rawTps != null ? rawTps : null;
+  const liveTps = !isBranchMode && isRunning && rawTps != null ? rawTps : null;
 
   const rawPlayers = players !== undefined ? players : latestMetric?.players;
-  const livePlayers = isRunning && rawPlayers != null ? rawPlayers : null;
+  const livePlayers = !isBranchMode && isRunning && rawPlayers != null ? rawPlayers : null;
 
   const sendCommand = useMutation({
-    mutationFn: (command: string) => api.sendServerCommand(serverId, { command }),
+    mutationFn: (command: string) =>
+      branch
+        ? api.sendServerCommand(serverId, { command }, branch)
+        : api.sendServerCommand(serverId, { command }),
     onSuccess: (_data, command) => {
       setCommandHistory((prev) => [...prev, `> ${command}`]);
       if (followLog && containerRef.current) {
@@ -251,6 +273,14 @@ export function ServerConsole({
               }`}
             />
             <span>Server Console</span>
+            {isBranchMode && (
+              <span
+                data-testid="console-branch-badge"
+                className="inline-flex items-center gap-1 rounded border border-accent-primary/30 bg-accent-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-primary"
+              >
+                Branch: {branch}
+              </span>
+            )}
 
             {!compactHeader && (
               <>

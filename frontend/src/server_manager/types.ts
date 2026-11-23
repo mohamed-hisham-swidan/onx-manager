@@ -28,6 +28,14 @@ export interface ServerResponse {
   startup_timeout_seconds?: number | null;
 }
 
+export interface PendingSettingsBranchInfo {
+  branch_name: string;
+  head_commit_id?: string | null;
+  status: "pending" | "needs_resolution" | "merged" | "discarded" | string;
+  error_message?: string | null;
+  created_at?: string | null;
+}
+
 export interface ServerDetailResponse extends ServerResponse {
   min_memory_mb: number;
   max_memory_mb: number;
@@ -53,6 +61,8 @@ export interface ServerDetailResponse extends ServerResponse {
   startup_jar: string | null;
   startup_command: string | null;
   primary_world: string | null;
+  branch_name?: string | null;
+  pending_settings_branch?: PendingSettingsBranchInfo | null;
 }
 
 export interface PluginInfo {
@@ -245,6 +255,21 @@ export const EXPOSURE_STATUS_MAP: Record<import("@/types").ExposureStatusType, E
   },
 };
 
+const EXPOSURE_DIAGNOSTIC_BADGES: Record<string, StatusBadge> = {
+  BIND_MISMATCH: {
+    label: "Restart Required",
+    color: "bg-status-warning/15 text-status-warning border border-status-warning/30",
+  },
+  CGNAT_DETECTED: {
+    label: "CGNAT Detected",
+    color: "bg-status-danger/15 text-status-danger border border-status-danger/30",
+  },
+  DOUBLE_NAT_DETECTED: {
+    label: "CGNAT Detected",
+    color: "bg-status-danger/15 text-status-danger border border-status-danger/30",
+  },
+};
+
 export const STATUS_MAP: Record<string, StatusBadge> = {
   running: { label: "Online", color: "bg-status-success/15 text-status-success" },
   stopped: { label: "Offline", color: "bg-surface-elevated text-text-muted" },
@@ -256,6 +281,7 @@ export const STATUS_MAP: Record<string, StatusBadge> = {
   crashed: { label: "Crashed", color: "bg-status-danger/15 text-status-danger" },
   broken: { label: "Broken", color: "bg-status-danger/15 text-status-danger" },
   restoring: { label: "Restoring", color: "bg-accent-primary/15 text-accent-primary" },
+  ...EXPOSURE_DIAGNOSTIC_BADGES,
   ...Object.fromEntries(
     Object.entries(EXPOSURE_STATUS_MAP).map(([k, v]) => [k, { label: v.label, color: v.color }])
   ),
@@ -339,10 +365,14 @@ export interface ServerBranch {
   worktree_locked?: boolean;
   worktree_lock_reason?: string | null;
   runtime_status?: string;
+  container_provisioned?: boolean;
   port_set?: PortSet | null;
   active_runtime_id?: string | null;
   active_commit_sha?: string | null;
   active_data_template_id?: string | null;
+  pending_merge_on_restart?: boolean;
+  pending_merge_status?: string | null;
+  pending_merge_error?: string | null;
 }
 
 export interface CreateBranchRequest {
@@ -905,6 +935,8 @@ export interface BranchRuntimeStatus {
   server_id: string;
   branch_name: string;
   runtime_status: string;
+  container_provisioned?: boolean;
+  container_name?: string | null;
   runtime_id: string | null;
   active_commit_sha: string | null;
   data_template_id: string | null;
@@ -913,6 +945,22 @@ export interface BranchRuntimeStatus {
   port_set: PortSet | null;
   worktree_locked: boolean;
   worktree_lock_reason: string | null;
+}
+
+export interface DestroyBranchRunRequest {
+  runtime_id?: string | null;
+  timeout_seconds?: number;
+  keep_port_assignment?: boolean;
+}
+
+export interface DestroyBranchRunResponse {
+  runtime_id: string;
+  server_id: string;
+  branch_name: string;
+  container_name: string;
+  status: string;
+  container_provisioned: boolean;
+  released_ports: boolean;
 }
 
 export interface StartBranchRunRequest {

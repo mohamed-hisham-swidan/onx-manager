@@ -276,3 +276,58 @@ class ServerP55SettingsUpdatedEvent(DomainEvent):
     download_host_allowlist: list[str]
     actor_type: str = "user"
     actor_id: str | None = None
+
+
+# --- Multi-Tab Branch Isolation & Settings Workflow events ---
+
+
+class BranchDeletedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    branch_id: str
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class BranchRuntimeCreatedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    runtime_id: str
+    commit_sha: str
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class BranchRuntimeDestroyedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    runtime_id: str
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class SettingsCommittedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    commit_id: str
+    message: str
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class SettingsBranchCreatedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    source_branch: str = "main"
+    commit_id: str | None = None
+    actor_type: str = "user"
+    actor_id: str | None = None
+
+
+class SettingsBranchAutoMergedOnRestartEvent(DomainEvent):
+    server_id: str
+    branch_name: str = "main"
+    source_branch: str
+    commit_id: str | None = None
+    actor_type: str = "system"
+    actor_id: str | None = None

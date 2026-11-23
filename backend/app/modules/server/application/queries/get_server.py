@@ -1,5 +1,6 @@
 from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
+from app.modules.server.application.branch_settings import read_branch_settings_overlay
 from app.modules.server.application.read_models import ServerDetailReadModel
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
@@ -10,6 +11,7 @@ from app.modules.shared.value_objects import ServerId
 
 class GetServerQuery(Query):
     server_id: str
+    branch_name: str | None = None
 
 
 class GetServerHandler(QueryHandler[GetServerQuery]):
@@ -34,5 +36,9 @@ class GetServerHandler(QueryHandler[GetServerQuery]):
                         await session.commit()
                 except Exception:
                     pass
-            return ServerDetailReadModel.from_domain(server)
+            detail = ServerDetailReadModel.from_domain(server)
+            overlay = await read_branch_settings_overlay(session, server, query.branch_name)
+            for key, value in overlay.items():
+                setattr(detail, key, value)
+            return detail
 

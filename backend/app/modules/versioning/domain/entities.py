@@ -99,6 +99,9 @@ class ServerBranch:
     active_runtime_id: str | None = None
     active_commit_sha: str | None = None
     active_data_template_id: str | None = None
+    pending_merge_on_restart: bool = False
+    pending_merge_status: str | None = None
+    pending_merge_error: str | None = None
 
     def __post_init__(self) -> None:
         if not self.server_id:

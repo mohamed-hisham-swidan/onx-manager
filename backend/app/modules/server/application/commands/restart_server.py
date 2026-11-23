@@ -9,7 +9,7 @@ from pydantic import Field
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
-from app.core.exceptions import ServerNotRunningError
+from app.core.exceptions import MergeConflictError, ServerNotRunningError
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.db import database
@@ -20,6 +20,9 @@ from app.modules.backup.domain.aggregate import BackupStatus
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.plugin.application.services.plugin_deletion_service import (
     consume_pending_plugin_deletions,
+)
+from app.modules.server.application.branch_settings import (
+    auto_merge_pending_settings_on_restart,
 )
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
@@ -309,6 +312,32 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     server_name,
                     sid,
                     exc,
+                )
+
+            try:
+                merged_settings = await auto_merge_pending_settings_on_restart(
+                    sid, event_bus=self._event_bus
+                )
+                if merged_settings:
+                    logger.info(
+                        "Auto-merged %d pending settings branch(es) into main on restart "
+                        '— server="%s" server_id=%s',
+                        len(merged_settings),
+                        server_name,
+                        sid,
+                    )
+            except MergeConflictError as exc:
+                logger.error(
+                    "Pending settings merge conflict on restart "
+                    '— server="%s" server_id=%s error=%s',
+                    server_name,
+                    sid,
+                    exc,
+                )
+                return CommandResult(
+                    success=False,
+                    error=f"Pending settings auto-merge conflict: {exc}",
+                    error_code="MERGE_CONFLICT",
                 )
 
         async with UnitOfWork(self._event_bus) as uow:

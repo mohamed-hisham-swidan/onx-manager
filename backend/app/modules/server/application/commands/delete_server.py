@@ -88,6 +88,40 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
             if server_dir and "root_path" not in handle.metadata:
                 handle.metadata["root_path"] = server_dir
 
+            was_active = server_status in (
+                ServerStatus.RUNNING,
+                ServerStatus.STARTING,
+                ServerStatus.STOPPING,
+            )
+            port_val = handle.metadata.get("port") if handle and handle.metadata else None
+            other_active_on_port = False
+            if was_active and port_val is not None:
+                with contextlib.suppress(Exception):
+                    target_port = int(port_val)
+                    for other in await repo.list():
+                        if str(other.id) == sid:
+                            continue
+                        if other.status not in (
+                            ServerStatus.RUNNING,
+                            ServerStatus.STARTING,
+                            ServerStatus.STOPPING,
+                        ):
+                            continue
+                        other_port = (
+                            int(other.properties.port.value)
+                            if hasattr(other, "properties")
+                            and other.properties
+                            and hasattr(other.properties, "port")
+                            else (
+                                int(other.runtime.port)
+                                if other.runtime and other.runtime.port
+                                else None
+                            )
+                        )
+                        if other_port == target_port:
+                            other_active_on_port = True
+                            break
+
         # 2. Cancel and await provisioning if server is currently PROVISIONING
         if server_status == ServerStatus.PROVISIONING:
             logger.info("Server %s is PROVISIONING — cancelling provisioning task", sid)
@@ -161,17 +195,14 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 )
 
         # 6. Re-check game port after stop confirmed
-        port_val = handle.metadata.get("port") if handle and handle.metadata else None
-        if port_val is not None:
-            try:
+        if was_active and not other_active_on_port and port_val is not None:
+            with contextlib.suppress(Exception):
                 if _port_is_listening(int(port_val)):
                     return CommandResult(
                         success=False,
                         error=f"Cannot delete server: port {port_val} is still occupied",
                         error_code="DELETE_STOP_NOT_CONFIRMED",
                     )
-            except Exception:
-                pass
 
         # 7. Teardown provider resources (containers, process trees, caches)
         if provider is not None:

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { HashBadge } from "@/components/ui/HashBadge";
 import type {
   GetActivityParams,
@@ -80,13 +81,26 @@ function formatDateTime(timestamp: number): string {
 export function ServerActivityPage() {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { serverId } = useParams<{ serverId: string }>();
+  const branchCtx = useServerBranchContext();
+  const gitBacked = Boolean(branchCtx?.gitBacked);
+  const activeContextBranch = gitBacked ? branchCtx?.branch : undefined;
 
   const [logs, setLogs] = useState<ServerActivityLog[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
   const limit = 25;
   const [offset, setOffset] = useState<number>(0);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [branchFilter, setBranchFilter] = useState<string>(
+    activeContextBranch || "all",
+  );
+  const [prevContextBranch, setPrevContextBranch] = useState<string | undefined>(
+    activeContextBranch,
+  );
+  if (activeContextBranch !== prevContextBranch) {
+    setPrevContextBranch(activeContextBranch);
+    setBranchFilter(activeContextBranch || "all");
+    setOffset(0);
+  }
   const [branches, setBranches] = useState<ServerBranch[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
@@ -257,7 +271,24 @@ export function ServerActivityPage() {
 
           {/* Branch filter */}
           {branches.length > 0 && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {activeContextBranch && (
+                <button
+                  type="button"
+                  data-testid="activity-branch-filter-toggle"
+                  onClick={() => {
+                    setBranchFilter((prev) =>
+                      prev === "all" ? activeContextBranch : "all",
+                    );
+                    setOffset(0);
+                  }}
+                  className="rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary cursor-pointer"
+                >
+                  {branchFilter === "all"
+                    ? `Show Current Branch (${activeContextBranch})`
+                    : `Showing Branch: ${branchFilter} (Show All)`}
+                </button>
+              )}
               <Icon name="version-branch" size={13} className="text-text-muted" />
               <select
                 aria-label="Filter by branch"

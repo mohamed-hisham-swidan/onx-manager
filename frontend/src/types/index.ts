@@ -71,6 +71,8 @@ export interface PluginResponse {
   mod_id?: string | null;
   is_disabled_on_disk?: boolean;
   warning?: string | null;
+  branch_name?: string | null;
+  is_committed?: boolean;
 }
 
 export interface ToggleModStateRequest {
@@ -158,6 +160,7 @@ export interface InstallModrinthPluginRequest {
   project_id: string;
   version_id?: string | null;
   minecraft_version?: string | null;
+  branch?: string | null;
 }
 
 export interface InstallModrinthPluginResponse {
@@ -167,6 +170,8 @@ export interface InstallModrinthPluginResponse {
   source: string;
   notice: string;
   notice_kind: string;
+  branch_name?: string | null;
+  is_committed?: boolean;
 }
 
 export interface LoginRequest {
@@ -432,6 +437,8 @@ export interface InvitationItem {
 
 export type PanelExposureMethodType = "none" | "cloudflare_tunnel" | "playit_http" | "port_forward";
 
+export type CloudflareModeType = "token" | "quick";
+
 export type DesiredStateType = "ENABLED" | "DISABLED";
 
 export type ExposureStatusType =
@@ -454,6 +461,9 @@ export interface PanelExposureResponse {
   protocol: "http" | "https";
   external_port: number | null;
   cloudflare_tunnel_id: string | null;
+  cloudflare_mode?: CloudflareModeType | null;
+  token_configured?: boolean;
+  ephemeral?: boolean;
   playit_tunnel_id: string | null;
   upnp_last_result: string | null;
   error_code: string | null;
@@ -466,6 +476,7 @@ export interface PanelExposureResponse {
 export interface PanelExposureUpdateRequest {
   method: PanelExposureMethodType;
   desired_state: DesiredStateType;
+  cloudflare_mode?: CloudflareModeType;
   cloudflare_token?: string;
   hostname?: string;
   external_port?: number | null;
@@ -487,7 +498,7 @@ export interface ClaimResponse {
 }
 
 // Server Network Exposure & Targets (Phase 7.5)
-export type ExposureMethodType = "none" | "playit" | "port_forward" | "cloudflare_tcp";
+export type ExposureMethodType = "none" | "host_port" | "playit" | "port_forward" | "cloudflare_tcp";
 
 export type TargetProtocolType = "tcp" | "udp";
 
@@ -509,6 +520,15 @@ export interface TargetResponse {
 
 export interface ServerExposureResponse {
   server_id: string;
+  branch_name?: string;
+  branch_runtime_status?: string | null;
+  allocated_game_port?: number | null;
+  allocated_port_set?: {
+    game_port: number;
+    rcon_port: number;
+    query_port?: number | null;
+    plugin_ports?: Record<string, number>;
+  } | null;
   method: ExposureMethodType;
   desired_state: DesiredStateType;
   aggregate_status: ExposureStatusType;
@@ -516,14 +536,27 @@ export interface ServerExposureResponse {
   error_message: string | null;
   cloudflare_tunnel_id: string | null;
   has_cloudflare_credentials: boolean;
+  cloudflare_mode?: "quick" | "subdomain" | "tcp" | null;
+  subdomain_prefix?: string | null;
+  base_domain?: string | null;
+  srv_record_enabled?: boolean;
+  srv_record_hint?: string | null;
+  ephemeral?: boolean;
+  upnp_status?: string | null;
+  detected_wan_ip?: string | null;
   targets: TargetResponse[];
 }
 
 export interface ServerExposureUpdateRequest {
   method: ExposureMethodType;
   desired_state: DesiredStateType;
+  cloudflare_mode?: "quick" | "subdomain" | "tcp" | null;
   cloudflare_token?: string;
   hostname?: string;
+  subdomain_prefix?: string | null;
+  base_domain?: string | null;
+  srv_record_enabled?: boolean;
+  external_port?: number | null;
   acknowledged_warning?: boolean;
 }
 

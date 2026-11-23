@@ -184,6 +184,7 @@ route_permissions:
   "POST /api/v1/servers/import": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/import/upload": {permission: "server:write", status: enforced}
   "PATCH /api/v1/servers/{server_id}": {permission: "server:write", status: enforced}
+  "DELETE /api/v1/servers/{server_id}/settings/pending": {permission: "server:write", status: enforced}
   "DELETE /api/v1/servers/{server_id}": {permission: "server:delete", status: enforced}
   "POST /api/v1/servers/{server_id}/start": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
   "POST /api/v1/servers/{server_id}/stop": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
@@ -230,6 +231,7 @@ route_permissions:
   # versioning
   "POST /api/v1/servers/{server_id}/versioning/branches": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/branches/{name}/archive": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/branches/{name}/destroy": {permission: "server:version:commit", status: enforced}
   "DELETE /api/v1/servers/{server_id}/versioning/branches/{name}": {permission: "server:version:commit", status: enforced}
   "PUT /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:branch:protect", status: enforced}
   "DELETE /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:branch:protect", status: enforced}

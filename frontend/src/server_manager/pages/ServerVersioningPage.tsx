@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { createAuthenticatedApi } from "@/services/api";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
 import { TestRunModal } from "@/server_manager/components/TestRunModal";
 import { BranchProtectionModal } from "@/server_manager/components/BranchProtectionModal";
@@ -53,6 +55,7 @@ import type {
   DataTemplate,
   DynamicClassCEntry,
   GitHubConnectionStatusResponse,
+  PendingSettingsBranchInfo,
   PortSet,
   PreflightStatus,
   RefreshStateResponse,
@@ -127,9 +130,23 @@ function classifyGitHubSyncError(
 export function ServerVersioningPage() {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { serverId } = useParams<{ serverId: string }>();
+  const branchCtx = useServerBranchContext();
 
   const [branches, setBranches] = useState<ServerBranch[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>("main");
+  const [selectedBranch, setSelectedBranch] = useState<string>(
+    branchCtx?.branch || "main",
+  );
+  const [prevContextBranch, setPrevContextBranch] = useState<string | undefined>(
+    branchCtx?.branch,
+  );
+  if (branchCtx?.branch && branchCtx.branch !== prevContextBranch) {
+    setPrevContextBranch(branchCtx.branch);
+    setSelectedBranch(branchCtx.branch);
+  }
+  const [pendingSettingsBranch, setPendingSettingsBranch] =
+    useState<PendingSettingsBranchInfo | null>(null);
+  const [showDestroyContainerConfirm, setShowDestroyContainerConfirm] = useState(false);
+  const [isDestroyingContainer, setIsDestroyingContainer] = useState(false);
   const [commits, setCommits] = useState<ServerCommit[]>([]);
   const [testRuns, setTestRuns] = useState<ServerTestRun[]>([]);
   const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
@@ -287,6 +304,7 @@ export function ServerVersioningPage() {
         setBranchRuntime(runtimeData ?? null);
         setGithubStatus(githubStatusData ?? null);
         setServerType(serverDetailData?.server_type ?? null);
+        setPendingSettingsBranch(serverDetailData?.pending_settings_branch ?? null);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
@@ -371,6 +389,7 @@ export function ServerVersioningPage() {
     try {
       await api.createServerBranch(serverId, { name: newBranchName.trim() });
       setSelectedBranch(newBranchName.trim());
+      branchCtx?.setBranch(newBranchName.trim());
       setNewBranchName("");
       setIsNewBranchOpen(false);
       setActionSuccess(`Branch '${newBranchName.trim()}' created.`);
@@ -791,6 +810,54 @@ export function ServerVersioningPage() {
         </div>
       )}
 
+      {selectedBranch === "main" && pendingSettingsBranch && (
+        <div
+          data-testid="versioning-pending-settings-banner"
+          className="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 flex flex-wrap items-center justify-between gap-3 text-xs"
+        >
+          <div className="space-y-0.5">
+            <p className="font-semibold text-status-warning">
+              Pending Settings Branch: <code className="font-mono">{pendingSettingsBranch.branch_name}</code> (
+              {pendingSettingsBranch.status || "pending"})
+            </p>
+            <p className="text-text-secondary">
+              {pendingSettingsBranch.error_message
+                ? `Auto-merge issue: ${pendingSettingsBranch.error_message}`
+                : "Will automatically merge into main on the next main server restart."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedBranch(pendingSettingsBranch.branch_name);
+                branchCtx?.setBranch(pendingSettingsBranch.branch_name);
+              }}
+              className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
+            >
+              Inspect Branch
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!serverId) return;
+                try {
+                  await api.discardPendingSettings(serverId);
+                  setPendingSettingsBranch(null);
+                  setActionSuccess("Pending settings branch discarded.");
+                  refresh();
+                } catch (err: unknown) {
+                  setError(err instanceof Error ? err.message : "Failed to discard pending settings.");
+                }
+              }}
+              className="rounded-lg border border-status-danger-border bg-surface-card px-3 py-1.5 font-medium text-status-danger hover:bg-status-danger-bg cursor-pointer"
+            >
+              Discard Pending
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Live Changes Callout Banner */}
       {Boolean(liveChanges?.changes && liveChanges.changes.length > 0) && (
         <div className="rounded-xl border border-status-warning/40 bg-status-warning-bg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
@@ -823,6 +890,7 @@ export function ServerVersioningPage() {
         selectedBranch={selectedBranch}
         onSelectBranch={(branch) => {
           setSelectedBranch(branch);
+          branchCtx?.setBranch(branch);
           setUncommittedWarning(null);
           setBranchRuntime(null);
         }}
@@ -869,8 +937,36 @@ export function ServerVersioningPage() {
           onOpenPortSetModal={() => setIsPortSetModalOpen(true)}
           onOpenConsoleActivityModal={(initialTab) => setBranchConsoleModalTab(initialTab)}
           onOpenSaveTemplateModal={() => setDataTemplatesModalMode("save-branch")}
+          onDestroyContainer={() => setShowDestroyContainerConfirm(true)}
+          isDestroyingContainer={isDestroyingContainer}
         />
       )}
+
+      <ConfirmDialog
+        open={showDestroyContainerConfirm}
+        title={`Destroy container for "${selectedBranch}"?`}
+        description="Removes this branch's Docker container and /data export and releases its Host Port Set while keeping Git commits."
+        confirmLabel="Destroy Container"
+        variant="danger"
+        isPending={isDestroyingContainer}
+        onConfirm={async () => {
+          if (!serverId) return;
+          setIsDestroyingContainer(true);
+          try {
+            await api.destroyBranchRun(serverId, selectedBranch);
+            setShowDestroyContainerConfirm(false);
+            setBranchRuntime(null);
+            setActionSuccess(`Destroyed container for branch '${selectedBranch}'.`);
+            refresh();
+          } catch (err: unknown) {
+            setShowDestroyContainerConfirm(false);
+            setError(err instanceof Error ? err.message : "Failed to destroy branch container.");
+          } finally {
+            setIsDestroyingContainer(false);
+          }
+        }}
+        onCancel={() => setShowDestroyContainerConfirm(false)}
+      />
 
       {/* 12-Column Split Workspace (Commit Graph + Isolated Bot Testing) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">

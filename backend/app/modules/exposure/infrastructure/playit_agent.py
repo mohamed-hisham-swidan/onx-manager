@@ -422,7 +422,9 @@ class PlayitAgentSupervisor:
             else:
                 self._secret_file = None
 
-            await self._spawn_child()
+            spawned = await self._spawn_child()
+            if not spawned:
+                return
             self._last_health_at = time.monotonic()
 
             if self._secret_file:
@@ -528,7 +530,7 @@ class PlayitAgentSupervisor:
         self._cleanup_secret_file()
         self._cleanup_socket_file()
 
-    async def _spawn_child(self) -> None:
+    async def _spawn_child(self) -> bool:
         """Spawn the playit child process using deterministic paths."""
         self._cleanup_socket_file()
         if self._secret_file:
@@ -554,13 +556,24 @@ class PlayitAgentSupervisor:
         if not is_windows():
             extra_kwargs["preexec_fn"] = os.setsid
 
-        self._process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            close_fds=True,
-            **extra_kwargs,
-        )
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                close_fds=True,
+                **extra_kwargs,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            err_msg = (
+                f"playit binary ('{cmd[0]}') could not be started: {exc}. "
+                "Install playit on this host or choose another exposure method."
+            )
+            logger.error(err_msg)
+            self._error_message = err_msg
+            self._stop_event.set()
+            self._set_status(ExposureStatus.ERROR)
+            return False
 
         if self._process.pid:
             self._write_pid_file(self._process.pid)
@@ -568,6 +581,7 @@ class PlayitAgentSupervisor:
         self._output_reader = asyncio.create_task(
             self._read_output(self._process), name="playit-output-reader"
         )
+        return True
 
     async def _read_stream(self, stream: asyncio.StreamReader | None, stream_name: str) -> None:
         """Continuously read lines from a single stream (stdout or stderr)."""

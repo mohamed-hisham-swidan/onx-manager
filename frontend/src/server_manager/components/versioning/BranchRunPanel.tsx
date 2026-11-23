@@ -18,6 +18,8 @@ export interface BranchRunPanelProps {
   onOpenPortSetModal: () => void;
   onOpenConsoleActivityModal: (initialTab: "console" | "activity") => void;
   onOpenSaveTemplateModal: () => void;
+  onDestroyContainer?: () => void;
+  isDestroyingContainer?: boolean;
 }
 
 function statusBadgeClasses(status: string): string {
@@ -50,6 +52,8 @@ export function BranchRunPanel({
   onOpenPortSetModal,
   onOpenConsoleActivityModal,
   onOpenSaveTemplateModal,
+  onDestroyContainer,
+  isDestroyingContainer = false,
 }: BranchRunPanelProps) {
   const [copied, setCopied] = useState(false);
   const copyTimeoutRef = useRef<number | null>(null);
@@ -66,6 +70,12 @@ export function BranchRunPanel({
     runtime?.runtime_status ?? branchObj?.runtime_status ?? "stopped";
   const runtimeStatus = rawRuntimeStatus.toLowerCase();
   const isActive = runtimeStatus === "running" || runtimeStatus === "starting";
+  const isProvisioned = Boolean(
+    runtime?.container_provisioned ??
+      branchObj?.container_provisioned ??
+      branchObj?.active_runtime_id ??
+      isActive,
+  );
   const activeCommitSha =
     runtime?.active_commit_sha ?? branchObj?.active_commit_sha ?? null;
   const portSet = runtime?.port_set ?? branchObj?.port_set ?? null;
@@ -193,6 +203,18 @@ export function BranchRunPanel({
                 <Icon name="network" size={13} />
                 Configure Ports
               </button>
+              {isProvisioned && onDestroyContainer && (
+                <button
+                  type="button"
+                  data-testid="branch-run-destroy-btn"
+                  disabled={isDestroyingContainer}
+                  onClick={onDestroyContainer}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 py-1.5 text-xs font-semibold text-status-danger hover:opacity-90 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  <Icon name="trash" size={13} />
+                  {isDestroyingContainer ? "Destroying..." : "Destroy Container"}
+                </button>
+              )}
             </>
           ) : (
             <>

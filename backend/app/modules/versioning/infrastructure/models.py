@@ -44,6 +44,11 @@ class ServerBranchModel(Base):
     active_runtime_id = Column(String(64), nullable=True)
     active_commit_sha = Column(String(64), nullable=True)
     active_data_template_id = Column(String(36), nullable=True)
+    pending_merge_on_restart = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    pending_merge_status = Column(String(32), nullable=True)
+    pending_merge_error = Column(Text, nullable=True)
 
     __table_args__ = (UniqueConstraint("server_id", "name", name="uq_server_branch_name"),)
 

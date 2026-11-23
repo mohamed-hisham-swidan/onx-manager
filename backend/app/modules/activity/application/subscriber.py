@@ -139,11 +139,21 @@ class ActivityEventSubscriber(EventHandler):
             return f"Public exposure enabled via {method}", "exposure.enabled"
         if event_name == "ServerExposureDisabledEvent":
             return "Public exposure disabled", "exposure.disabled"
+        if event_name == "BranchExposureEnabledEvent":
+            bname = getattr(event, "branch_name", "branch")
+            method = getattr(event, "method", "exposure")
+            return f"Branch '{bname}' exposure enabled via {method}", "branch_exposure_enabled"
+        if event_name == "BranchExposureDisabledEvent":
+            bname = getattr(event, "branch_name", "branch")
+            return f"Branch '{bname}' exposure disabled", "branch_exposure_disabled"
 
         # Versioning
         if event_name == "BranchCreatedEvent":
             bname = getattr(event, "branch_name", "branch")
             return f"Branch '{bname}' created", "versioning.branch_created"
+        if event_name == "BranchDeletedEvent":
+            bname = getattr(event, "branch_name", "branch")
+            return f"Branch '{bname}' deleted", "versioning.branch_deleted"
         if event_name == "CommitCreatedEvent":
             msg = getattr(event, "message", "")
             bname = getattr(event, "branch_name", "main")
@@ -173,6 +183,24 @@ class ActivityEventSubscriber(EventHandler):
         if event_name == "BranchRuntimeStoppedEvent":
             bname = getattr(event, "branch_name", "branch")
             return f"Branch '{bname}' runtime stopped", "versioning.branch_stopped"
+        if event_name == "BranchRuntimeDestroyedEvent":
+            bname = getattr(event, "branch_name", "branch")
+            return f"Branch '{bname}' container destroyed", "versioning.branch_destroyed"
+        if event_name == "SettingsCommittedEvent":
+            bname = getattr(event, "branch_name", "branch")
+            return f"Settings committed on branch '{bname}'", "settings_committed"
+        if event_name == "SettingsBranchCreatedEvent":
+            bname = getattr(event, "branch_name", "settings")
+            return (
+                f"Pending settings branch '{bname}' created for next restart",
+                "settings_branch_created",
+            )
+        if event_name == "SettingsBranchAutoMergedOnRestartEvent":
+            src = getattr(event, "source_branch", "settings")
+            return (
+                f"Auto-merged pending settings '{src}' into main on restart",
+                "settings_branch_auto_merged_on_restart",
+            )
         if event_name == "DataTemplateSavedEvent":
             tname = getattr(event, "template_name", "template")
             return f"Data template '{tname}' saved", "versioning.data_template_saved"

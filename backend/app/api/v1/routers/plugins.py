@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 
 from app.api.deps import (
     get_command_bus,
+    get_event_bus,
     get_query_bus,
     require_permission,
     require_server_permission,
@@ -21,6 +22,8 @@ from app.api.v1.schemas.plugin import (
     ToggleModStateRequest,
 )
 from app.core.command_bus import CommandBus
+from app.core.event_bus import EventBus
+from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.plugin.application import (
     DisablePluginCommand,
@@ -33,10 +36,20 @@ from app.modules.plugin.application import (
     UninstallPluginCommand,
     UploadModCommand,
 )
+from app.modules.plugin.application.branch_plugins import (
+    install_branch_modrinth_plugin,
+    list_branch_plugins,
+    remove_branch_plugin,
+    toggle_branch_plugin,
+    upload_branch_addon,
+)
 from app.modules.plugin.application.services.version_selector import select_best_version
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 from app.modules.server.application.queries.get_server import GetServerQuery
+from app.modules.server.domain.value_objects import ServerMode
+from app.modules.server.infrastructure.repository import SQLServerRepository
+from app.modules.shared.value_objects import ServerId
 
 router = APIRouter(prefix="/api/v1/servers/{server_id}/plugins", tags=["plugins"])
 
@@ -57,6 +70,12 @@ def _to_version_response(v: PluginVersionInfo) -> PluginVersionResponse:
     )
 
 
+async def _load_server_aggregate(server_id: str):
+    async with database.session_factory() as session:
+        repo = SQLServerRepository(session)
+        return await repo.get(ServerId(server_id))
+
+
 @router.get(
     "",
     response_model=list[PluginResponse],
@@ -64,9 +83,16 @@ def _to_version_response(v: PluginVersionInfo) -> PluginVersionResponse:
 )
 async def list_plugins(
     server_id: str,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> list[PluginResponse]:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        items, _has_uncommitted = list_branch_plugins(server, effective_branch)
+        return [PluginResponse(**item) for item in items]
+
     await command_bus.send(ReconcilePluginsCommand(server_id=server_id))
     q = ListPluginsQuery(server_id=server_id)
     plugins = await query_bus.ask(q)
@@ -162,8 +188,23 @@ async def get_project_versions(
 async def install_from_marketplace(
     server_id: str,
     body: InstallModrinthPluginRequest,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
+    event_bus: EventBus = Depends(get_event_bus),
 ) -> InstallModrinthPluginResponse:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or body.branch or "main").strip() or "main"
+        data = await install_branch_modrinth_plugin(
+            server=server,
+            branch_name=effective_branch,
+            project_id=body.project_id,
+            version_id=body.version_id,
+            minecraft_version=body.minecraft_version,
+            event_bus=event_bus,
+        )
+        return InstallModrinthPluginResponse(**data)
+
     cmd = InstallModrinthPluginCommand(
         server_id=server_id,
         project_id=body.project_id,
@@ -183,8 +224,18 @@ async def install_from_marketplace(
 async def get_plugin(
     server_id: str,
     plugin_id: str,
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> PluginResponse:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        items, _ = list_branch_plugins(server, effective_branch)
+        for item in items:
+            if item["plugin_id"] == plugin_id:
+                return PluginResponse(**item)
+        raise HTTPException(status_code=404, detail="Plugin not found on this branch")
+
     result = await query_bus.ask(GetPluginQuery(plugin_id=plugin_id))
     if result.server_id != server_id:
         raise HTTPException(status_code=404, detail="Plugin not found on this server")
@@ -202,9 +253,22 @@ async def get_plugin(
 async def uninstall_plugin(
     server_id: str,
     plugin_id: str,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
+    event_bus: EventBus = Depends(get_event_bus),
 ) -> None:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        await remove_branch_plugin(
+            server=server,
+            branch_name=effective_branch,
+            plugin_identifier=plugin_id,
+            event_bus=event_bus,
+        )
+        return
+
     plugin = await query_bus.ask(GetPluginQuery(plugin_id=plugin_id))
     if plugin.server_id != server_id:
         raise HTTPException(status_code=404, detail="Plugin not found on this server")
@@ -224,9 +288,22 @@ async def uninstall_plugin(
 async def enable_plugin(
     server_id: str,
     plugin_id: str,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
+    event_bus: EventBus = Depends(get_event_bus),
 ) -> dict:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        return await toggle_branch_plugin(
+            server=server,
+            branch_name=effective_branch,
+            plugin_identifier=plugin_id,
+            enabled=True,
+            event_bus=event_bus,
+        )
+
     plugin = await query_bus.ask(GetPluginQuery(plugin_id=plugin_id))
     if plugin.server_id != server_id:
         raise HTTPException(status_code=404, detail="Plugin not found on this server")
@@ -246,9 +323,22 @@ async def enable_plugin(
 async def disable_plugin(
     server_id: str,
     plugin_id: str,
+    branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
+    event_bus: EventBus = Depends(get_event_bus),
 ) -> dict:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        return await toggle_branch_plugin(
+            server=server,
+            branch_name=effective_branch,
+            plugin_identifier=plugin_id,
+            enabled=False,
+            event_bus=event_bus,
+        )
+
     plugin = await query_bus.ask(GetPluginQuery(plugin_id=plugin_id))
     if plugin.server_id != server_id:
         raise HTTPException(status_code=404, detail="Plugin not found on this server")
@@ -269,10 +359,23 @@ async def disable_plugin(
 async def upload_mod(
     server_id: str,
     file: UploadFile,
-    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    branch: str | None = Query(default=None),
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)] = ...,  # type: ignore[assignment]
+    event_bus: EventBus = Depends(get_event_bus),
 ) -> dict:
     content = await file.read()
     filename = file.filename or "addon.jar"
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        return await upload_branch_addon(
+            server=server,
+            branch_name=effective_branch,
+            filename=filename,
+            file_content=content,
+            event_bus=event_bus,
+        )
+
     cmd = UploadModCommand(
         server_id=server_id,
         filename=filename,
@@ -293,8 +396,22 @@ async def upload_mod(
 async def toggle_mod(
     server_id: str,
     body: ToggleModStateRequest,
-    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    branch: str | None = Query(default=None),
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)] = ...,  # type: ignore[assignment]
+    event_bus: EventBus = Depends(get_event_bus),
 ) -> dict:
+    server = await _load_server_aggregate(server_id)
+    if server is not None and server.mode == ServerMode.ADVANCED:
+        effective_branch = (branch or "main").strip() or "main"
+        ident = body.plugin_id or body.mod_id or ""
+        return await toggle_branch_plugin(
+            server=server,
+            branch_name=effective_branch,
+            plugin_identifier=ident,
+            enabled=body.enabled,
+            event_bus=event_bus,
+        )
+
     cmd = ToggleModStateCommand(
         server_id=server_id,
         mod_id=body.mod_id,

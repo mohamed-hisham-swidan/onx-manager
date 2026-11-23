@@ -81,13 +81,21 @@ class SQLServerExposureRepository(ServerExposureRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get(self, server_id: str) -> ServerExposure | None:
-        stmt = select(ServerExposureModel).where(ServerExposureModel.server_id == server_id)
+    async def get(self, server_id: str, branch_name: str = "main") -> ServerExposure | None:
+        stmt = select(ServerExposureModel).where(
+            ServerExposureModel.server_id == server_id,
+            ServerExposureModel.branch_name == (branch_name or "main"),
+        )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:
             return None
         return await self._model_to_domain(model)
+
+    async def list_by_server(self, server_id: str) -> list[ServerExposure]:
+        stmt = select(ServerExposureModel).where(ServerExposureModel.server_id == server_id)
+        result = await self._session.execute(stmt)
+        return [await self._model_to_domain(m) for m in result.scalars().all()]
 
     async def get_by_id(self, exposure_id: str) -> ServerExposure | None:
         model = await self._session.get(ServerExposureModel, exposure_id)
@@ -112,20 +120,34 @@ class SQLServerExposureRepository(ServerExposureRepository):
         if exposure.id:
             model = await self._session.get(ServerExposureModel, exposure.id)
         if model is None:
+            stmt = select(ServerExposureModel).where(
+                ServerExposureModel.server_id == exposure.server_id,
+                ServerExposureModel.branch_name == (exposure.branch_name or "main"),
+            )
+            existing_res = await self._session.execute(stmt)
+            model = existing_res.scalar_one_or_none()
+        if model is None:
             model = ServerExposureModel(
                 id=exposure.id or _new_id(),
                 server_id=exposure.server_id,
+                branch_name=exposure.branch_name or "main",
             )
             if exposure.id is None:
                 exposure._id = model.id  # type: ignore[attr-defined]
             self._session.add(model)
 
         model.server_id = exposure.server_id
+        model.branch_name = exposure.branch_name or "main"
         model.method = exposure.method.value
         model.desired_state = exposure.desired_state.value
         model.aggregate_status = exposure.aggregate_status.value
         model.cloudflare_tunnel_id = exposure.cloudflare_tunnel_id
         model.cloudflare_token_ciphertext = exposure.cloudflare_token_ciphertext
+        model.cloudflare_mode = exposure.cloudflare_mode
+        model.subdomain_prefix = exposure.subdomain_prefix
+        model.base_domain = exposure.base_domain
+        model.srv_record_enabled = exposure.srv_record_enabled
+        model.ephemeral = exposure.ephemeral
         await self._session.flush()
 
         current_target_ids = {target.id for target in exposure.targets if target.id}
@@ -201,12 +223,18 @@ class SQLServerExposureRepository(ServerExposureRepository):
         return ServerExposure(
             id=model.id,
             server_id=model.server_id,
+            branch_name=getattr(model, "branch_name", "main") or "main",
             method=model.method or ExposureMethod.PLAYIT.value,
             desired_state=model.desired_state or DesiredState.DISABLED.value,
             aggregate_status=model.aggregate_status or ExposureStatus.DISABLED.value,
             targets=targets,
             cloudflare_tunnel_id=model.cloudflare_tunnel_id,
             cloudflare_token_ciphertext=model.cloudflare_token_ciphertext,
+            cloudflare_mode=getattr(model, "cloudflare_mode", None),
+            subdomain_prefix=getattr(model, "subdomain_prefix", None),
+            base_domain=getattr(model, "base_domain", None),
+            srv_record_enabled=bool(getattr(model, "srv_record_enabled", False)),
+            ephemeral=bool(getattr(model, "ephemeral", False)),
             created_at=model.created_at,
             updated_at=model.updated_at,
         )

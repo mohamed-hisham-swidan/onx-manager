@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -14,6 +15,7 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.config import (
     ConfigFactory,
     get_active_panel_bind,
+    local_panel_ingress_target,
     panel_ingress_target,
 )
 from app.core.event_bus import EventBus
@@ -111,18 +113,164 @@ async def compute_desired_agent_running(session: AsyncSession) -> bool:
 async def _attempt_server_upnp_mapping(
     server_id: str,
     target: ServerExposureTarget,
+    *,
+    external_port: int | None = None,
+    subdomain_host: str | None = None,
 ) -> None:
     upnp = AsyncUPnPService()
+    req_ext = external_port if external_port is not None else target.local_port
     result = await upnp.attempt_mapping(
         internal_port=target.local_port,
-        requested_external_port=target.local_port,
+        requested_external_port=req_ext,
         description=f"ONX-Server-{server_id[:8]}-{target.service_type.value}",
         protocol=target.protocol.value.upper(),
     )
     if result.success:
-        target.mark_active(f"{result.external_ip}:{result.external_port}")
+        mapped_port = result.external_port or req_ext
+        addr = (
+            f"{subdomain_host}:{mapped_port}"
+            if subdomain_host
+            else f"{result.external_ip}:{mapped_port}"
+        )
+        target.mark_active(addr)
     else:
         target.mark_error(code=result.error_code, message=result.error_message)
+
+
+def _exposure_supervisor_key(server_id: str, branch_name: str = "main") -> str:
+    b = (branch_name or "main").strip() or "main"
+    return server_id if b == "main" else f"{server_id}:{b}"
+
+
+async def resolve_server_branch_exposure_context(
+    session: AsyncSession,
+    server: Any,
+    branch_name: str | None,
+) -> dict[str, Any]:
+    """Resolve isolated game port & runtime state for a server or branch."""
+    from sqlalchemy import select as _select
+
+    from app.modules.versioning.infrastructure.models import (
+        ServerBranchModel,
+        ServerRuntimeModel,
+    )
+
+    eff = (branch_name or "main").strip() or "main"
+    raw_mode = getattr(server, "mode", "simple")
+    mode_val = getattr(raw_mode, "value", raw_mode)
+    if eff == "main" or mode_val != "advanced":
+        return {
+            "branch_name": "main",
+            "is_branch": False,
+            "game_port": server.properties.port.value,
+            "branch_runtime_status": server.status.value.lower(),
+            "allocated_port_set": None,
+        }
+
+    br_res = await session.execute(
+        _select(ServerBranchModel).where(
+            ServerBranchModel.server_id == str(server.id),
+            ServerBranchModel.name == eff,
+        )
+    )
+    br_row = br_res.scalars().first()
+    if br_row is None:
+        # Check Git branches directly if DB row hasn't synced yet.
+        root_path = getattr(getattr(server, "deployment", None), "root_path", None)
+        if root_path:
+            from app.core.host_state import resolve_host_state_layout
+            from app.modules.versioning.infrastructure.git_branches import GitBranchService
+
+            git_info = GitBranchService(resolve_host_state_layout()).get_branch(
+                str(server.id), root_path, eff
+            )
+            if git_info is None:
+                raise NotFoundError(f"Branch '{eff}' not found on server '{server.id}'")
+        else:
+            raise NotFoundError(f"Branch '{eff}' not found on server '{server.id}'")
+
+    rt_res = await session.execute(
+        _select(ServerRuntimeModel)
+        .where(
+            ServerRuntimeModel.server_id == str(server.id),
+            ServerRuntimeModel.branch_name == eff,
+            ServerRuntimeModel.status.in_(("starting", "running", "stopped")),
+        )
+        .order_by(ServerRuntimeModel.started_at.desc())
+    )
+    rt_row = rt_res.scalars().first()
+
+    port_set_dict = None
+    if rt_row is not None and isinstance(getattr(rt_row, "port_set_json", None), dict):
+        port_set_dict = dict(rt_row.port_set_json)
+    elif br_row is not None and isinstance(getattr(br_row, "port_set_json", None), dict):
+        port_set_dict = dict(br_row.port_set_json)
+
+    game_port = None
+    if isinstance(port_set_dict, dict) and port_set_dict.get("game_port") is not None:
+        game_port = int(port_set_dict["game_port"])
+
+    if rt_row is not None and rt_row.status in ("starting", "running"):
+        rt_status = "running"
+    elif rt_row is not None and rt_row.status == "stopped":
+        rt_status = "stopped"
+    else:
+        rt_status = "unprovisioned"
+
+    return {
+        "branch_name": eff,
+        "is_branch": True,
+        "game_port": game_port,
+        "branch_runtime_status": rt_status,
+        "allocated_port_set": port_set_dict,
+    }
+
+
+async def teardown_branch_exposure(server_id: str, branch_name: str) -> None:
+    """Tear down any active cloudflared / UPnP exposure on branch stop or destroy."""
+    b = (branch_name or "main").strip() or "main"
+    if b == "main":
+        return
+
+    sup_key = _exposure_supervisor_key(server_id, b)
+    supervisor = get_server_cloudflared_supervisor(sup_key)
+    try:
+        if supervisor.is_running:
+            await supervisor.stop()
+    except Exception:
+        logger.warning("Failed to stop branch cloudflared supervisor for %s", sup_key)
+
+    from app.modules.exposure.domain.events import BranchExposureDisabledEvent
+
+    try:
+        async with UnitOfWork() as uow:
+            repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            exposure = await repo.get(server_id, branch_name=b)
+            if exposure is None or exposure.desired_state == DesiredState.DISABLED:
+                return
+            upnp_ports: list[tuple[int, str]] = []
+            if exposure.method == ExposureMethod.PORT_FORWARD:
+                for target in exposure.targets:
+                    upnp_ports.append(
+                        (_extract_target_external_port(target), target.protocol.value.upper())
+                    )
+            exposure.disable()
+            for target in exposure.targets:
+                target.mark_disabled()
+            _fold_aggregate(exposure)
+            await repo.save(exposure)
+            uow.add_event(BranchExposureDisabledEvent(server_id=server_id, branch_name=b))
+            await uow.commit()
+
+        for port, proto in upnp_ports:
+            try:
+                await AsyncUPnPService().delete_mapping(port, protocol=proto)
+            except Exception:
+                logger.warning(
+                    "Failed deleting UPnP mapping port %s/%s for %s:%s", port, proto, server_id, b
+                )
+    except Exception:
+        logger.exception("Failed tearing down branch exposure for %s:%s", server_id, b)
 
 
 async def _sync_server_playit_targets(
@@ -215,34 +363,52 @@ def _extract_target_external_port(target: ServerExposureTarget) -> int:
 class SetServerExposureCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    branch_name: str = "main"
     method: str
     desired_state: str
+    cloudflare_mode: str | None = None
     cloudflare_token: str = ""
     hostname: str = ""
+    subdomain_prefix: str | None = None
+    base_domain: str | None = None
+    srv_record_enabled: bool = False
+    external_port: int | None = None
     acknowledged_warning: bool = False
     actor_id: str = ""
 
 
 class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
-    """Create or update the exposure for a server (route #10)."""
+    """Create or update the exposure for a server or branch."""
 
     def __init__(self, event_bus: EventBus) -> None:
         self._event_bus = event_bus
 
     async def handle(self, command: SetServerExposureCommand) -> CommandResult:
+        from app.core.exceptions import ConflictError
+
         server_id = ServerId(command.server_id)
-        method = ExposureMethod(command.method.lower())
-        desired = DesiredState(command.desired_state.upper())
+        raw_method = command.method.lower()
+        # `none` / `host_port` disable external tunnels and revert to direct host port binding.
+        if raw_method in ("none", "host_port"):
+            effective_desired = DesiredState.DISABLED
+            method = ExposureMethod.PORT_FORWARD
+        else:
+            method = ExposureMethod(raw_method)
+            effective_desired = DesiredState(command.desired_state.upper())
+
+        desired = effective_desired
         post_commit: list[Callable[[], Awaitable[None]]] = []
 
         # Server-side warning enforcement: must run before any Cloudflare API calls or DB writes
         if (
             method == ExposureMethod.CLOUDFLARE_TCP
             and desired == DesiredState.ENABLED
+            and command.cloudflare_mode != "quick"
             and not command.acknowledged_warning
         ):
             raise WarningNotAcknowledgedError()
 
+        ctx_info: dict[str, Any] = {}
         async with UnitOfWork(self._event_bus) as uow:
             if desired == DesiredState.ENABLED:
                 await require_password_configured_for_exposure(
@@ -256,11 +422,19 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             if server is None:
                 raise NotFoundError(f"Server {command.server_id} not found")
 
-            exposure = await repo.get(command.server_id)
+            ctx_info = await resolve_server_branch_exposure_context(
+                uow.session, server, command.branch_name
+            )
+            eff_branch = ctx_info["branch_name"]
+            target_game_port = ctx_info["game_port"]
+            sup_key = _exposure_supervisor_key(command.server_id, eff_branch)
+
+            exposure = await repo.get(command.server_id, branch_name=eff_branch)
             prev_method = exposure.method if exposure else None
             if exposure is None:
                 exposure = ServerExposure(
                     server_id=command.server_id,
+                    branch_name=eff_branch,
                     method=method,
                     id=str(uuid.uuid4().hex),
                 )
@@ -268,9 +442,28 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 exposure.set_method(method)
 
             if desired == DesiredState.ENABLED:
+                if ctx_info["is_branch"] and target_game_port is None:
+                    raise ConflictError(
+                        f"Branch '{eff_branch}' container is not provisioned yet. "
+                        "Create and start the branch container to allocate an isolated "
+                        "port before enabling external tunnels.",
+                        code="BRANCH_CONTAINER_NOT_PROVISIONED",
+                    )
+                assert target_game_port is not None
+
+                # Update branch target ports if branch runtime port changed cleanly
+                if ctx_info["is_branch"]:
+                    stale_targets = [
+                        t
+                        for t in exposure.targets
+                        if t.service_type == ServiceType.JAVA and t.local_port != target_game_port
+                    ]
+                    for st in stale_targets:
+                        exposure.remove_target(st.id or "")
+
                 if not exposure.targets:
                     exposure.enable(
-                        server_port=server.properties.port.value,
+                        server_port=target_game_port,
                         target_id=str(uuid.uuid4().hex),
                     )
                 if not exposure.targets:
@@ -285,27 +478,49 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         reg_port = reg_model.port if reg_model else None
                     exposure.validate_target_port(
                         local_port=target.local_port,
-                        server_port=server.properties.port.value,
+                        server_port=target_game_port,
                         service_type=target.service_type,
                         registered_port=reg_port,
                     )
                 exposure.set_desired_state(DesiredState.ENABLED)
 
+                sub_prefix = command.subdomain_prefix.strip() if command.subdomain_prefix else None
+                base_dom = command.base_domain.strip() if command.base_domain else None
+                cf_mode = command.cloudflare_mode
+
                 if method == ExposureMethod.PORT_FORWARD:
                     if prev_method == ExposureMethod.CLOUDFLARE_TCP:
-                        post_commit.append(
-                            get_server_cloudflared_supervisor(command.server_id).stop
-                        )
+                        post_commit.append(get_server_cloudflared_supervisor(sup_key).stop)
+                    exposure.set_branch_routing(
+                        cloudflare_mode=None,
+                        subdomain_prefix=sub_prefix,
+                        base_domain=base_dom,
+                        srv_record_enabled=bool(command.srv_record_enabled),
+                        ephemeral=False,
+                    )
                     for target in exposure.targets:
                         target.mark_starting()
 
-                    async def _run_server_upnp():
-                        for target in exposure.targets:
-                            await _attempt_server_upnp_mapping(command.server_id, target)
-                        _fold_aggregate(exposure)
+                    ext_port_req = command.external_port
+                    sub_fqdn = f"{sub_prefix}.{base_dom}" if (sub_prefix and base_dom) else None
+
+                    async def _run_server_upnp(
+                        exp_ref=exposure,
+                        ep_req=ext_port_req,
+                        fqdn=sub_fqdn,
+                        sid=command.server_id,
+                    ):
+                        for target in exp_ref.targets:
+                            await _attempt_server_upnp_mapping(
+                                sid,
+                                target,
+                                external_port=ep_req,
+                                subdomain_host=fqdn,
+                            )
+                        _fold_aggregate(exp_ref)
                         async with UnitOfWork() as post_uow:
                             p_repo = SQLServerExposureRepository(post_uow.session)
-                            await p_repo.save(exposure)
+                            await p_repo.save(exp_ref)
                             await post_uow.commit()
 
                     post_commit.append(_run_server_upnp)
@@ -320,10 +535,15 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                                 )
                             )
                     if prev_method == ExposureMethod.CLOUDFLARE_TCP:
-                        post_commit.append(
-                            get_server_cloudflared_supervisor(command.server_id).stop
-                        )
+                        post_commit.append(get_server_cloudflared_supervisor(sup_key).stop)
 
+                    exposure.set_branch_routing(
+                        cloudflare_mode=None,
+                        subdomain_prefix=sub_prefix,
+                        base_domain=base_dom,
+                        srv_record_enabled=False,
+                        ephemeral=False,
+                    )
                     agent = await agent_repo.get()
                     supervisor = get_playit_supervisor()
                     if agent.is_claimed and agent.secret_ciphertext:
@@ -334,14 +554,14 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                             for target in exposure.targets:
                                 target.mark_starting()
 
-                            async def _run_server_playit(s=secret_bytes):
-                                await _sync_server_playit_targets(
-                                    command.server_id, exposure, s
-                                )
-                                _fold_aggregate(exposure)
+                            async def _run_server_playit(
+                                s=secret_bytes, exp_ref=exposure, sid=command.server_id
+                            ):
+                                await _sync_server_playit_targets(sid, exp_ref, s)
+                                _fold_aggregate(exp_ref)
                                 async with UnitOfWork() as post_uow:
                                     p_repo = SQLServerExposureRepository(post_uow.session)
-                                    await p_repo.save(exposure)
+                                    await p_repo.save(exp_ref)
                                     await post_uow.commit()
                                 await supervisor.start(
                                     s,
@@ -377,6 +597,13 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                                     port, protocol=pr
                                 )
                             )
+                    exposure.set_branch_routing(
+                        cloudflare_mode=cf_mode,
+                        subdomain_prefix=sub_prefix,
+                        base_domain=base_dom,
+                        srv_record_enabled=False,
+                        ephemeral=(cf_mode == "quick"),
+                    )
                     await self._enable_server_cloudflare_tcp(
                         exposure=exposure,
                         command=command,
@@ -384,6 +611,13 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     )
             else:
                 exposure.set_desired_state(DesiredState.DISABLED)
+                exposure.set_branch_routing(
+                    cloudflare_mode=None,
+                    subdomain_prefix=exposure.subdomain_prefix,
+                    base_domain=exposure.base_domain,
+                    srv_record_enabled=exposure.srv_record_enabled,
+                    ephemeral=False,
+                )
                 if (
                     prev_method == ExposureMethod.PORT_FORWARD
                     or method == ExposureMethod.PORT_FORWARD
@@ -400,7 +634,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     prev_method == ExposureMethod.CLOUDFLARE_TCP
                     or method == ExposureMethod.CLOUDFLARE_TCP
                 ):
-                    post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+                    post_commit.append(get_server_cloudflared_supervisor(sup_key).stop)
 
                 for target in exposure.targets:
                     target.mark_disabled()
@@ -426,7 +660,10 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             except Exception:
                 logger.exception("Post-commit server exposure action failed")
 
-        return CommandResult(success=True, data=_exposure_payload(exposure))
+        return CommandResult(
+            success=True,
+            data=_exposure_payload(exposure, branch_context=ctx_info),
+        )
 
     async def _start_server_supervisor(
         self,
@@ -453,8 +690,58 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
 
         token = command.cloudflare_token.strip()
         hostname = command.hostname.strip()
-        supervisor = get_server_cloudflared_supervisor(exposure.server_id)
-        on_status = _make_persist_server_cloudflare_status(exposure.server_id)
+        if not hostname and getattr(command, "subdomain_prefix", None) and getattr(
+            command, "base_domain", None
+        ):
+            hostname = f"{command.subdomain_prefix.strip()}.{command.base_domain.strip()}"
+
+        sup_key = _exposure_supervisor_key(exposure.server_id, exposure.branch_name)
+        supervisor = get_server_cloudflared_supervisor(sup_key)
+        on_status = _make_persist_server_cloudflare_status(
+            exposure.server_id, branch_name=exposure.branch_name
+        )
+
+        # Case 0: Ephemeral Cloudflare Quick Tunnel (branch preview)
+        if getattr(command, "cloudflare_mode", None) == "quick":
+            target_port = exposure.targets[0].local_port
+            if not CloudflaredSupervisor.is_installed():
+                for target in exposure.targets:
+                    target.mark_error(
+                        code="CLOUDFLARED_NOT_FOUND",
+                        message="cloudflared binary is not installed on this host.",
+                    )
+                return
+
+            exposure.set_branch_routing(
+                cloudflare_mode="quick",
+                subdomain_prefix=None,
+                base_domain=None,
+                srv_record_enabled=False,
+                ephemeral=True,
+            )
+            for target in exposure.targets:
+                target.mark_starting()
+
+            async def _run_branch_quick(p=target_port, sup=supervisor, cb=on_status):
+                async def _on_quick_url(url: str) -> None:
+                    async with UnitOfWork() as uow:
+                        r = SQLServerExposureRepository(uow.session)
+                        exp = await r.get(exposure.server_id, branch_name=exposure.branch_name)
+                        if exp is not None:
+                            for t in exp.targets:
+                                t.mark_active(url)
+                            _fold_aggregate(exp)
+                            await r.save(exp)
+                            await uow.commit()
+
+                await sup.start_quick(
+                    f"http://127.0.0.1:{p}",
+                    on_status=cb,
+                    on_url=_on_quick_url,
+                )
+
+            post_commit.append(_run_branch_quick)
+            return
 
         # Case 1: Token provided
         if token:
@@ -575,6 +862,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
 class EnableServerExposureCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    branch_name: str = "main"
     cloudflare_token: str = ""
     hostname: str = ""
     acknowledged_warning: bool = False
@@ -604,10 +892,11 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
             if server is None:
                 raise NotFoundError(f"Server {command.server_id} not found")
 
-            exposure = await repo.get(command.server_id)
+            exposure = await repo.get(command.server_id, branch_name=command.branch_name)
             if exposure is None:
                 exposure = ServerExposure(
                     server_id=command.server_id,
+                    branch_name=command.branch_name,
                     method=ExposureMethod.PLAYIT,
                     id=str(uuid.uuid4().hex),
                 )
@@ -725,6 +1014,7 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
 class DisableServerExposureCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    branch_name: str = "main"
     actor_id: str = ""
 
 
@@ -742,9 +1032,10 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
             agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             agent = await agent_repo.get()
 
-            exposure = await repo.get(command.server_id)
+            exposure = await repo.get(command.server_id, branch_name=command.branch_name)
             if exposure is None:
                 raise NotFoundError(f"Exposure not found for server {command.server_id}")
+            sup_key = _exposure_supervisor_key(command.server_id, exposure.branch_name)
             if exposure.desired_state == DesiredState.ENABLED:
                 if exposure.method == ExposureMethod.PORT_FORWARD:
                     for target in exposure.targets:
@@ -756,7 +1047,7 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
                             )
                         )
                 elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
-                    post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+                    post_commit.append(get_server_cloudflared_supervisor(sup_key).stop)
                 elif (
                     exposure.method == ExposureMethod.PLAYIT
                     and agent.is_claimed
@@ -806,6 +1097,7 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
 class RemoveServerExposureCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    branch_name: str = "main"
     actor_id: str = ""
 
 
@@ -823,9 +1115,10 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
             agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             agent = await agent_repo.get()
 
-            exposure = await repo.get(command.server_id)
+            exposure = await repo.get(command.server_id, branch_name=command.branch_name)
             if exposure is None:
                 return CommandResult(success=True, data={"removed": False})
+            sup_key = _exposure_supervisor_key(command.server_id, exposure.branch_name)
 
             if exposure.method == ExposureMethod.PORT_FORWARD:
                 for target in exposure.targets:
@@ -837,7 +1130,7 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
                         )
                     )
             elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
-                post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+                post_commit.append(get_server_cloudflared_supervisor(sup_key).stop)
             elif (
                 exposure.method == ExposureMethod.PLAYIT
                 and agent.is_claimed
@@ -884,6 +1177,7 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
 class CreateExposureTargetCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    branch_name: str = "main"
     service_type: str = "java"
     protocol: str | None = None
     local_port: int | None = None
@@ -906,10 +1200,11 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
             if server is None:
                 raise NotFoundError(f"Server {command.server_id} not found")
 
-            exposure = await repo.get(command.server_id)
+            exposure = await repo.get(command.server_id, branch_name=command.branch_name)
             if exposure is None:
                 exposure = ServerExposure(
                     server_id=command.server_id,
+                    branch_name=command.branch_name,
                     method=ExposureMethod.PLAYIT,
                     id=str(uuid.uuid4().hex),
                 )
@@ -983,6 +1278,7 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
 class UpdateExposureTargetCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    branch_name: str = "main"
     target_id: str
     public_address: str | None = None
     actor_id: str = ""
@@ -997,7 +1293,7 @@ class UpdateExposureTargetHandler(CommandHandler[UpdateExposureTargetCommand]):
     async def handle(self, command: UpdateExposureTargetCommand) -> CommandResult:
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
-            exposure = await repo.get(command.server_id)
+            exposure = await repo.get(command.server_id, branch_name=command.branch_name)
             if exposure is None:
                 raise NotFoundError(f"Exposure for server {command.server_id} not found")
 
@@ -1394,6 +1690,7 @@ class SetPanelExposureCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     method: str
     desired_state: str
+    cloudflare_mode: str | None = None
     cloudflare_token: str = ""
     hostname: str = ""
     external_port: int | None = None
@@ -1405,14 +1702,43 @@ def _panel_encryption():
     return build_backup_encryption(settings.backup_encryption_key_path or None)
 
 
+def _is_loopback_bind_host(host: str) -> bool:
+    """Return True if *host* represents a loopback-only bind address."""
+    normalized = (host or "").strip().lower()
+    return normalized in ("127.0.0.1", "localhost", "::1") or normalized.startswith("127.")
+
+
+def _restore_loopback_panel_bind() -> None:
+    """Restore ``panel_bind_host`` to ``127.0.0.1`` when leaving port forwarding.
+
+    Cloudflare Tunnel and playit.gg agents run locally and connect to loopback
+    without exposing the panel directly on LAN/WAN interfaces (security invariant).
+    Only persists when currently set to ``0.0.0.0`` so unit tests with default
+    config do not rewrite disk settings unnecessarily.
+    """
+    from app.core.settings_store import get_live_settings
+    from app.core.settings_store import update_settings as update_settings_store
+
+    live = get_live_settings()
+    if (live.panel_bind_host or "").strip() == "0.0.0.0":
+        update_settings_store({"panel_bind_host": "127.0.0.1"})
+
+
+def _looks_like_tunnel_token(token: str) -> bool:
+    """Return True if *token* matches a Cloudflare Tunnel connector JWT (eyJ...)."""
+    clean = token.strip()
+    return clean.startswith("eyJ") and len(clean) >= 32 and not any(c.isspace() for c in clean)
+
+
 class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
-    """Set panel exposure method + desired_state (route #8, idempotent).
+    """Set panel exposure method + desired_state (route #8).
 
     Supports:
-      - ``cloudflare_tunnel``: Named Tunnel via CloudflareClient and cloudflared supervisor.
-      - ``playit_http``: HTTPS edge tunnel via PlayitAgentSupervisor.
-      - ``port_forward``: Local IGD port mapping via AsyncUPnPService.
-      - ``none``: Disables and tears down any active panel exposure.
+      - ``cloudflare_tunnel``: Permanent Mode (Tunnel Token via ``TUNNEL_TOKEN`` env),
+        Quick Preview Mode (ephemeral ``trycloudflare.com`` URL), or legacy named tunnel API.
+      - ``playit_http``: HTTP edge tunnel via PlayitAgentSupervisor.
+      - ``port_forward``: Local IGD port mapping via AsyncUPnPService with CGNAT detection.
+      - ``none``: Disables and tears down any active panel exposure and restores 127.0.0.1 bind.
     """
 
     def __init__(self, event_bus: EventBus) -> None:
@@ -1421,6 +1747,9 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
     async def handle(self, command: SetPanelExposureCommand) -> CommandResult:
         method = PanelExposureMethod(command.method.lower())
         desired = DesiredState(command.desired_state.upper())
+        requested_cf_mode = (command.cloudflare_mode or "").strip().lower() or None
+        if requested_cf_mode is not None and requested_cf_mode not in ("token", "quick"):
+            raise ValidationError("cloudflare_mode must be 'token' or 'quick'")
 
         post_commit: list[callable] = []
 
@@ -1436,29 +1765,75 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             system_state = await state_repo.get()
             access_mode = system_state.access_mode
 
-            # Idempotent no-op for an unchanged request, EXCEPT the
-            # RECLAIM_REQUIRED recovery path: an owner-supplied fresh token
-            # while the panel is already cloudflare_tunnel/ENABLED MUST reach
-            # the rotation flow rather than silently short-circuiting
-            # (design §7 "credential replacement").
+            # Evaluate idempotency while allowing retries from ERROR/STOPPED,
+            # RECLAIM_REQUIRED credential rotation, port changes, and Cloudflare mode switches.
             if panel.method == method and panel.desired_state == desired:
                 is_reclaim_rotation = (
                     method == PanelExposureMethod.CLOUDFLARE_TUNNEL
                     and desired == DesiredState.ENABLED
                     and panel.status == ExposureStatus.RECLAIM_REQUIRED
-                    and bool(command.cloudflare_token)
+                    and bool((command.cloudflare_token or "").strip())
                 )
-                is_error_retry = (
-                    desired == DesiredState.ENABLED and panel.status == ExposureStatus.ERROR
+                is_error_retry = desired == DesiredState.ENABLED and panel.status in (
+                    ExposureStatus.ERROR,
+                    ExposureStatus.STOPPED,
+                    ExposureStatus.DISABLED,
                 )
-                if not (is_reclaim_rotation or is_error_retry):
+                is_port_change = (
+                    method == PanelExposureMethod.PORT_FORWARD
+                    and desired == DesiredState.ENABLED
+                    and command.external_port is not None
+                    and command.external_port != panel.external_port
+                )
+                current_cf_mode = (
+                    "quick" if panel.cloudflare_tunnel_id == "quick" else "token"
+                )
+                is_cf_mode_switch = (
+                    method == PanelExposureMethod.CLOUDFLARE_TUNNEL
+                    and desired == DesiredState.ENABLED
+                    and (
+                        (requested_cf_mode is not None and requested_cf_mode != current_cf_mode)
+                        or requested_cf_mode == "quick"
+                        or (
+                            requested_cf_mode == "token"
+                            and (
+                                bool((command.cloudflare_token or "").strip())
+                                or not get_cloudflared_supervisor().is_running
+                            )
+                        )
+                    )
+                )
+                if not (
+                    is_reclaim_rotation
+                    or is_error_retry
+                    or is_port_change
+                    or is_cf_mode_switch
+                ):
                     return CommandResult(
                         success=True, data=_panel_payload(panel, access_mode=access_mode)
                     )
 
+            prev_method = panel.method
+            prev_ext_port = panel.external_port
+            prev_playit_tunnel_id = panel.playit_tunnel_id
+
+            # Tear down previous active method runtime process or router mapping on switch.
+            if prev_method != method and method != PanelExposureMethod.NONE:
+                await self._teardown_previous_panel_method(
+                    uow=uow,
+                    panel=panel,
+                    prev_method=prev_method,
+                    prev_ext_port=prev_ext_port,
+                    prev_playit_tunnel_id=prev_playit_tunnel_id,
+                    target_method=method,
+                    post_commit=post_commit,
+                )
+
             if method == PanelExposureMethod.CLOUDFLARE_TUNNEL:
                 if desired == DesiredState.ENABLED:
-                    await self._enable_cloudflare(uow, repo, panel, command, post_commit)
+                    await self._enable_cloudflare(
+                        uow, repo, panel, command, requested_cf_mode, post_commit
+                    )
                 else:
                     await self._disable_cloudflare(uow, repo, panel, post_commit)
             elif method == PanelExposureMethod.PLAYIT_HTTP:
@@ -1483,13 +1858,62 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             try:
                 await action()
             except Exception:
-                import logging
+                logger.exception("post-commit exposure action failed")
 
-                logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure").exception(
-                    "post-commit exposure action failed"
-                )
+        # Refresh panel entity if post-commit callbacks mutated it asynchronously in DB.
+        if post_commit:
+            async with UnitOfWork() as check_uow:
+                panel = await SQLPanelExposureRepository(check_uow.session).get()
 
         return CommandResult(success=True, data=_panel_payload(panel, access_mode=access_mode))
+
+    async def _teardown_previous_panel_method(
+        self,
+        *,
+        uow: UnitOfWork,
+        panel: PanelExposure,
+        prev_method: PanelExposureMethod,
+        prev_ext_port: int | None,
+        prev_playit_tunnel_id: str | None,
+        target_method: PanelExposureMethod,
+        post_commit: list[callable],
+    ) -> None:
+        """Stop processes and router mappings left behind by the previously active method."""
+        if prev_method == PanelExposureMethod.CLOUDFLARE_TUNNEL:
+            post_commit.append(self._stop_supervisor)
+            panel.clear_cloudflare_credentials()
+        elif prev_method == PanelExposureMethod.PORT_FORWARD:
+            if prev_ext_port:
+                post_commit.append(lambda p=prev_ext_port: AsyncUPnPService().delete_mapping(p))
+            panel.clear_port_forward_details()
+            if target_method != PanelExposureMethod.PORT_FORWARD:
+                _restore_loopback_panel_bind()
+        elif prev_method == PanelExposureMethod.PLAYIT_HTTP:
+            agent_repo = SQLHostAgentRepository(uow.session)
+            agent = await agent_repo.get()
+            if prev_playit_tunnel_id and agent.is_claimed and agent.secret_ciphertext:
+                try:
+                    secret_hex = _panel_encryption().decrypt(agent.secret_ciphertext).decode(
+                        "utf-8"
+                    )
+                    api_client = PlayitApiClient()
+                    post_commit.append(
+                        lambda s=secret_hex, tid=prev_playit_tunnel_id: api_client.delete_tunnel(
+                            s, tid
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning("Could not delete previous playit panel tunnel: %s", exc)
+            panel.clear_playit_credentials()
+            # Ensure panel method reflects departure before checking desired agent running state.
+            panel.update(target_method, DesiredState.DISABLED)
+            await SQLPanelExposureRepository(uow.session).save(panel)
+            desired_running = await compute_desired_agent_running(uow.session)
+            if desired_running != agent.desired_agent_running:
+                agent.set_desired_agent_running(desired_running)
+                await agent_repo.save(agent)
+                if not desired_running:
+                    post_commit.append(self._stop_playit_supervisor)
 
     async def _enable_cloudflare(
         self,
@@ -1497,24 +1921,136 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         _repo: PanelExposureRepository,
         panel: PanelExposure,
         command: SetPanelExposureCommand,
+        cloudflare_mode: str | None,
         post_commit: list[callable],
     ) -> None:
-        token = command.cloudflare_token
-        hostname = command.hostname.strip().lower() if command.hostname else ""
-        if not token:
-            raise ValidationError("cloudflare_token is required to enable cloudflare_tunnel")
+        raw_token = (command.cloudflare_token or "").strip()
+        hostname = (command.hostname or "").strip().lower()
 
-        # Clear alternative method state
+        _restore_loopback_panel_bind()
         panel.clear_playit_credentials()
         panel.clear_port_forward_details()
 
-        # RECLAIM_REQUIRED recovery (design §7 credential replacement): reuse
-        # the existing tunnel id, rotate the ciphertext in place, restart the
-        # supervised child. No new tunnel, no new CNAME, no DNS writes.
-        if panel.status == ExposureStatus.RECLAIM_REQUIRED and panel.cloudflare_tunnel_id:
-            await self._rotate_cloudflare_token(panel, token, hostname, post_commit)
+        # Mode 2: Quick Preview (Temporary *.trycloudflare.com URL — zero inputs)
+        if cloudflare_mode == "quick":
+            local_target = local_panel_ingress_target()
+            panel.clear_cloudflare_credentials()
+            panel.set_cloudflare_quick_mode()
+            panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
+            panel.set_public_address(None)
+            panel.set_status(ExposureStatus.STARTING)
+            panel.set_error(None)
+
+            async def _run_quick_cf(target=local_target) -> None:
+                sup = get_cloudflared_supervisor()
+                await sup.stop()
+                if hasattr(sup, "start_quick"):
+                    await sup.start_quick(
+                        target,
+                        on_status=_persist_panel_status,
+                        on_url=_persist_panel_quick_url,
+                    )
+                else:
+                    return
+
+                # Wait briefly for immediate URL capture or missing-binary error.
+                for _ in range(60):
+                    if (
+                        getattr(sup, "quick_url", None)
+                        or sup.status == ExposureStatus.ERROR
+                        or not sup.is_running
+                    ):
+                        break
+                    await asyncio.sleep(0.05)
+
+                if getattr(sup, "quick_url", None):
+                    await _persist_panel_quick_url(sup.quick_url)
+                elif sup.status == ExposureStatus.ERROR:
+                    await _persist_panel_status(ExposureStatus.ERROR)
+
+            post_commit.append(_run_quick_cf)
             return
 
+        # RECLAIM_REQUIRED recovery (legacy named tunnel or token mode rotation)
+        if (
+            panel.status == ExposureStatus.RECLAIM_REQUIRED
+            and panel.cloudflare_tunnel_id
+            and panel.cloudflare_tunnel_id != "quick"
+        ):
+            if not raw_token:
+                raise ValidationError(
+                    "cloudflare_token is required to replace an invalidated tunnel token"
+                )
+            await self._rotate_cloudflare_token(panel, raw_token, hostname, post_commit)
+            return
+
+        # Mode 1: Permanent Mode via Tunnel Token (TUNNEL_TOKEN env var — no API DNS calls)
+        use_token_mode = cloudflare_mode == "token" or (
+            cloudflare_mode is None and not hostname and _looks_like_tunnel_token(raw_token)
+        )
+        if use_token_mode:
+            token_str = raw_token
+            if token_str:
+                if len(token_str) < 12 or any(ch.isspace() for ch in token_str):
+                    raise ValidationError(
+                        "A valid Cloudflare Tunnel Token is required (no spaces or line breaks)."
+                    )
+            elif panel.cloudflare_token_ciphertext and panel.cloudflare_tunnel_id != "quick":
+                try:
+                    token_str = (
+                        _panel_encryption().decrypt(panel.cloudflare_token_ciphertext).decode("utf-8")
+                    )
+                except Exception as exc:
+                    raise ValidationError(
+                        "Stored Cloudflare Tunnel Token could not be decrypted; "
+                        "please enter a fresh token."
+                    ) from exc
+            else:
+                raise ValidationError(
+                    "cloudflare_token is required to enable Cloudflare Tunnel Token mode"
+                )
+
+            local_panel_ingress_target()  # enforce loopback/wildcard invariant
+            token_bytes = token_str.encode("utf-8")
+            ciphertext = _panel_encryption().encrypt(token_bytes)
+            tunnel_id = (
+                panel.cloudflare_tunnel_id
+                if (panel.cloudflare_tunnel_id and panel.cloudflare_tunnel_id != "quick")
+                else "token"
+            )
+            panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
+            panel.set_cloudflare_credentials(tunnel_id, ciphertext)
+            panel.set_public_address(hostname or None)
+            panel.set_status(ExposureStatus.STARTING)
+            panel.set_error(None)
+
+            async def _run_token_cf(tok_bytes=token_bytes) -> None:
+                sup = get_cloudflared_supervisor()
+                if sup.is_running:
+                    await sup.stop()
+                if hasattr(sup, "start_token"):
+                    await sup.start_token(tok_bytes, on_status=_persist_panel_status)
+                else:
+                    await sup.start(tok_bytes, on_status=_persist_panel_status)
+
+                for _ in range(10):
+                    if sup.status != ExposureStatus.STARTING or not sup.is_running:
+                        break
+                    await asyncio.sleep(0.05)
+
+                if sup.status in (
+                    ExposureStatus.ERROR,
+                    ExposureStatus.RECLAIM_REQUIRED,
+                    ExposureStatus.ACTIVE,
+                ):
+                    await _persist_panel_status(sup.status)
+
+            post_commit.append(_run_token_cf)
+            return
+
+        # Legacy API flow (cloudflare_token API token + hostname required)
+        if not raw_token:
+            raise ValidationError("cloudflare_token is required to enable cloudflare_tunnel")
         if not hostname:
             raise ValidationError("hostname is required to enable cloudflare_tunnel")
 
@@ -1524,7 +2060,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel.set_status(ExposureStatus.STARTING)
         panel.set_error(None)
 
-        async def _run_panel_cf(tok=token, host=hostname, ing=ingress):
+        async def _run_panel_cf(tok=raw_token, host=hostname, ing=ingress):
             client = CloudflareClient(tok)
             try:
                 provisioned = await client.create_named_tunnel(
@@ -1582,27 +2118,30 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         hostname: str,
         post_commit: list[callable],
     ) -> None:
-        """RECLAIM_REQUIRED recovery: replace the tunnel token in place.
-
-        Reuses the existing ``cloudflare_tunnel_id`` and public address — no
-        new tunnel, no new CNAME, no DNS writes (design §7 credential
-        replacement, §6 single-CNAME). The fresh owner-supplied token is
-        re-encrypted under the existing AES-GCM key and the supervised
-        ``cloudflared`` child is restarted with it. A still-invalid token is
-        re-detected by the supervisor's auth-failure markers, which persist
-        RECLAIM_REQUIRED again (design §7) — the command never claims success
-        for a token cloudflared rejects.
-        """
+        """RECLAIM_REQUIRED recovery: replace the tunnel token in place."""
+        is_token_mode = panel.cloudflare_tunnel_id == "token"
         resolved_hostname = hostname or panel.public_address or ""
-        if not resolved_hostname:
+        if not resolved_hostname and not is_token_mode:
             raise ValidationError("hostname is required to enable cloudflare_tunnel")
         ciphertext = _panel_encryption().encrypt(token.encode("utf-8"))
         panel.set_cloudflare_credentials(panel.cloudflare_tunnel_id, ciphertext)
-        panel.set_public_address(resolved_hostname)
+        panel.set_public_address(resolved_hostname or None)
         panel.set_status(ExposureStatus.STARTING)
         panel.set_error(None)
         token_bytes = token.encode("utf-8")
-        post_commit.append(lambda t=token_bytes: self._restart_supervisor(t))
+        if is_token_mode:
+            async def _restart_tok(t=token_bytes):
+                sup = get_cloudflared_supervisor()
+                if sup.is_running:
+                    await sup.stop()
+                if hasattr(sup, "start_token"):
+                    await sup.start_token(t, on_status=_persist_panel_status)
+                else:
+                    await sup.start(t, on_status=_persist_panel_status)
+
+            post_commit.append(_restart_tok)
+        else:
+            post_commit.append(lambda t=token_bytes: self._restart_supervisor(t))
 
     async def _disable_cloudflare(
         self,
@@ -1863,6 +2402,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel.set_public_address(None)
         panel.set_error(None)
         panel.clear_port_forward_details()
+        _restore_loopback_panel_bind()
         if ext_port:
             post_commit.append(lambda p=ext_port: AsyncUPnPService().delete_mapping(p))
 
@@ -1880,6 +2420,9 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             await self._disable_playit_http(uow, repo, panel, post_commit)
         elif prev_method == PanelExposureMethod.PORT_FORWARD:
             await self._disable_port_forward(uow, repo, panel, post_commit)
+        else:
+            post_commit.append(self._stop_supervisor)
+            _restore_loopback_panel_bind()
 
         panel.update(PanelExposureMethod.NONE, DesiredState.DISABLED)
         panel.set_status(ExposureStatus.DISABLED)
@@ -1989,6 +2532,7 @@ async def _reconcile_playit_tunnels() -> None:
 
 async def _persist_panel_status(status: ExposureStatus) -> None:
     try:
+        sup = get_cloudflared_supervisor()
         async with UnitOfWork() as uow:
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
             panel = await repo.get()
@@ -1998,22 +2542,52 @@ async def _persist_panel_status(status: ExposureStatus) -> None:
             if status == ExposureStatus.RECLAIM_REQUIRED:
                 panel.set_error(
                     "RECLAIM_REQUIRED",
-                    "cloudflared reported an invalid/revoked tunnel token",
+                    getattr(sup, "error_message", None)
+                    or "cloudflared reported an invalid/revoked tunnel token",
                 )
+            elif status == ExposureStatus.ERROR:
+                panel.set_error(
+                    getattr(sup, "error_code", None) or "CLOUDFLARED_ERROR",
+                    getattr(sup, "error_message", None)
+                    or "cloudflared exited unexpectedly or failed health check",
+                )
+            elif status == ExposureStatus.ACTIVE:
+                panel.set_error(None)
             await repo.save(panel)
             await uow.commit()
     except Exception:
         logger.exception("Failed to persist panel status %s", status.value)
 
 
+async def _persist_panel_quick_url(url: str) -> None:
+    """Persist ephemeral Quick Tunnel HTTPS URL once parsed from cloudflared output."""
+    try:
+        async with UnitOfWork() as uow:
+            repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
+            panel = await repo.get()
+            if (
+                panel.desired_state == DesiredState.DISABLED
+                or panel.method != PanelExposureMethod.CLOUDFLARE_TUNNEL
+            ):
+                return
+            panel.set_public_address(url)
+            panel.set_status(ExposureStatus.ACTIVE)
+            panel.set_error(None)
+            await repo.save(panel)
+            await uow.commit()
+    except Exception:
+        logger.exception("Failed to persist panel quick tunnel URL %s", url)
+
+
 def _make_persist_server_cloudflare_status(
     server_id: str,
+    branch_name: str = "main",
 ) -> Callable[[ExposureStatus], Awaitable[None]]:
     async def _persist_status(status: ExposureStatus) -> None:
         try:
             async with UnitOfWork() as uow:
                 repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
-                exposure = await repo.get(server_id)
+                exposure = await repo.get(server_id, branch_name=branch_name)
                 if exposure is None or exposure.desired_state == DesiredState.DISABLED:
                     return
                 for target in exposure.targets:
@@ -2261,11 +2835,14 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
         return CommandResult(success=True, data={"reconciled": True})
 
     async def _reconcile_panel(self, uow: UnitOfWork, post_commit: list[callable]) -> None:
-        """Restore the panel Cloudflare tunnel from the persisted desired state.
+        """Restore the panel exposure runtime state from the persisted desired state.
 
         Uses only the stored aggregate (desired_state, method, credentials):
-          - ENABLED + cloudflare_tunnel + stored credentials + not running
+          - ENABLED + cloudflare_tunnel (quick) -> restart ephemeral quick tunnel.
+          - ENABLED + cloudflare_tunnel (token/legacy) + stored credentials
             -> restart the supervised child.
+          - ENABLED + port_forward -> verify bind & restore UPnP port mapping if
+            bound on a non-loopback address (clears BIND_MISMATCH after restart).
           - RECLAIM_REQUIRED -> leave it; the owner must provide a new token.
           - DISABLED -> ensure the child is stopped.
         """
@@ -2276,30 +2853,128 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
         if (
             panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
             and panel.desired_state == DesiredState.ENABLED
-            and panel.has_cloudflare_credentials
         ):
             if panel.status == ExposureStatus.RECLAIM_REQUIRED:
                 return
             if supervisor.is_running:
                 return
-            def _make_panel_cf(ctext=panel.cloudflare_token_ciphertext):
-                async def _act():
-                    sup = get_cloudflared_supervisor()
-                    if sup.is_running:
-                        return
-                    try:
-                        plaintext = _panel_encryption().decrypt(ctext)
-                        await sup.start(plaintext, on_status=_persist_panel_status)
-                    except Exception:
-                        logger.exception("Failed to decrypt panel cloudflare token on reconcile")
-                return _act
+            if panel.cloudflare_tunnel_id == "quick":
+                local_target = local_panel_ingress_target()
 
-            post_commit.append(_make_panel_cf())
+                def _make_panel_quick(target=local_target):
+                    async def _act():
+                        sup = get_cloudflared_supervisor()
+                        if sup.is_running:
+                            return
+                        if hasattr(sup, "start_quick"):
+                            await sup.start_quick(
+                                target,
+                                on_status=_persist_panel_status,
+                                on_url=_persist_panel_quick_url,
+                            )
+
+                    return _act
+
+                post_commit.append(_make_panel_quick())
+            elif panel.has_cloudflare_credentials:
+                is_token_mode = panel.cloudflare_tunnel_id == "token"
+
+                def _make_panel_cf(
+                    ctext=panel.cloudflare_token_ciphertext,
+                    tok_mode=is_token_mode,
+                ):
+                    async def _act():
+                        sup = get_cloudflared_supervisor()
+                        if sup.is_running:
+                            return
+                        try:
+                            plaintext = _panel_encryption().decrypt(ctext)
+                            if tok_mode and hasattr(sup, "start_token"):
+                                await sup.start_token(plaintext, on_status=_persist_panel_status)
+                            else:
+                                await sup.start(plaintext, on_status=_persist_panel_status)
+                        except Exception:
+                            logger.exception(
+                                "Failed to decrypt panel cloudflare token on reconcile"
+                            )
+
+                    return _act
+
+                post_commit.append(_make_panel_cf())
+        elif (
+            panel.method == PanelExposureMethod.PORT_FORWARD
+            and panel.desired_state == DesiredState.ENABLED
+        ):
+            active_host, _ = get_active_panel_bind()
+            if not _is_loopback_bind_host(active_host):
+                ext_port = panel.external_port
+                eb = self._event_bus
+
+                def _make_panel_upnp(port=ext_port, bus=eb):
+                    async def _act():
+                        await SetPanelExposureHandler(bus).handle(
+                            SetPanelExposureCommand(
+                                method="port_forward",
+                                desired_state="ENABLED",
+                                external_port=port,
+                            )
+                        )
+
+                    return _act
+
+                post_commit.append(_make_panel_upnp())
         elif (
             panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
             and panel.desired_state == DesiredState.DISABLED
         ):
             post_commit.append(supervisor.stop)
+
+
+async def reconcile_panel_exposure_on_startup(event_bus: EventBus) -> None:
+    """Reconcile persisted Panel Exposure state on backend startup.
+
+    Ensures:
+      - ``port_forward`` left in ``BIND_MISMATCH`` clears automatically once the
+        backend restarts bound to ``0.0.0.0`` (or re-validates UPnP mapping).
+      - ``cloudflare_tunnel`` resumes automatically in Permanent Token or Quick
+        Preview mode when ``desired_state == ENABLED``.
+    """
+    async with UnitOfWork() as uow:
+        repo = SQLPanelExposureRepository(uow.session)
+        panel = await repo.get()
+
+    if panel.desired_state != DesiredState.ENABLED:
+        return
+
+    if panel.method == PanelExposureMethod.PORT_FORWARD:
+        active_host, _ = get_active_panel_bind()
+        if not _is_loopback_bind_host(active_host):
+            await SetPanelExposureHandler(event_bus).handle(
+                SetPanelExposureCommand(
+                    method="port_forward",
+                    desired_state="ENABLED",
+                    external_port=panel.external_port,
+                )
+            )
+    elif (
+        panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
+        and panel.status != ExposureStatus.RECLAIM_REQUIRED
+    ):
+        supervisor = get_cloudflared_supervisor()
+        if supervisor.is_running:
+            return
+        if panel.cloudflare_tunnel_id == "quick":
+            await supervisor.start_quick(
+                local_panel_ingress_target(),
+                on_status=_persist_panel_status,
+                on_url=_persist_panel_quick_url,
+            )
+        elif panel.has_cloudflare_credentials and panel.cloudflare_token_ciphertext:
+            plaintext = _panel_encryption().decrypt(panel.cloudflare_token_ciphertext)
+            if panel.cloudflare_tunnel_id == "token":
+                await supervisor.start_token(plaintext, on_status=_persist_panel_status)
+            else:
+                await supervisor.start(plaintext, on_status=_persist_panel_status)
 
 
 def _fold_aggregate(exposure: ServerExposure) -> None:
@@ -2366,6 +3041,25 @@ def _panel_payload(
             "Panel bind address updated to 0.0.0.0 in config/settings.yaml. "
             "Restart the panel for this to take effect, then port forwarding will activate."
         )
+    elif panel.error_code in ("CGNAT_DETECTED", "DOUBLE_NAT_DETECTED"):
+        fix_hint = (
+            "Your ISP or upstream router uses CGNAT / Double-NAT (non-public WAN IP). "
+            "Switch to Cloudflare Tunnel or playit.gg instead."
+        )
+    elif panel.error_code in ("UPNP_UNSUPPORTED", "UPNP_TIMEOUT"):
+        fix_hint = (
+            "Enable UPnP in your router settings, forward the port manually, "
+            "or switch to Cloudflare Tunnel / playit.gg."
+        )
+    elif panel.error_code == "CLOUDFLARED_NOT_FOUND":
+        fix_hint = (
+            "Install the cloudflared binary on this host and retry."
+        )
+    elif panel.error_code in ("DENY_LIST_VIOLATION", "INVALID_PORT"):
+        fix_hint = (
+            "Choose an unreserved port between 1024 and 65535 "
+            "(or leave blank to default to the panel port)."
+        )
 
     return {
         "method": panel.method.value,
@@ -2376,6 +3070,11 @@ def _panel_payload(
         "protocol": "http" if (is_port_forward or is_playit) else "https",
         "external_port": panel.external_port,
         "cloudflare_tunnel_id": panel.cloudflare_tunnel_id,
+        "has_cloudflare_credentials": bool(panel.cloudflare_token_ciphertext),
+        "ephemeral": bool(
+            panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
+            and panel.cloudflare_tunnel_id == "quick"
+        ),
         "playit_tunnel_id": panel.playit_tunnel_id,
         "upnp_last_result": panel.upnp_last_result,
         "error_code": panel.error_code,
@@ -2415,15 +3114,72 @@ def _target_payload(target: ServerExposureTarget) -> dict:
     }
 
 
-def _exposure_payload(exposure: ServerExposure) -> dict:
+def _exposure_payload(
+    exposure: ServerExposure,
+    *,
+    branch_context: dict[str, Any] | None = None,
+) -> dict:
+    ctx = branch_context or {}
+    allocated_port = ctx.get("game_port")
+    if allocated_port is None and exposure.targets:
+        allocated_port = exposure.targets[0].local_port
+
+    upnp_status = None
+    detected_wan_ip = None
+    error_code = None
+    error_message = None
+    for t in exposure.targets:
+        if t.error_code:
+            error_code = t.error_code
+            error_message = t.error_message
+            if t.error_code == "CGNAT_DETECTED":
+                upnp_status = "CGNAT_DETECTED"
+                import re as _re
+
+                m = _re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", t.error_message or "")
+                if m:
+                    detected_wan_ip = m.group(0)
+            break
+    if upnp_status is None and exposure.method == ExposureMethod.PORT_FORWARD:
+        if exposure.aggregate_status == ExposureStatus.ACTIVE:
+            upnp_status = "ACTIVE"
+        elif exposure.aggregate_status == ExposureStatus.ERROR:
+            upnp_status = "ERROR"
+        else:
+            upnp_status = "IDLE"
+
+    srv_hint = None
+    if (
+        exposure.subdomain_prefix
+        and exposure.base_domain
+        and (allocated_port is not None)
+    ):
+        ext_port = allocated_port
+        if exposure.targets:
+            ext_port = _extract_target_external_port(exposure.targets[0])
+        fqdn = f"{exposure.subdomain_prefix}.{exposure.base_domain}"
+        srv_hint = f"_minecraft._tcp.{fqdn} 300 IN SRV 0 5 {ext_port} {fqdn}"
+
     return {
         "server_id": exposure.server_id,
+        "branch_name": exposure.branch_name,
+        "branch_runtime_status": ctx.get("branch_runtime_status"),
+        "allocated_game_port": allocated_port,
+        "allocated_port_set": ctx.get("allocated_port_set"),
         "method": exposure.method.value,
         "desired_state": exposure.desired_state.value,
         "aggregate_status": exposure.aggregate_status.value,
-        "error_code": None,
-        "error_message": None,
+        "error_code": error_code,
+        "error_message": error_message,
         "cloudflare_tunnel_id": exposure.cloudflare_tunnel_id,
         "has_cloudflare_credentials": exposure.has_cloudflare_credentials,
+        "cloudflare_mode": exposure.cloudflare_mode,
+        "subdomain_prefix": exposure.subdomain_prefix,
+        "base_domain": exposure.base_domain,
+        "srv_record_enabled": exposure.srv_record_enabled,
+        "srv_record_hint": srv_hint,
+        "ephemeral": exposure.ephemeral,
+        "upnp_status": upnp_status,
+        "detected_wan_ip": detected_wan_ip,
         "targets": [_target_payload(t) for t in exposure.targets],
     }

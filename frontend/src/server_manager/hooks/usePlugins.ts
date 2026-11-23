@@ -7,11 +7,11 @@ function useApi() {
   return createAuthenticatedApi();
 }
 
-export function usePluginsList(serverId: string) {
+export function usePluginsList(serverId: string, branch?: string) {
   const api = useApi();
   return useQuery({
-    queryKey: queryKeys.plugins.list(serverId),
-    queryFn: () => api.listPlugins(serverId),
+    queryKey: queryKeys.plugins.list(serverId, branch),
+    queryFn: () => api.listPlugins(serverId, branch),
     enabled: !!serverId,
   });
 }
@@ -97,58 +97,58 @@ export function useProjectVersions(
   });
 }
 
-export function useInstallFromMarketplace(serverId: string) {
+export function useInstallFromMarketplace(serverId: string, branch?: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: InstallModrinthPluginRequest) => api.installFromMarketplace(serverId, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+    mutationFn: (body: InstallModrinthPluginRequest) => api.installFromMarketplace(serverId, body, branch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
   });
 }
 
-export function useEnablePlugin(serverId: string) {
+export function useEnablePlugin(serverId: string, branch?: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (pluginId: string) => api.enablePlugin(serverId, pluginId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+    mutationFn: (pluginId: string) => api.enablePlugin(serverId, pluginId, branch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
   });
 }
 
-export function useDisablePlugin(serverId: string) {
+export function useDisablePlugin(serverId: string, branch?: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (pluginId: string) => api.disablePlugin(serverId, pluginId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+    mutationFn: (pluginId: string) => api.disablePlugin(serverId, pluginId, branch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
   });
 }
 
-export function useUninstallPlugin(serverId: string) {
+export function useUninstallPlugin(serverId: string, branch?: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (pluginId: string) => api.uninstallPlugin(serverId, pluginId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+    mutationFn: (pluginId: string) => api.uninstallPlugin(serverId, pluginId, branch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
   });
 }
 
-export function useUploadPluginOrMod(serverId: string) {
+export function useUploadPluginOrMod(serverId: string, branch?: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.uploadPluginOrMod(serverId, file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+    mutationFn: (file: File) => api.uploadPluginOrMod(serverId, file, branch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
   });
 }
 
-export function useToggleModState(serverId: string) {
+export function useToggleModState(serverId: string, branch?: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: { mod_id?: string | null; plugin_id?: string | null; enabled: boolean }) =>
-      api.toggleModState(serverId, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+      api.toggleModState(serverId, payload, branch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
   });
 }
 

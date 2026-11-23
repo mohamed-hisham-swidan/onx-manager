@@ -372,4 +372,105 @@ describe("DashboardPage Command Center", () => {
     fireEvent.change(select, { target: { value: "srv-1" } });
     expect(screen.getByTestId("attached-console-route")).toBeInTheDocument();
   });
+
+  it("displays live server CPU, RAM, TPS, players, and allocatable RAM after OS reserve", () => {
+    const customQc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    // Pre-populate React Query cache for hostResources, server details, and server metrics
+    customQc.setQueryData(["hostResources"], {
+      total_ram_mb: 16384,
+      os_reserve_ram_mb: 4096,
+      allocatable_ram_mb: 12288,
+      allocated_ram_mb: 4096,
+      available_ram_mb: 8192,
+      total_cpus: 8,
+      reserved_cpus: 2,
+      allocatable_cpus: 6,
+      allocated_cpus: 2,
+      available_cpus: 4,
+      profile: "local",
+      ram_reserve_override_mb: 0,
+      cpu_reserve_override: 0,
+      allocations: [
+        {
+          id: "srv-1",
+          name: "Online Server",
+          kind: "server",
+          status: "running",
+          ram_mb: 4096,
+          cpu_cores: 2,
+        },
+      ],
+    });
+    customQc.setQueryData(["servers", "detail", "srv-1"], {
+      ...mockServers[0],
+      min_memory_mb: 1024,
+      max_memory_mb: 4096,
+      java_args: "",
+      spawn_protection: 16,
+      pvp: true,
+      enable_command_block: false,
+      online_mode: true,
+      whitelist: false,
+      view_distance: 10,
+      simulation_distance: 10,
+      provider: "docker",
+      deployment_host: null,
+      deployment_port: null,
+      deployment_pid: null,
+      location_type: null,
+      location_uri: null,
+      root_path: null,
+      working_directory: null,
+      startup_jar: null,
+      startup_command: null,
+      primary_world: null,
+    });
+    customQc.setQueryData(["monitoring", "metrics", "srv-1"], [
+      {
+        tps: 19.8,
+        players: 3,
+        ram_used_mb: 2457.6,
+        cpu_percent: 34.5,
+        timestamp: "2026-11-23T12:00:00Z",
+      },
+    ]);
+
+    vi.mocked(useServersList).mockReturnValue({
+      data: [mockServers[0]],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useServersList>);
+
+    render(
+      <QueryClientProvider client={customQc}>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const cpuRegion = screen.getByRole("region", { name: "Compute and Tickrate" });
+    expect(within(cpuRegion).getByText("34.5%")).toBeInTheDocument();
+    expect(within(cpuRegion).getByText("19.8 TPS avg")).toBeInTheDocument();
+
+    const memRegion = screen.getByRole("region", { name: "Memory Allocation" });
+    expect(within(memRegion).getByText("2.4 / 12.0 GB")).toBeInTheDocument();
+    expect(within(memRegion).getByText("4.0 GB Reserved (20.0% Used)")).toBeInTheDocument();
+    expect(within(memRegion).getByText("9.6 GB Free")).toBeInTheDocument();
+
+    const row = screen.getByRole("link", { name: "Online Server" }).closest(".group") as HTMLElement;
+    expect(within(row).getByText("3 / 20 Players")).toBeInTheDocument();
+    expect(within(row).getByText("CPU: 34.5%")).toBeInTheDocument();
+    expect(within(row).getByText("RAM: 2.4 / 4.0 GB")).toBeInTheDocument();
+
+    // Ensure telemetry column guards against overflowing into action buttons
+    const telemetryCol = within(row).getByText("CPU: 34.5%").closest(".flex-1") as HTMLElement;
+    expect(telemetryCol).toHaveClass("overflow-hidden");
+    expect(telemetryCol).toHaveClass("min-w-0");
+    expect(row).toHaveClass("@3xl:flex-row");
+  });
 });

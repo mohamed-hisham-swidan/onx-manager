@@ -615,6 +615,27 @@ async def test_branch_console_and_loopback_rcon(p43_api: Any) -> None:
     assert "super-secret" not in res.text
 
     await _stop(api)
+    # Stopped provisioned branch still serves historical console logs; RCON command requires running container
+    res = await api.client.get(
+        f"{VERSIONING}/branches/feat-a/console", headers=api.header
+    )
+    assert res.status_code == 200, res.text
+    res = await api.client.post(
+        f"{VERSIONING}/branches/feat-a/console/command",
+        json={"command": "list"},
+        headers=api.header,
+    )
+    assert res.status_code == 404, res.text
+
+    # After explicit destroy, both historical console logs and RCON command return 404
+    res = await api.client.post(
+        f"{VERSIONING}/branches/feat-a/destroy",
+        json={},
+        headers=api.header,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["container_provisioned"] is False
+    assert res.json()["released_ports"] is True
     res = await api.client.get(
         f"{VERSIONING}/branches/feat-a/console", headers=api.header
     )

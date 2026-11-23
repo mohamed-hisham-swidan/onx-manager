@@ -120,6 +120,28 @@ class DeleteBranchHandler(CommandHandler[DeleteBranchCommand]):
                     else str(active_rt.status),
                 },
             )
+        if branch.active_runtime_id and server.deployment and server.deployment.root_path:
+            import contextlib as _cl
+
+            from app.core.host_state import resolve_host_state_layout
+            from app.core.persistence.db import database as _db
+            from app.modules.versioning.infrastructure.branch_runtime_service import (
+                BranchRuntimeService,
+            )
+
+            with _cl.suppress(Exception):
+                svc = BranchRuntimeService(
+                    resolve_host_state_layout(),
+                    session_factory=_db.session_factory,
+                    engine=_db._engine,
+                )
+                await svc.destroy_branch_runtime(
+                    command.server_id,
+                    server.deployment.root_path,
+                    branch.name,
+                    runtime_id=branch.active_runtime_id,
+                    keep_port_assignment=False,
+                )
         git_context = git_branch_context(server)
         if git_context is not None:
             git_info = git_context.service.get_branch(
@@ -147,6 +169,17 @@ class DeleteBranchHandler(CommandHandler[DeleteBranchCommand]):
         if not deleted:
             raise NotFoundError(
                 f"Branch '{command.name}' not found on server '{command.server_id}'"
+            )
+
+        if _events is not None:
+            from app.modules.versioning.domain.events import BranchDeletedEvent
+
+            _events.append(
+                BranchDeletedEvent(
+                    server_id=command.server_id,
+                    branch_name=branch.name,
+                    branch_id=branch.id,
+                )
             )
 
         return CommandResult(

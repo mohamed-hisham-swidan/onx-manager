@@ -5,6 +5,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -35,14 +36,24 @@ class ServerExposureModel(Base, TimestampMixin):
         String(36),
         ForeignKey("servers.id", ondelete="CASCADE"),
         nullable=False,
-        unique=True,
         index=True,
     )
+    branch_name = Column(String(64), nullable=False, default="main", server_default="main")
     method = Column(String(16), nullable=False)
     desired_state = Column(String(16), nullable=False, default="DISABLED")
     aggregate_status = Column(String(32), nullable=False, default="DISABLED")
     cloudflare_tunnel_id = Column(String(64), nullable=True)
     cloudflare_token_ciphertext = Column(LargeBinary, nullable=True)
+    cloudflare_mode = Column(String(16), nullable=True)
+    subdomain_prefix = Column(String(63), nullable=True)
+    base_domain = Column(String(255), nullable=True)
+    srv_record_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    ephemeral = Column(Boolean, nullable=False, default=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint("server_id", "branch_name", name="uq_server_exposure_server_branch"),
+        Index("ix_server_exposure_server_branch", "server_id", "branch_name"),
+    )
 
 
 class ServerExposureTargetModel(Base, TimestampMixin):

@@ -24,8 +24,13 @@ export interface ServerExposureMethodSelectorProps {
   onSaveExposure: (params: {
     method: ExposureMethodType;
     desired_state: "ENABLED" | "DISABLED";
+    cloudflare_mode?: "quick" | "subdomain" | "tcp" | null;
     cloudflare_token?: string;
     hostname?: string;
+    subdomain_prefix?: string | null;
+    base_domain?: string | null;
+    srv_record_enabled?: boolean;
+    external_port?: number | null;
     acknowledged_warning?: boolean;
   }) => Promise<void> | void;
   onGenerateClaim: () => Promise<ClaimResponse | void>;
@@ -52,8 +57,14 @@ export function ServerExposureMethodSelector({
   isReadOnly = false,
 }: ServerExposureMethodSelectorProps) {
   // Local form inputs
+  const [cloudflareMode, setCloudflareMode] = useState<"tcp" | "quick" | "subdomain">(
+    exposure?.cloudflare_mode ?? "tcp",
+  );
   const [cloudflareToken, setCloudflareToken] = useState("");
   const [hostname, setHostname] = useState("");
+  const [subdomainPrefix, setSubdomainPrefix] = useState(exposure?.subdomain_prefix ?? "");
+  const [baseDomain, setBaseDomain] = useState(exposure?.base_domain ?? "");
+  const [srvRecordEnabled, setSrvRecordEnabled] = useState(Boolean(exposure?.srv_record_enabled));
   const [showToken, setShowToken] = useState(false);
   const [acknowledgedWarning, setAcknowledgedWarning] = useState(false);
   const [isRotatingToken, setIsRotatingToken] = useState(false);
@@ -128,11 +139,41 @@ export function ServerExposureMethodSelector({
       onSaveExposure({
         method: "port_forward",
         desired_state: "ENABLED",
+        subdomain_prefix: subdomainPrefix.trim() || undefined,
+        base_domain: baseDomain.trim() || undefined,
+        srv_record_enabled: srvRecordEnabled || undefined,
       });
       return;
     }
 
     if (draftMethod === "cloudflare_tcp") {
+      if (cloudflareMode === "quick") {
+        onSaveExposure({
+          method: "cloudflare_tcp",
+          desired_state: "ENABLED",
+          cloudflare_mode: "quick",
+          acknowledged_warning: true,
+        });
+        return;
+      }
+      if (cloudflareMode === "subdomain") {
+        const sub = subdomainPrefix.trim().toLowerCase();
+        const dom = baseDomain.trim().toLowerCase();
+        const combinedHost = sub && dom ? `${sub}.${dom}` : hostname.trim().toLowerCase();
+        if (!isValidFQDN(combinedHost) || !acknowledgedWarning) return;
+        onSaveExposure({
+          method: "cloudflare_tcp",
+          desired_state: "ENABLED",
+          cloudflare_mode: "subdomain",
+          cloudflare_token: cloudflareToken.trim() || undefined,
+          hostname: combinedHost,
+          subdomain_prefix: sub || undefined,
+          base_domain: dom || undefined,
+          srv_record_enabled: srvRecordEnabled,
+          acknowledged_warning: true,
+        });
+        return;
+      }
       if (!isValidFQDN(hostname) || !acknowledgedWarning) return;
       onSaveExposure({
         method: "cloudflare_tcp",
@@ -337,6 +378,43 @@ export function ServerExposureMethodSelector({
               <p className="text-xs text-text-secondary">
                 Port Forwarding requests automatic port mapping on your local router via UPnP IGD. Your router must have UPnP enabled and be assigned a public IP (no carrier-grade NAT).
               </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label htmlFor="upnp-subdomain" className="block text-xs font-medium text-text-secondary">
+                    Optional Subdomain Prefix
+                  </label>
+                  <input
+                    id="upnp-subdomain"
+                    type="text"
+                    value={subdomainPrefix}
+                    onChange={(e) => setSubdomainPrefix(e.target.value)}
+                    placeholder="play"
+                    className="w-full px-3 py-1.5 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="upnp-base-domain" className="block text-xs font-medium text-text-secondary">
+                    Optional Base Domain
+                  </label>
+                  <input
+                    id="upnp-base-domain"
+                    type="text"
+                    value={baseDomain}
+                    onChange={(e) => setBaseDomain(e.target.value)}
+                    placeholder="example.com"
+                    className="w-full px-3 py-1.5 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={srvRecordEnabled}
+                  onChange={(e) => setSrvRecordEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border-border-default text-accent-primary"
+                />
+                <span>Generate Minecraft SRV DNS Record Helper</span>
+              </label>
               <button
                 type="button"
                 onClick={handleSave}
@@ -351,6 +429,46 @@ export function ServerExposureMethodSelector({
           {/* Cloudflare TCP Form with Mandatory Warning & Checkbox (F-75-03) */}
           {draftMethod === "cloudflare_tcp" && (
             <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-text-secondary">Tunnel Mode:</span>
+                {(["tcp", "subdomain", "quick"] as const).map((modeKey) => (
+                  <button
+                    key={modeKey}
+                    type="button"
+                    data-testid={`cf-mode-${modeKey}-btn`}
+                    onClick={() => setCloudflareMode(modeKey)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition-colors cursor-pointer ${
+                      cloudflareMode === modeKey
+                        ? "border-accent-primary bg-accent-primary/15 text-accent-primary"
+                        : "border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover"
+                    }`}
+                  >
+                    {modeKey === "quick"
+                      ? "Quick Preview (No Domain)"
+                      : modeKey === "subdomain"
+                        ? "Custom Subdomain + SRV"
+                        : "Named Tunnel (Token)"}
+                  </button>
+                ))}
+              </div>
+
+              {cloudflareMode === "quick" ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-text-secondary">
+                    Starts a temporary <code className="font-mono">trycloudflare.com</code> tunnel for quick branch testing with zero DNS setup or credentials required.
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="cf-quick-enable-btn"
+                    onClick={handleSave}
+                    disabled={isUpdating}
+                    className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
+                  >
+                    {isUpdating ? "Starting Quick Tunnel..." : "Start Quick Cloudflare Preview"}
+                  </button>
+                </div>
+              ) : (
+                <>
               {/* Amber Player Warning Banner */}
               <div
                 role="alert"
@@ -473,6 +591,8 @@ export function ServerExposureMethodSelector({
                   </button>
                 )}
               </div>
+                </>
+              )}
             </div>
           )}
         </div>

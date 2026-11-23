@@ -6,23 +6,43 @@ from app.core.event_bus import DomainEvent
 class ServerExposureEnabledEvent(DomainEvent):
     server_id: str
     method: str
+    branch_name: str | None = None
 
-    def __init__(self, server_id: str, method: str) -> None:
-        super().__init__(server_id=server_id, method=method)
+    def __init__(self, server_id: str, method: str, branch_name: str | None = None) -> None:
+        super().__init__(server_id=server_id, method=method, branch_name=branch_name)
 
 
 class ServerExposureDisabledEvent(DomainEvent):
     server_id: str
+    branch_name: str | None = None
 
-    def __init__(self, server_id: str) -> None:
-        super().__init__(server_id=server_id)
+    def __init__(self, server_id: str, branch_name: str | None = None) -> None:
+        super().__init__(server_id=server_id, branch_name=branch_name)
 
 
 class ServerExposureRemovedEvent(DomainEvent):
     server_id: str
+    branch_name: str | None = None
 
-    def __init__(self, server_id: str) -> None:
-        super().__init__(server_id=server_id)
+    def __init__(self, server_id: str, branch_name: str | None = None) -> None:
+        super().__init__(server_id=server_id, branch_name=branch_name)
+
+
+class BranchExposureEnabledEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    method: str
+
+    def __init__(self, server_id: str, branch_name: str, method: str) -> None:
+        super().__init__(server_id=server_id, branch_name=branch_name, method=method)
+
+
+class BranchExposureDisabledEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+
+    def __init__(self, server_id: str, branch_name: str) -> None:
+        super().__init__(server_id=server_id, branch_name=branch_name)
 
 
 class AgentClaimGeneratedEvent(DomainEvent):

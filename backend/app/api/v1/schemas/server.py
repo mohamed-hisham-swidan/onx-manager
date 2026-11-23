@@ -126,6 +126,8 @@ class ServerDetailResponse(ServerResponse):
     startup_jar: str | None = None
     startup_command: str | None = None
     primary_world: str | None = None
+    branch_name: str | None = None
+    pending_settings_branch: dict | None = None
 
 
 class ConsoleResponse(BaseResponse):

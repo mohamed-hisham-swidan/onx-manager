@@ -14,7 +14,10 @@ export const queryKeys = {
   servers: {
     all: ["servers"] as const,
     list: () => ["servers", "list"] as const,
-    detail: (id: string) => ["servers", "detail", id] as const,
+    detail: (id: string, branch?: string) =>
+      branch && branch !== "main"
+        ? (["servers", "detail", id, branch] as const)
+        : (["servers", "detail", id] as const),
   },
   backups: {
     all: ["backups"] as const,
@@ -23,8 +26,9 @@ export const queryKeys = {
   },
   plugins: {
     all: ["plugins"] as const,
-    list: (serverId: string) => ["plugins", "list", serverId] as const,
-    detail: (serverId: string, pluginId: string) => ["plugins", "detail", serverId, pluginId] as const,
+    list: (serverId: string, branch?: string) => ["plugins", "list", serverId, branch ?? "main"] as const,
+    detail: (serverId: string, pluginId: string, branch?: string) =>
+      ["plugins", "detail", serverId, pluginId, branch ?? "main"] as const,
     marketplace: {
       search: (serverId: string, query: string, projectType?: string, offset = 0, loader?: string) =>
         ["plugins", "marketplace", "search", serverId, query, projectType ?? "plugin", offset, loader ?? "all"] as const,
@@ -49,7 +53,8 @@ export const queryKeys = {
     metrics: (serverId?: string) => ["monitoring", "metrics", serverId] as const,
   },
   console: {
-    history: (serverId: string) => ["console", "history", serverId] as const,
+    history: (serverId: string, branch?: string) =>
+      ["console", "history", serverId, branch ?? "main"] as const,
     crashReports: (serverId: string) => ["console", "crash-reports", serverId] as const,
   },
   settings: {
@@ -85,8 +90,10 @@ export const queryKeys = {
     all: ["exposure"] as const,
     panel: () => ["exposure", "panel"] as const,
     agent: () => ["exposure", "agent"] as const,
-    server: (serverId: string) => ["exposure", "server", serverId] as const,
-    targets: (serverId: string) => ["exposure", "targets", serverId] as const,
+    server: (serverId: string, branch?: string) =>
+      ["exposure", "server", serverId, branch ?? "main"] as const,
+    targets: (serverId: string, branch?: string) =>
+      ["exposure", "targets", serverId, branch ?? "main"] as const,
     ports: (serverId: string) => ["exposure", "ports", serverId] as const,
   },
   p55: {

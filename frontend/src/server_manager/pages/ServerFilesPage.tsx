@@ -181,6 +181,9 @@ export function ServerFilesPage() {
   const viewParam = searchParams.get("view") || searchParams.get("mode");
   const viewMode = viewParam === "live-state" || viewParam === "live_state" ? "live-state" : "branch";
   const isLiveState = viewMode === "live-state";
+  const isNonMainLiveStateReadOnly = Boolean(
+    isLiveState && activeBranch && activeBranch !== "main",
+  );
   const showViewSwitcher = branchContext?.gitBacked === true || viewParam === "live-state" || viewParam === "live_state";
 
   const { data: files, isLoading, error } = useQuery({
@@ -529,7 +532,7 @@ export function ServerFilesPage() {
             >
               Cancel
             </button>
-            {!isBinary && (isLiveState || !readOnlyBranch) && (
+            {!isBinary && ((isLiveState && !isNonMainLiveStateReadOnly) || !readOnlyBranch) && (
               <>
                 {isLiveState && (
                   <select
@@ -547,7 +550,7 @@ export function ServerFilesPage() {
                 <Button
                   variant="primary"
                   onClick={() => (isLiveState ? liveStateSaveMutation.mutate() : saveMutation.mutate())}
-                  disabled={(isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending) || effectiveContentLoading || !!effectiveContentError}
+                  disabled={isNonMainLiveStateReadOnly || (isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending) || effectiveContentLoading || !!effectiveContentError}
                   loading={isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending}
                   icon="save"
                 >
@@ -631,8 +634,18 @@ export function ServerFilesPage() {
       )}
 
       {isLiveState && (
-        <div data-testid="live-state-banner" className="rounded-xl border border-border-subtle bg-surface-card px-4 py-3 text-sm text-text-secondary shadow-2xs">
-          Live State edits apply directly to Class-C runtime files on the live server directory. If the server is RUNNING, saving triggers an automatic RCON save-all flush + reload; if STOPPED, saving writes atomically after checking world/session.lock.
+        <div data-testid="live-state-banner" className="rounded-xl border border-border-subtle bg-surface-card px-4 py-3 text-sm text-text-secondary shadow-2xs space-y-2">
+          <p>
+            Live State edits apply directly to Class-C runtime files on the live server directory. If the server is RUNNING, saving triggers an automatic RCON save-all flush + reload; if STOPPED, saving writes atomically after checking world/session.lock.
+          </p>
+          {isNonMainLiveStateReadOnly && (
+            <p
+              data-testid="files-non-main-class-c-banner"
+              className="rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs font-medium text-status-warning"
+            >
+              Class-C Live State belongs to <code className="font-mono">main</code>. Viewing branch &ldquo;{activeBranch}&rdquo; is read-only here; switch to <code className="font-mono">main</code> to modify live world/Class-C files.
+            </p>
+          )}
         </div>
       )}
 

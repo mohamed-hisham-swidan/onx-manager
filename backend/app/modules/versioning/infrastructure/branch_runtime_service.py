@@ -414,6 +414,23 @@ class BranchStopResult:
 
 
 @dataclass
+class BranchDestroyResult:
+    runtime_id: str
+    server_id: str
+    branch_name: str
+    container_name: str
+    released_ports: bool = True
+
+
+async def _teardown_branch_exposure_best_effort(server_id: str, branch_name: str) -> None:
+    """Stop any branch-scoped tunnel or UPnP mapping on container stop/destroy."""
+    with contextlib.suppress(Exception):
+        from app.modules.exposure.application.commands import teardown_branch_exposure
+
+        await teardown_branch_exposure(server_id, branch_name)
+
+
+@dataclass
 class SaveTemplateResult:
     template_id: str
     server_id: str
@@ -636,6 +653,56 @@ class BranchRuntimeService:
                 if not marker.is_file() or marker.is_symlink():
                     raise ValidationError("Data template marker missing", field="data_template_id")
                 template_dir = row.storage_path
+
+        # Check if this branch already has a provisioned stopped container on disk.
+        existing_stopped_rt = None
+        if self.session_factory is not None:
+            async with self.session_factory() as session:
+                from sqlalchemy import select as _select
+
+                br_res = await session.execute(
+                    _select(ServerBranchModel).where(
+                        ServerBranchModel.server_id == request.server_id,
+                        ServerBranchModel.name == request.branch_name,
+                    )
+                )
+                br_row = br_res.scalars().first()
+                if br_row is not None and br_row.active_runtime_id:
+                    cand_rt = await session.get(ServerRuntimeModel, br_row.active_runtime_id)
+                    if cand_rt is not None and cand_rt.status == "stopped":
+                        existing_stopped_rt = cand_rt
+                if existing_stopped_rt is None:
+                    rt_res = await session.execute(
+                        _select(ServerRuntimeModel)
+                        .where(
+                            ServerRuntimeModel.server_id == request.server_id,
+                            ServerRuntimeModel.branch_name == request.branch_name,
+                            ServerRuntimeModel.status == "stopped",
+                        )
+                        .order_by(ServerRuntimeModel.started_at.desc())
+                    )
+                    existing_stopped_rt = rt_res.scalars().first()
+
+        if existing_stopped_rt is not None:
+            existing_export = Path(getattr(existing_stopped_rt, "export_path", None) or "")
+            if request.data_template_id is None and existing_export.is_dir():
+                return await self._resume_stopped_runtime(
+                    request=request,
+                    runtime=existing_stopped_rt,
+                    commit_sha=commit_sha,
+                    export_root=existing_export,
+                    lockfile=lockfile,
+                    secrets=secrets,
+                )
+            # New data_template_id or missing export dir -> destroy stale stopped container.
+            with contextlib.suppress(Exception):
+                await self.destroy_branch_runtime(
+                    request.server_id,
+                    request.server_root,
+                    request.branch_name,
+                    runtime_id=existing_stopped_rt.id,
+                    keep_port_assignment=False,
+                )
 
         # dynamic class c
         dynamic_class_c: set[str] = set()
@@ -900,6 +967,159 @@ class BranchRuntimeService:
                         await session.commit()
             raise
 
+    async def _resume_stopped_runtime(
+        self,
+        *,
+        request: BranchStartRequest,
+        runtime: ServerRuntimeModel,
+        commit_sha: str,
+        export_root: Path,
+        lockfile: Any,
+        secrets: Mapping[str, str],
+    ) -> BranchStartResult:
+        """Start an existing stopped branch container, syncing worktree Class-A/B updates."""
+        if self.session_factory is not None:
+            async with self.session_factory() as _s:
+                await ensure_versioning_allowed(request.server_id, session=_s)
+
+        runtime_id = runtime.id
+        port_set = request.port_set
+        if port_set is None and getattr(runtime, "port_set_json", None):
+            with contextlib.suppress(Exception):
+                port_set = HostPortSet.from_dict(runtime.port_set_json)
+        if port_set is None:
+            raise ValidationError("Stopped runtime missing port set", field="port_set")
+
+        container_name = build_branch_container_name(
+            request.server_id, request.branch_name, runtime_id
+        )
+        try:
+            uncommitted_changes_warning = self.branch_service.has_uncommitted_changes(
+                request.server_id, request.server_root, request.branch_name
+            )
+        except Exception:
+            uncommitted_changes_warning = False
+
+        # Re-lock worktree while container is running.
+        locked = False
+        try:
+            self.branch_service.lock_worktree(
+                request.server_id,
+                request.server_root,
+                request.branch_name,
+                reason=f"runtime:{runtime_id}",
+            )
+            locked = True
+
+            rcon_password = self._resolve_rcon_password(runtime) or generate_rcon_password()
+
+            # Start existing container; if absent in Docker, recreate with export_root.
+            rc, out = await self.docker_runner(["start", container_name])
+            container_id = str(getattr(runtime, "container_id", None) or "").strip()
+            if rc != 0:
+                image = request.image or resolve_docker_image(
+                    minecraft_version=request.minecraft_version
+                )
+                image = validate_docker_image(image)
+                uid, gid = resolve_non_root_user(request.uid, request.gid)
+                host_mount = resolve_host_mount_path(str(export_root))
+                memory_max_mb = int(request.requested_memory_mb or 4096)
+                memory_min_mb = min(1024, memory_max_mb)
+                cpu_cores = int(request.requested_cpu_cores or 2)
+                cmd = build_docker_server_cmd(
+                    startup_jar=request.startup_jar,
+                    memory_min_mb=memory_min_mb,
+                    memory_max_mb=memory_max_mb,
+                    cpu_cores=cpu_cores,
+                    image=image,
+                    force_itzg_entrypoint=True,
+                )
+                create_args = build_branch_docker_create_args(
+                    container_name=container_name,
+                    image=image,
+                    network="bridge",
+                    port_set=port_set,
+                    memory_max_mb=memory_max_mb,
+                    cpu_cores=cpu_cores,
+                    export_root=export_root,
+                    host_mount=host_mount,
+                    uid=uid,
+                    gid=gid,
+                    server_id=request.server_id,
+                    branch_name=request.branch_name,
+                    runtime_id=runtime_id,
+                    commit_sha=commit_sha,
+                    cmd=cmd,
+                    host_ip=request.host_ip,
+                    lockfile=lockfile,
+                    secrets=secrets,
+                )
+                rc_c, out_c = await self.docker_runner(create_args)
+                if rc_c != 0:
+                    raise RuntimeError(f"docker create failed: {out_c}")
+                container_id = str(out_c).strip()
+                rc_s, out_s = await self.docker_runner(["start", container_name])
+                if rc_s != 0:
+                    raise RuntimeError(f"docker start failed: {out_s}")
+
+            if self.session_factory is not None:
+                async with self.session_factory() as session:
+                    import sqlalchemy as _sqlalchemy
+
+                    rt = await session.get(ServerRuntimeModel, runtime_id)
+                    if rt is not None:
+                        rt.status = "running"
+                        rt.commit_id = commit_sha
+                        if container_id:
+                            rt.container_id = container_id
+                        rt.stopped_at = None
+                    br = await session.execute(
+                        _sqlalchemy.select(ServerBranchModel).where(
+                            ServerBranchModel.server_id == request.server_id,
+                            ServerBranchModel.name == request.branch_name,
+                        )
+                    )
+                    branch_row = br.scalars().first()
+                    if branch_row is not None:
+                        branch_row.runtime_status = "running"
+                        branch_row.active_runtime_id = runtime_id
+                        branch_row.active_commit_sha = commit_sha
+                        branch_row.port_set_json = port_set.to_dict()
+                    await session.commit()
+
+            self._rcon_credentials[runtime_id] = (
+                "127.0.0.1",
+                port_set.rcon_port,
+                rcon_password,
+            )
+
+            return BranchStartResult(
+                runtime_id=runtime_id,
+                server_id=request.server_id,
+                branch_name=request.branch_name,
+                commit_sha=commit_sha,
+                container_name=container_name,
+                container_id=container_id or container_name,
+                port_set=port_set,
+                export_path=str(export_root),
+                data_template_id=getattr(runtime, "data_template_id", None),
+                allow_public_test_join=bool(getattr(runtime, "allow_public_test_join", False)),
+                memory_max_mb=int(request.requested_memory_mb or 4096),
+                cpu_cores=int(request.requested_cpu_cores or 2),
+                uncommitted_changes_warning=uncommitted_changes_warning,
+            )
+        except BaseException:
+            if locked:
+                with contextlib.suppress(Exception):
+                    self.branch_service.unlock_worktree(
+                        request.server_id,
+                        request.server_root,
+                        request.branch_name,
+                        expected_reason=f"runtime:{runtime_id}",
+                        ignore_unlocked=True,
+                    )
+            raise
+
     async def stop_branch_runtime(
         self,
         server_id: str,
@@ -912,6 +1132,7 @@ class BranchRuntimeService:
         save_template_name: str | None = None,
         save_template_description: str = "",
     ) -> BranchStopResult:
+        _ = keep_port_assignment
         if os.name != "posix":
             raise ServerModeVersioningDisabledError()
 
@@ -953,14 +1174,6 @@ class BranchRuntimeService:
             raise NotFoundError("No active runtime for branch")
 
         rid = runtime.id
-        port_set = None
-        if getattr(runtime, "port_set_json", None):
-            try:
-                port_set = HostPortSet.from_dict(runtime.port_set_json)
-            except Exception:
-                port_set = None
-        fallback = Path(server_root) / ".onx" / "branch-exports" / rid
-        export_path = Path(getattr(runtime, "export_path", None) or fallback)
         container_name = build_branch_container_name(server_id, branch_name, rid)
 
         saved_template = None
@@ -983,8 +1196,6 @@ class BranchRuntimeService:
                         oom_killed = bool(state.get("OOMKilled", False))
                 except Exception:
                     pass
-            with contextlib.suppress(Exception):
-                await self.docker_runner(["rm", "-f", container_name])
 
             if save_template_name:
                 saved_template = await self.save_data_template(
@@ -995,6 +1206,127 @@ class BranchRuntimeService:
                     runtime_id=rid,
                 )
         finally:
+            await _teardown_branch_exposure_best_effort(server_id, branch_name)
+            with contextlib.suppress(Exception):
+                self.branch_service.unlock_worktree(
+                    server_id,
+                    server_root,
+                    branch_name,
+                    expected_reason=f"runtime:{rid}",
+                    ignore_unlocked=True,
+                )
+            self._rcon_credentials.pop(rid, None)
+            if self.session_factory is not None:
+                with contextlib.suppress(Exception):
+                    async with self.session_factory() as session:
+                        rt = await session.get(ServerRuntimeModel, rid)
+                        if rt is not None:
+                            rt.status = "stopped"
+                            import datetime as _dt
+
+                            rt.stopped_at = _dt.datetime.now(_dt.UTC)
+                            rt.exit_code = exit_code
+                            rt.oom_killed = oom_killed
+                        from sqlalchemy import update as _upd
+
+                        await session.execute(
+                            _upd(ServerBranchModel)
+                            .where(
+                                ServerBranchModel.server_id == server_id,
+                                ServerBranchModel.name == branch_name,
+                            )
+                            .values(
+                                runtime_status="stopped",
+                                active_runtime_id=rid,
+                                active_commit_sha=getattr(runtime, "commit_id", None),
+                                active_data_template_id=getattr(
+                                    runtime, "data_template_id", None
+                                ),
+                                port_set_json=runtime.port_set_json,
+                            )
+                        )
+                        await session.commit()
+
+        return BranchStopResult(
+            runtime_id=rid,
+            server_id=server_id,
+            branch_name=branch_name,
+            saved_template=saved_template,
+            exit_code=exit_code,
+            oom_killed=oom_killed,
+        )
+
+    async def destroy_branch_runtime(
+        self,
+        server_id: str,
+        server_root: str | os.PathLike[str],
+        branch_name: str,
+        *,
+        runtime_id: str | None = None,
+        timeout_seconds: float = 30.0,
+        keep_port_assignment: bool = False,
+    ) -> BranchDestroyResult:
+        """Explicitly stop, remove, and wipe a provisioned branch container & export."""
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError()
+
+        runtime = None
+        if self.session_factory is not None:
+            async with self.session_factory() as session:
+                from sqlalchemy import select as _select
+
+                if runtime_id:
+                    runtime = await session.get(ServerRuntimeModel, runtime_id)
+                else:
+                    res = await session.execute(
+                        _select(ServerRuntimeModel)
+                        .where(
+                            ServerRuntimeModel.server_id == server_id,
+                            ServerRuntimeModel.branch_name == branch_name,
+                            ServerRuntimeModel.status.in_(("starting", "running", "stopped")),
+                        )
+                        .order_by(ServerRuntimeModel.started_at.desc())
+                    )
+                    runtime = res.scalars().first()
+                    if runtime is None:
+                        br_res = await session.execute(
+                            _select(ServerBranchModel).where(
+                                ServerBranchModel.server_id == server_id,
+                                ServerBranchModel.name == branch_name,
+                            )
+                        )
+                        br = br_res.scalars().first()
+                        if br is not None and br.active_runtime_id:
+                            runtime = await session.get(ServerRuntimeModel, br.active_runtime_id)
+
+        if (
+            runtime is None
+            or runtime.server_id != server_id
+            or runtime.branch_name != branch_name
+        ):
+            raise NotFoundError(f"No provisioned container for branch '{branch_name}'")
+
+        rid = runtime.id
+        port_set = None
+        if getattr(runtime, "port_set_json", None):
+            try:
+                port_set = HostPortSet.from_dict(runtime.port_set_json)
+            except Exception:
+                port_set = None
+        fallback = Path(server_root) / ".onx" / "branch-exports" / rid
+        export_path = Path(getattr(runtime, "export_path", None) or fallback)
+        container_name = build_branch_container_name(server_id, branch_name, rid)
+
+        try:
+            if runtime.status in ("starting", "running"):
+                with contextlib.suppress(Exception):
+                    await self.docker_runner(
+                        ["stop", "-t", str(int(timeout_seconds)), container_name]
+                    )
+            with contextlib.suppress(Exception):
+                await self.docker_runner(["rm", "-f", container_name])
+        finally:
+            await _teardown_branch_exposure_best_effort(server_id, branch_name)
             with contextlib.suppress(Exception):
                 _destroy_export_root(server_root, export_path)
             with contextlib.suppress(Exception):
@@ -1017,9 +1349,8 @@ class BranchRuntimeService:
                             rt.status = "terminated"
                             import datetime as _dt
 
-                            rt.stopped_at = _dt.datetime.now(_dt.UTC)
-                            rt.exit_code = exit_code
-                            rt.oom_killed = oom_killed
+                            if rt.stopped_at is None:
+                                rt.stopped_at = _dt.datetime.now(_dt.UTC)
                         from sqlalchemy import update as _upd
 
                         await session.execute(
@@ -1040,13 +1371,12 @@ class BranchRuntimeService:
                         )
                         await session.commit()
 
-        return BranchStopResult(
+        return BranchDestroyResult(
             runtime_id=rid,
             server_id=server_id,
             branch_name=branch_name,
-            saved_template=saved_template,
-            exit_code=exit_code,
-            oom_killed=oom_killed,
+            container_name=container_name,
+            released_ports=not keep_port_assignment,
         )
 
     async def save_data_template(
@@ -1089,7 +1419,9 @@ class BranchRuntimeService:
                     _select(ServerRuntimeModel).where(
                         ServerRuntimeModel.server_id == server_id,
                         ServerRuntimeModel.branch_name == branch_name,
-                        ServerRuntimeModel.status.in_(("starting", "running", "terminated")),
+                        ServerRuntimeModel.status.in_(
+                            ("starting", "running", "stopped", "terminated")
+                        ),
                     )
                 )
                 runtime = res.scalars().first()
@@ -1236,11 +1568,13 @@ class BranchRuntimeService:
                 from sqlalchemy import select as _select
 
                 res = await session.execute(
-                    _select(ServerRuntimeModel).where(
+                    _select(ServerRuntimeModel)
+                    .where(
                         ServerRuntimeModel.server_id == server_id,
                         ServerRuntimeModel.branch_name == branch_name,
                         ServerRuntimeModel.status.in_(("starting", "running")),
                     )
+                    .order_by(ServerRuntimeModel.started_at.desc())
                 )
                 runtime = res.scalars().first()
                 res2 = await session.execute(
@@ -1250,6 +1584,10 @@ class BranchRuntimeService:
                     )
                 )
                 branch_row = res2.scalars().first()
+                if runtime is None and branch_row is not None and branch_row.active_runtime_id:
+                    cand = await session.get(ServerRuntimeModel, branch_row.active_runtime_id)
+                    if cand is not None and cand.status in ("starting", "running", "stopped"):
+                        runtime = cand
                 if resolved_root is None:
                     from app.modules.server.infrastructure.models import ServerModel
 
@@ -1319,10 +1657,22 @@ class BranchRuntimeService:
         if runtime is not None:
             allow_public_test_join = bool(getattr(runtime, "allow_public_test_join", False))
 
+        container_provisioned = bool(
+            runtime is not None
+            and getattr(runtime, "status", None) in ("starting", "running", "stopped")
+        )
+        container_name = (
+            build_branch_container_name(server_id, branch_name, runtime.id)
+            if container_provisioned and runtime is not None
+            else None
+        )
+
         return {
             "server_id": server_id,
             "branch_name": branch_name,
             "runtime_status": status,
+            "container_provisioned": container_provisioned,
+            "container_name": container_name,
             "runtime_id": getattr(runtime, "id", None),
             "active_commit_sha": active_commit_sha,
             "data_template_id": data_template_id,
@@ -1348,15 +1698,29 @@ class BranchRuntimeService:
                 from sqlalchemy import select as _select
 
                 res = await session.execute(
-                    _select(ServerRuntimeModel).where(
+                    _select(ServerRuntimeModel)
+                    .where(
                         ServerRuntimeModel.server_id == server_id,
                         ServerRuntimeModel.branch_name == branch_name,
-                        ServerRuntimeModel.status.in_(("starting", "running")),
+                        ServerRuntimeModel.status.in_(("starting", "running", "stopped")),
                     )
+                    .order_by(ServerRuntimeModel.started_at.desc())
                 )
                 runtime = res.scalars().first()
+                if runtime is None:
+                    br_res = await session.execute(
+                        _select(ServerBranchModel).where(
+                            ServerBranchModel.server_id == server_id,
+                            ServerBranchModel.name == branch_name,
+                        )
+                    )
+                    br = br_res.scalars().first()
+                    if br is not None and br.active_runtime_id:
+                        cand = await session.get(ServerRuntimeModel, br.active_runtime_id)
+                        if cand is not None and cand.status in ("starting", "running", "stopped"):
+                            runtime = cand
         if runtime is None:
-            raise NotFoundError(f"No active runtime for branch '{branch_name}'")
+            raise NotFoundError(f"No provisioned runtime for branch '{branch_name}'")
         container_name = build_branch_container_name(server_id, branch_name, runtime.id)
         rc, out = await self.docker_runner(
             ["logs", "--tail", str(tail), container_name]

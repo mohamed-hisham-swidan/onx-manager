@@ -2,6 +2,8 @@ import { useState, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useServerDetail } from "@/server_manager/hooks/useServers";
 import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
+import { useClipboard } from "@/hooks/useClipboard";
 import { ServerExposureMethodSelector } from "@/server_manager/components/ServerExposureMethodSelector";
 import { TargetListSection } from "@/server_manager/components/TargetListSection";
 import { GlobalExposureActionsCard } from "@/server_manager/components/GlobalExposureActionsCard";
@@ -42,7 +44,16 @@ export function ServerExposurePage() {
   const hasManagerPerm = isOwner || isAdmin || isMember;
   const isReadOnly = Boolean(currentUser && !hasManagerPerm);
 
-  const { data: server, isLoading: isServerLoading } = useServerDetail(serverId ?? "");
+  const branchCtx = useServerBranchContext();
+  const gitBacked = Boolean(branchCtx?.gitBacked);
+  const activeBranch = gitBacked ? branchCtx?.branch : undefined;
+  const isNonMainBranch = Boolean(gitBacked && activeBranch && activeBranch !== "main");
+  const { copy } = useClipboard();
+
+  const { data: server, isLoading: isServerLoading } = useServerDetail(
+    serverId ?? "",
+    activeBranch,
+  );
   const {
     exposure,
     isLoading: isExposureLoading,
@@ -58,7 +69,7 @@ export function ServerExposurePage() {
     isUpdatingTargetAddress,
     deleteTarget,
     isDeletingTarget,
-  } = useServerExposure(serverId ?? "");
+  } = useServerExposure(serverId ?? "", activeBranch);
 
   // Form Draft State
   const [draftMethod, setDraftMethod] = useState<ExposureMethodType>("none");
@@ -129,8 +140,13 @@ export function ServerExposurePage() {
   const executeSaveExposure = (params: {
     method: ExposureMethodType;
     desired_state: "ENABLED" | "DISABLED";
+    cloudflare_mode?: "quick" | "subdomain" | "tcp" | null;
     cloudflare_token?: string;
     hostname?: string;
+    subdomain_prefix?: string | null;
+    base_domain?: string | null;
+    srv_record_enabled?: boolean;
+    external_port?: number | null;
     acknowledged_warning?: boolean;
   }) => {
     setExposure(params, {
@@ -146,8 +162,13 @@ export function ServerExposurePage() {
   const handleSaveExposure = (params: {
     method: ExposureMethodType;
     desired_state: "ENABLED" | "DISABLED";
+    cloudflare_mode?: "quick" | "subdomain" | "tcp" | null;
     cloudflare_token?: string;
     hostname?: string;
+    subdomain_prefix?: string | null;
+    base_domain?: string | null;
+    srv_record_enabled?: boolean;
+    external_port?: number | null;
     acknowledged_warning?: boolean;
   }) => {
     const requiresCredentials = params.desired_state === "ENABLED" && params.method !== "none";
@@ -201,6 +222,14 @@ export function ServerExposurePage() {
               Network & Public Exposure
             </h2>
             <StatusBadge status={aggregateStatus} />
+            {gitBacked && activeBranch && (
+              <span
+                data-testid="exposure-branch-badge"
+                className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2.5 py-0.5 font-mono text-xs font-semibold text-accent-primary"
+              >
+                Branch: {activeBranch}
+              </span>
+            )}
           </div>
         </div>
 
@@ -227,6 +256,74 @@ export function ServerExposurePage() {
           )}
         </div>
       </div>
+
+      {isNonMainBranch && (
+        <div
+          data-testid="branch-exposure-port-set-banner"
+          className="rounded-xl border border-border-default bg-surface-card p-4 text-xs shadow-2xs flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="space-y-1">
+            <p className="font-semibold text-text-primary">
+              Isolated Exposure for Branch &ldquo;{activeBranch}&rdquo;
+            </p>
+            {exposure?.allocated_port_set ? (
+              <p className="font-mono text-text-secondary">
+                Host Port Set: Game {exposure.allocated_port_set.game_port} · RCON{" "}
+                {exposure.allocated_port_set.rcon_port}
+                {exposure.allocated_port_set.query_port
+                  ? ` · Query ${exposure.allocated_port_set.query_port}`
+                  : ""}
+                {exposure.branch_runtime_status
+                  ? ` (Container: ${exposure.branch_runtime_status})`
+                  : ""}
+              </p>
+            ) : (
+              <p className="text-text-muted">
+                Container not created / stopped — start the branch container to allocate or expose its isolated Host Port Set.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {exposure?.upnp_status === "CGNAT_DETECTED" && (
+        <div
+          data-testid="server-cgnat-detected-banner"
+          role="alert"
+          className="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 text-xs space-y-1"
+        >
+          <div className="flex items-center gap-2 font-semibold text-status-warning">
+            <Icon name="alert" size={16} />
+            <span>CGNAT Detected — Router Port Forwarding Unavailable</span>
+          </div>
+          <p className="text-text-secondary">
+            Router reported private/CGNAT WAN IP{" "}
+            <code className="font-mono">{exposure.detected_wan_ip || "unknown"}</code>. External traffic will be dropped by your ISP; switch to <strong>playit.gg</strong> or <strong>Cloudflare Tunnel</strong>.
+          </p>
+        </div>
+      )}
+
+      {exposure?.srv_record_hint && (
+        <div
+          data-testid="server-srv-record-helper"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-info-border bg-status-info-bg p-3.5 text-xs"
+        >
+          <div className="min-w-0">
+            <p className="font-semibold text-status-info">Minecraft DNS SRV Record Helper</p>
+            <code className="block truncate font-mono text-[11px] text-text-primary mt-0.5">
+              {exposure.srv_record_hint}
+            </code>
+          </div>
+          <button
+            type="button"
+            onClick={() => copy(exposure.srv_record_hint!, "SRV record copied")}
+            className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-card px-2.5 py-1 text-xs font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
+          >
+            <Icon name="copy" size={12} />
+            Copy SRV
+          </button>
+        </div>
+      )}
 
       {/* Passwordless Local Mode Gate Notice */}
       {isLocalZeroLogin && (
@@ -290,7 +387,7 @@ export function ServerExposurePage() {
             </span>
           </div>
           <span className="font-mono text-xs text-text-muted">
-            Container Port: {server?.port || 25565}
+            Container Port: {exposure?.allocated_game_port || server?.port || 25565}
           </span>
         </div>
 
@@ -302,7 +399,9 @@ export function ServerExposurePage() {
             </div>
             <div className="min-w-0">
               <p className="text-xs font-bold text-text-primary">Docker Container</p>
-              <p className="font-mono text-[11px] text-text-muted">:{server?.port || 25565} / TCP</p>
+              <p className="font-mono text-[11px] text-text-muted">
+                :{exposure?.allocated_game_port || server?.port || 25565} / TCP
+              </p>
             </div>
           </div>
 
@@ -430,7 +529,7 @@ export function ServerExposurePage() {
       {/* 2. Multi-Target List Section */}
       <TargetListSection
         exposure={exposure}
-        serverGamePort={server?.port || 25565}
+        serverGamePort={exposure?.allocated_game_port || server?.port || 25565}
         onCreateTarget={(data) => createTarget(data)}
         onUpdateTargetAddress={(params) => updateTargetAddress(params)}
         onDeleteTarget={(targetId) => deleteTarget(targetId)}

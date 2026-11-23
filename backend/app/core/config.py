@@ -263,6 +263,12 @@ def get_active_panel_bind() -> tuple[str, int]:
 def get_panel_bind() -> tuple[str, int]:
     """Single authoritative reader for the Panel bind address (Decision 3).
 
+    Explicit precedence (highest to lowest):
+      1. Environment variables: ``ONX_PANEL_BIND_HOST`` / ``MCS_PANEL_BIND_HOST``
+         (and ``ONX_PANEL_BIND_PORT`` / ``MCS_PANEL_BIND_PORT``).
+      2. Live persisted settings: ``config/settings.yaml`` (``panel_bind_host``).
+      3. Default ``AppSettings`` (``127.0.0.1:8000``).
+
     All Cloudflare ingress computation and panel-bind consumers must read the
     bind from this accessor — never from uvicorn CLI literals or scattered
     ``:8000`` strings.
@@ -301,3 +307,24 @@ def panel_ingress_target() -> str:
             "must resolve to loopback (127.0.0.0/8 or ::1) for Cloudflare ingress",
         )
     return f"http://{host}:{port}"
+
+
+def local_panel_ingress_target() -> str:
+    """Resolve local loopback HTTP URL for panel-local tunnel processes.
+
+    Even when the panel listens on a wildcard address (``0.0.0.0`` or ``::``),
+    local tunnel agents on the same host (``cloudflared`` / ``playit``) reach it
+    safely via ``http://127.0.0.1:<port>`` without requiring a panel restart.
+    Non-wildcard, non-loopback custom IPs still raise ``InvalidValueError``.
+    """
+    host, port = get_panel_bind()
+    normalized = host.strip().lower()
+    if normalized in ("0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0", "", "localhost", "::1"):
+        return f"http://127.0.0.1:{port}"
+    if normalized.startswith("127."):
+        return f"http://{normalized}:{port}"
+    raise InvalidValueError(
+        "panel_bind_host",
+        normalized,
+        "must resolve to loopback or wildcard bind for local tunnel ingress",
+    )

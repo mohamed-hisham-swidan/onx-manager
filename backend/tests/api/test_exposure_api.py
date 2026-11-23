@@ -907,3 +907,106 @@ async def test_server_exposure_cloudflare_tcp_roundtrip_api(exposure_client) -> 
     assert patch_data["desired_state"] == "DISABLED"
     assert patch_data["aggregate_status"] == "DISABLED"
     supervisor.stop.assert_awaited_once()
+
+
+async def test_panel_exposure_modern_token_and_quick_modes_api(exposure_client) -> None:
+    from app.modules.exposure.domain.value_objects import ExposureStatus
+
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    class FakeApiModernSupervisor:
+        def __init__(self) -> None:
+            self.is_running = False
+            self.status = ExposureStatus.STOPPED
+            self.quick_url = None
+            self.error_code = None
+            self.error_message = None
+
+        async def start_token(self, _token: bytes, *, on_status=None) -> None:
+            self.is_running = True
+            self.status = ExposureStatus.ACTIVE
+            if on_status:
+                await on_status(ExposureStatus.ACTIVE)
+
+        async def start_quick(self, _url: str, *, on_status=None, on_url=None) -> None:
+            self.is_running = True
+            self.quick_url = "https://api-quick.trycloudflare.com"
+            self.status = ExposureStatus.ACTIVE
+            if on_url:
+                await on_url(self.quick_url)
+            if on_status:
+                await on_status(ExposureStatus.ACTIVE)
+
+        async def stop(self) -> None:
+            self.is_running = False
+            self.status = ExposureStatus.STOPPED
+
+    sup = FakeApiModernSupervisor()
+    with patch(
+        "app.modules.exposure.application.commands.get_cloudflared_supervisor",
+        return_value=sup,
+    ):
+        # 1. Permanent Token Mode
+        secret_tok = "eyJhIjoiSuperSecretApiTunnelToken987654"
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={
+                "method": "cloudflare_tunnel",
+                "desired_state": "ENABLED",
+                "cloudflare_mode": "token",
+                "cloudflare_token": secret_tok,
+            },
+            headers=owner,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["cloudflare_mode"] == "token"
+        assert body["token_configured"] is True
+        assert body["ephemeral"] is False
+        assert body["status"] == "ACTIVE"
+        assert secret_tok not in resp.text
+
+        # GET must never leak raw token
+        get_resp = await exposure_client.get("/api/v1/exposure/panel", headers=owner)
+        assert get_resp.status_code == 200
+        get_body = get_resp.json()
+        assert get_body["cloudflare_mode"] == "token"
+        assert get_body["token_configured"] is True
+        assert secret_tok not in get_resp.text
+
+        # 2. Quick Preview Mode (zero inputs)
+        quick_resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={
+                "method": "cloudflare_tunnel",
+                "desired_state": "ENABLED",
+                "cloudflare_mode": "quick",
+            },
+            headers=owner,
+        )
+        assert quick_resp.status_code == 200
+        quick_body = quick_resp.json()
+        assert quick_body["cloudflare_mode"] == "quick"
+        assert quick_body["ephemeral"] is True
+        assert quick_body["public_address"] == "https://api-quick.trycloudflare.com"
+        assert quick_body["status"] == "ACTIVE"
+
+
+@pytest.mark.parametrize("bad_port", ["800e", "80.5", "abc", 0, -1, 65536, 3.14, True])
+async def test_panel_exposure_strict_external_port_validation_422(
+    exposure_client, bad_port
+) -> None:
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={
+            "method": "port_forward",
+            "desired_state": "ENABLED",
+            "external_port": bad_port,
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 422

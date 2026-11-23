@@ -135,99 +135,111 @@ async def test_full_lifecycle(tmp_path, monkeypatch):
         )
         await session.commit()
 
+    prev_sf = database._session_factory
+    prev_eng = database._engine
     database._session_factory = factory
     database._engine = engine
-    await CreateBranchHandler().handle(CreateBranchCommand(server_id="srv-1", name="feature"))
+    try:
+        await CreateBranchHandler().handle(CreateBranchCommand(server_id="srv-1", name="feature"))
 
-    runner = IntegrationRunner()
-    svc = BranchRuntimeService(
-        layout,
-        session_factory=factory,
-        engine=engine,
-        docker_runner=runner,
-        rcon_client_factory=FakeRcon,
-        class_c_service=cc,
-        secret_vault=vault,
-    )
-
-    mem = SimpleNamespace(available=64 * 1024 * 1024 * 1024)
-    with patch("psutil.virtual_memory", return_value=mem), patch("os.cpu_count", return_value=32):
-        req = BranchStartRequest(
-            server_id="srv-1",
-            server_root=server_root,
-            branch_name="feature",
-            server_mode="advanced",
-            server_provider="docker",
-            lockfile=lockfile,
-            secrets=vault.load_server_secrets("srv-1"),
-            max_concurrent_branch_runs=3,
+        runner = IntegrationRunner()
+        svc = BranchRuntimeService(
+            layout,
+            session_factory=factory,
+            engine=engine,
+            docker_runner=runner,
+            rcon_client_factory=FakeRcon,
+            class_c_service=cc,
+            secret_vault=vault,
         )
-        result = await svc.start_branch_runtime(req)
 
-    export_path = Path(result.export_path)
-    props_text = (export_path / "server.properties").read_text(encoding="utf-8")
-    assert "white-list=true" in props_text
-    assert "server-port=25565" in props_text
-    assert "${ONX_SECRET_DB_PASS}" not in props_text
-    assert "s3cr3t" in props_text
-    assert (export_path / "ops.json").exists()
-    assert (export_path / "whitelist.json").exists()
-    assert not (export_path / ".git").exists()
+        mem = SimpleNamespace(available=64 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=mem), patch("os.cpu_count", return_value=32):
+            req = BranchStartRequest(
+                server_id="srv-1",
+                server_root=server_root,
+                branch_name="feature",
+                server_mode="advanced",
+                server_provider="docker",
+                lockfile=lockfile,
+                secrets=vault.load_server_secrets("srv-1"),
+                max_concurrent_branch_runs=3,
+            )
+            result = await svc.start_branch_runtime(req)
 
-    info = GitBranchService(layout).get_branch("srv-1", server_root, "feature")
-    assert info is not None and info.worktree_locked
-    assert (info.worktree_lock_reason or "").startswith("runtime:")
+        export_path = Path(result.export_path)
+        props_text = (export_path / "server.properties").read_text(encoding="utf-8")
+        assert "white-list=true" in props_text
+        assert "server-port=25565" in props_text
+        assert "${ONX_SECRET_DB_PASS}" not in props_text
+        assert "s3cr3t" in props_text
+        assert (export_path / "ops.json").exists()
+        assert (export_path / "whitelist.json").exists()
+        assert not (export_path / ".git").exists()
 
-    # refuse delete/archive while running
-    with pytest.raises(BranchRuntimeActiveError):
-        await DeleteBranchHandler().handle(DeleteBranchCommand(server_id="srv-1", name="feature"))
-    with pytest.raises(BranchRuntimeActiveError):
+        info = GitBranchService(layout).get_branch("srv-1", server_root, "feature")
+        assert info is not None and info.worktree_locked
+        assert (info.worktree_lock_reason or "").startswith("runtime:")
+
+        # refuse delete/archive while running
+        with pytest.raises(BranchRuntimeActiveError):
+            await DeleteBranchHandler().handle(DeleteBranchCommand(server_id="srv-1", name="feature"))
+        with pytest.raises(BranchRuntimeActiveError):
+            await ArchiveBranchHandler().handle(ArchiveBranchCommand(server_id="srv-1", name="feature"))
+
+        # mutate inside export
+        (export_path / "world").mkdir(exist_ok=True)
+        (export_path / "world" / "level.dat").write_text("mutated-world", encoding="utf-8")
+        (export_path / "ops.json").write_text('["bob"]', encoding="utf-8")
+
+        template_result = await svc.save_data_template(
+            "srv-1", "feature", name="tmpl1", runtime_id=result.runtime_id
+        )
+        template_id = template_result.template_id
+
+        await svc.stop_branch_runtime(
+            "srv-1", server_root, "feature", runtime_id=result.runtime_id
+        )
+        # Stop persists the container and export directory (logs/world data intact) and unlocks worktree.
+        assert export_path.exists()
+        info2 = GitBranchService(layout).get_branch("srv-1", server_root, "feature")
+        assert info2 is not None and not info2.worktree_locked
+
+        # Explicit destroy wipes the export directory and clears active_runtime_id/ports.
+        destroy_res = await svc.destroy_branch_runtime("srv-1", server_root, "feature")
+        assert destroy_res.released_ports is True
+        assert destroy_res.branch_name == "feature"
+        assert not export_path.exists()
+
+        # class-c vault untouched
+        assert (layout.class_c_vault_dir("srv-1") / "snap-cc").is_dir()
+
+        # second run with saved template
+        mem = SimpleNamespace(available=64 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=mem), patch("os.cpu_count", return_value=32):
+            req2 = BranchStartRequest(
+                server_id="srv-1",
+                server_root=server_root,
+                branch_name="feature",
+                server_mode="advanced",
+                server_provider="docker",
+                lockfile=lockfile,
+                data_template_id=template_id,
+                secrets=vault.load_server_secrets("srv-1"),
+                max_concurrent_branch_runs=3,
+            )
+            result2 = await svc.start_branch_runtime(req2)
+        export_path2 = Path(result2.export_path)
+        assert (export_path2 / "world" / "level.dat").read_text(encoding="utf-8") == "mutated-world"
+
+        await svc.stop_branch_runtime("srv-1", server_root, "feature", runtime_id=result2.runtime_id)
+
+        # archive then delete branch succeeds
         await ArchiveBranchHandler().handle(ArchiveBranchCommand(server_id="srv-1", name="feature"))
-
-    # mutate inside export
-    (export_path / "world").mkdir(exist_ok=True)
-    (export_path / "world" / "level.dat").write_text("mutated-world", encoding="utf-8")
-    (export_path / "ops.json").write_text('["bob"]', encoding="utf-8")
-
-    template_result = await svc.save_data_template(
-        "srv-1", "feature", name="tmpl1", runtime_id=result.runtime_id
-    )
-    template_id = template_result.template_id
-
-    await svc.stop_branch_runtime(
-        "srv-1", server_root, "feature", runtime_id=result.runtime_id
-    )
-    assert not export_path.exists()
-    info2 = GitBranchService(layout).get_branch("srv-1", server_root, "feature")
-    assert info2 is not None and not info2.worktree_locked
-
-    # class-c vault untouched
-    assert (layout.class_c_vault_dir("srv-1") / "snap-cc").is_dir()
-
-    # second run with saved template
-    mem = SimpleNamespace(available=64 * 1024 * 1024 * 1024)
-    with patch("psutil.virtual_memory", return_value=mem), patch("os.cpu_count", return_value=32):
-        req2 = BranchStartRequest(
-            server_id="srv-1",
-            server_root=server_root,
-            branch_name="feature",
-            server_mode="advanced",
-            server_provider="docker",
-            lockfile=lockfile,
-            data_template_id=template_id,
-            secrets=vault.load_server_secrets("srv-1"),
-            max_concurrent_branch_runs=3,
-        )
-        result2 = await svc.start_branch_runtime(req2)
-    export_path2 = Path(result2.export_path)
-    assert (export_path2 / "world" / "level.dat").read_text(encoding="utf-8") == "mutated-world"
-
-    await svc.stop_branch_runtime("srv-1", server_root, "feature", runtime_id=result2.runtime_id)
-
-    # archive then delete branch succeeds
-    await ArchiveBranchHandler().handle(ArchiveBranchCommand(server_id="srv-1", name="feature"))
-    # delete may fail if archived? Try delete anyway
-    with __import__("contextlib").suppress(Exception):
-        await DeleteBranchHandler().handle(DeleteBranchCommand(server_id="srv-1", name="feature"))
-
-    await engine.dispose()
+        # delete may fail if archived? Try delete anyway
+        with __import__("contextlib").suppress(Exception):
+            await DeleteBranchHandler().handle(DeleteBranchCommand(server_id="srv-1", name="feature"))
+    finally:
+        database._session_factory = prev_sf
+        database._engine = prev_eng
+        await engine.dispose()

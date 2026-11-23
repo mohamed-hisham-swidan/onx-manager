@@ -10,6 +10,8 @@ import type { ServerDetailResponse, ServerUpdateRequest } from "@/server_manager
 interface ServerSettingsSectionProps {
   serverId: string;
   server: ServerDetailResponse;
+  branch?: string;
+  gitBacked?: boolean;
 }
 
 type SettingsCategory = "all" | "identity" | "resources" | "gameplay" | "rules" | "advanced";
@@ -430,7 +432,14 @@ function BooleanSwitchRow({
   );
 }
 
-export function ServerSettingsSection({ serverId, server }: ServerSettingsSectionProps) {
+export function ServerSettingsSection({
+  serverId,
+  server,
+  branch,
+  gitBacked = false,
+}: ServerSettingsSectionProps) {
+  const isMainBranchSettings = Boolean(gitBacked && (!branch || branch === "main"));
+  const isWorkingBranchSettings = Boolean(gitBacked && branch && branch !== "main");
   const updateServer = useUpdateServer();
   const { data: hostBudget } = useHostResources();
   const formId = useId();
@@ -746,9 +755,16 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
       await updateServer.mutateAsync({
         serverId,
         body: payload,
+        branch: gitBacked ? branch : undefined,
       });
       setRawDrafts({});
-      toast("success", "Settings updated. Restart server to apply.");
+      if (isMainBranchSettings) {
+        toast("success", "Settings queued to pending settings branch. Restart server to auto-merge and apply.");
+      } else if (isWorkingBranchSettings) {
+        toast("success", `Settings committed to branch "${branch}".`);
+      } else {
+        toast("success", "Settings updated. Restart server to apply.");
+      }
     } catch (err) {
       toast("error", "Update failed", err instanceof Error ? err.message : "Failed to save settings");
     }
@@ -1687,7 +1703,13 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
           ) : (
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Icon name="info" size={14} className="text-accent-primary" />
-              <span>Edits are written directly to server.properties &amp; database</span>
+              <span>
+                {isMainBranchSettings
+                  ? "Edits to main create/update a pending settings/... branch and auto-merge on next server restart"
+                  : isWorkingBranchSettings
+                    ? `Edits auto-commit directly to branch "${branch}"`
+                    : "Edits are written directly to server.properties & database"}
+              </span>
             </div>
           )}
         </div>
@@ -1715,7 +1737,11 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
             ) : (
               <>
                 <Icon name="check" size={16} />
-                Save Changes
+                {isMainBranchSettings
+                  ? "Save to Pending Settings Branch (Auto-Merges on Restart)"
+                  : isWorkingBranchSettings
+                    ? `Commit Changes to ${branch}`
+                    : "Save Changes"}
               </>
             )}
           </button>
