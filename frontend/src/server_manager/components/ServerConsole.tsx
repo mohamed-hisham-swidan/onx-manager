@@ -33,6 +33,11 @@ const hostBadgeClass =
   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
   "uppercase tracking-wider bg-accent-primary/10 text-accent-primary border border-accent-primary/30 font-sans";
 
+function stripMcFormatting(text: string): string {
+  // Remove Minecraft section-sign color/style codes (§0-§9, §a-§f, §k-§o, §r, §x)
+  return text.replace(/\u00a7[0-9a-fk-orx]/gi, "");
+}
+
 function getLineStyle(line: string): { className: string; level: string } {
   if (line.startsWith("> ")) {
     return { className: "text-status-success font-semibold", level: "command" };
@@ -167,8 +172,21 @@ export function ServerConsole({
       branch
         ? api.sendServerCommand(serverId, { command }, branch)
         : api.sendServerCommand(serverId, { command }),
-    onSuccess: (_data, command) => {
-      setCommandHistory((prev) => [...prev, `> ${command}`]);
+    onSuccess: (data, command) => {
+      const rawOutput = typeof data?.output === "string" ? data.output : "";
+      const responseLines = rawOutput
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map((line) => stripMcFormatting(line).trimEnd())
+        .filter((line) => line.length > 0);
+      setCommandHistory((prev) => [...prev, `> ${command}`, ...responseLines]);
+      if (followLog && containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
+    },
+    onError: (err, command) => {
+      const msg = err instanceof Error ? err.message : "Failed to execute command";
+      setCommandHistory((prev) => [...prev, `> ${command}`, `[ERROR] ${msg}`]);
       if (followLog && containerRef.current) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
       }

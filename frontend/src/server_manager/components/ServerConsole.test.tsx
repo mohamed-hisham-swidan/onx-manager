@@ -160,6 +160,36 @@ describe("ServerConsole Component", () => {
     expect(await screen.findByText("> tps")).toBeInTheDocument();
   });
 
+  it("renders command RCON output lines below the echoed command and strips Minecraft § formatting", async () => {
+    mockSendServerCommand.mockResolvedValueOnce({
+      success: true,
+      output: "§aPlugins (2): §fVeinMiner, TAB\n§6TPS from last 1m: 20.0",
+    });
+    const user = userEvent.setup();
+    renderConsole();
+
+    const input = screen.getByPlaceholderText("Enter a command...");
+    await user.type(input, "plugins");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("> plugins")).toBeInTheDocument();
+    expect(await screen.findByText("Plugins (2): VeinMiner, TAB")).toBeInTheDocument();
+    expect(await screen.findByText("TPS from last 1m: 20.0")).toBeInTheDocument();
+  });
+
+  it("renders [ERROR] line in console when command execution fails", async () => {
+    mockSendServerCommand.mockRejectedValueOnce(new Error("RCON connection refused"));
+    const user = userEvent.setup();
+    renderConsole();
+
+    const input = screen.getByPlaceholderText("Enter a command...");
+    await user.type(input, "list");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("> list")).toBeInTheDocument();
+    expect(await screen.findByText("[ERROR] RCON connection refused")).toBeInTheDocument();
+  });
+
   it("clears local command history on Clear button click", async () => {
     const user = userEvent.setup();
     renderConsole();

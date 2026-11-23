@@ -1767,7 +1767,7 @@ class BranchRuntimeService:
     ) -> dict[str, Any]:
         if os.name != "posix":
             raise ServerModeVersioningDisabledError()
-        cmd = str(command or "").strip()
+        cmd = str(command or "").strip().lstrip("/")
         if not cmd or any(ch in cmd for ch in ("\r", "\n", "\x00")):
             raise ValidationError("Invalid console command", field="command")
         runtime = None

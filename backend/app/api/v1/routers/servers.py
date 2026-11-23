@@ -505,8 +505,15 @@ class _SendConsoleCommandImpl:
             provider_name = server.runtime.provider or default_provider_for_platform()
             handle = build_server_handle(server, provider_name)
             provider = provider_factory.get(provider_name)
-            await provider.execute_command(handle, command)
-            return CommandResult(success=True, data={"server_id": server_id, "command": command})
+            output = await provider.execute_command(handle, command)
+            return CommandResult(
+                success=True,
+                data={
+                    "server_id": server_id,
+                    "command": command,
+                    "output": output or "",
+                },
+            )
 
 
 @router.post("/{server_id}/command", response_model=dict)

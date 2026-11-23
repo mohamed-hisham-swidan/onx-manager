@@ -758,3 +758,33 @@ async def test_b6_disabling_plugin_prunes_active_jar_across_branch_resume_and_ma
     assert mg.status_code == 201, mg.text
     assert not (api.root / "plugins" / "DisableMe-1.0.0.jar").exists()
     assert (api.root / "plugins" / "DisableMe-1.0.0.jar.disabled").is_file()
+
+
+@pytest.mark.asyncio
+async def test_b7_simple_mode_command_returns_rcon_output(
+    trackb_api: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = trackb_api
+
+    async with database.session_factory() as session:
+        srv = await session.get(ServerModel, SIMPLE_ID)
+        assert srv is not None
+        srv.status = "running"
+        srv.external_id = f"onx-{SIMPLE_ID}"
+        srv.provider = "docker"
+        await session.commit()
+
+    class _FakeDockerProvider:
+        async def execute_command(self, _handle: Any, cmd: str) -> str:
+            return f"Plugins (1): TestPlugin [{cmd}]"
+
+    from app.modules.server.infrastructure.providers import provider_factory
+
+    monkeypatch.setattr(provider_factory, "get", lambda _name: _FakeDockerProvider())
+    res = await api.client.post(
+        f"/api/v1/servers/{SIMPLE_ID}/command",
+        json={"command": "plugins"},
+        headers=api.header,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["output"] == "Plugins (1): TestPlugin [plugins]"
