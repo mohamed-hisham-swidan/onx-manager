@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginListPage, parsePluginMetadata } from "./PluginListPage";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
+import type { PluginResponse } from "@/types";
 
 const mockNavigate = vi.fn();
 
@@ -15,7 +16,7 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-const mockPlugins = [
+const mockPlugins: PluginResponse[] = [
   {
     plugin_id: "plg-1",
     server_id: "srv-1",
@@ -61,7 +62,7 @@ const mockPlugins = [
   },
 ];
 
-let mockPluginsData = mockPlugins;
+let mockPluginsData: PluginResponse[] = mockPlugins;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 
@@ -159,7 +160,32 @@ describe("PluginListPage", () => {
     selectServer();
     expect(screen.getByLabelText("Disable Essentials")).toBeInTheDocument();
     expect(screen.getByLabelText("Enable WorldGuard")).toBeInTheDocument();
+    expect(screen.getByLabelText("Disable ManualPlugin")).toBeInTheDocument();
     expect(screen.getAllByLabelText(/Uninstall/)).toHaveLength(3);
+  });
+
+  it("treats freshly installed plugins (status=installed, is_disabled_on_disk=false) as enabled by default", () => {
+    mockPluginsData = [
+      {
+        plugin_id: "plg-new",
+        server_id: "srv-1",
+        name: "VeinMiner",
+        version: "2.14.0",
+        description: "",
+        author: "Mirr",
+        status: "installed",
+        is_disabled_on_disk: false,
+        dependencies: [],
+        installed_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+        source: "modrinth",
+        filename: "veinminer.jar",
+      },
+    ];
+    renderPage();
+    selectServer();
+    const toggle = screen.getByRole("switch", { name: "Disable VeinMiner" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
   it("shows loading state", () => {

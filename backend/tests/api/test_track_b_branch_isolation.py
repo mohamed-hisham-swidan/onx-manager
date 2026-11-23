@@ -336,6 +336,8 @@ async def test_b2_branch_plugins_isolation_and_simple_mode_intact(trackb_api: An
     items = feat_list.json()
     assert len(items) == 1
     assert items[0]["name"] == "BranchSpark"
+    assert items[0]["status"] == "enabled"
+    assert items[0]["is_disabled_on_disk"] is False
     assert items[0]["is_committed"] is False
 
     main_list = await api.client.get(
@@ -672,5 +674,87 @@ async def test_b5_staging_branch_plugin_install_and_auto_merge_into_main(
     items = main_list.json()
     assert len(items) == 1
     assert items[0]["name"] == "InitialAddon"
+    assert items[0]["status"] == "enabled"
+    assert items[0]["is_disabled_on_disk"] is False
     assert items[0]["is_committed"] is True
     assert (api.root / "plugins" / "InitialAddon-1.0.0.jar").is_file()
+
+
+@pytest.mark.asyncio
+async def test_b6_disabling_plugin_prunes_active_jar_across_branch_resume_and_main_merge(
+    trackb_api: Any,
+) -> None:
+    api = trackb_api
+    jar_bytes = _make_jar_bytes("DisableMe", "1.0.0")
+
+    # 1. Install plugin on feat-a -> default status "enabled", start -> active jar exported
+    up = await api.client.post(
+        f"/api/v1/servers/{SERVER_ID}/plugins/upload?branch=feat-a",
+        files={"file": ("DisableMe-1.0.0.jar", jar_bytes, "application/java-archive")},
+        headers=api.header,
+    )
+    assert up.status_code == 201, up.text
+    plugin_id = up.json()["plugin_id"]
+
+    start1 = await api.client.post(
+        f"{VERSIONING}/branches/feat-a/run",
+        json={"check_os_ports": False},
+        headers=api.header,
+    )
+    assert start1.status_code == 201, start1.text
+    export_dir = api.root / ".onx" / "branch-exports" / start1.json()["runtime_id"]
+    assert (export_dir / "plugins" / "DisableMe-1.0.0.jar").is_file()
+
+    # 2. Stop branch container, disable plugin on feat-a, resume -> active jar pruned!
+    stop1 = await api.client.post(
+        f"{VERSIONING}/branches/feat-a/stop", json={}, headers=api.header
+    )
+    assert stop1.status_code == 200, stop1.text
+
+    dis = await api.client.post(
+        f"/api/v1/servers/{SERVER_ID}/plugins/{plugin_id}/disable?branch=feat-a",
+        headers=api.header,
+    )
+    assert dis.status_code == 200, dis.text
+
+    feat_list = await api.client.get(
+        f"/api/v1/servers/{SERVER_ID}/plugins?branch=feat-a", headers=api.header
+    )
+    assert feat_list.status_code == 200
+    assert feat_list.json()[0]["status"] == "disabled"
+    assert feat_list.json()[0]["is_disabled_on_disk"] is True
+
+    start2 = await api.client.post(
+        f"{VERSIONING}/branches/feat-a/run",
+        json={"check_os_ports": False},
+        headers=api.header,
+    )
+    assert start2.status_code == 201, start2.text
+    assert not (export_dir / "plugins" / "DisableMe-1.0.0.jar").exists()
+    assert (export_dir / "plugins" / "DisableMe-1.0.0.jar.disabled").is_file()
+
+    # 3. Stop, commit, merge into main when main already had active jar -> active jar pruned!
+    await api.client.post(f"{VERSIONING}/branches/feat-a/stop", json={}, headers=api.header)
+    await api.client.post(
+        f"{VERSIONING}/commits",
+        json={"branch_name": "feat-a", "message": "Disable DisableMe plugin"},
+        headers=api.header,
+    )
+    # Simulate active jar sitting on live main root before merge
+    (api.root / "plugins" / "DisableMe-1.0.0.jar").write_bytes(jar_bytes)
+
+    mg = await api.client.post(
+        f"{VERSIONING}/commits/merge",
+        json={
+            "target_branch_name": "main",
+            "source_branch_name": "feat-a",
+            "message": "Merge disabled plugin into main",
+            "force": True,
+            "force_bypass_protection": True,
+            "force_reason": "Test disabled plugin sync",
+        },
+        headers=api.header,
+    )
+    assert mg.status_code == 201, mg.text
+    assert not (api.root / "plugins" / "DisableMe-1.0.0.jar").exists()
+    assert (api.root / "plugins" / "DisableMe-1.0.0.jar.disabled").is_file()

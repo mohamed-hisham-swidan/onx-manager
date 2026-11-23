@@ -28,6 +28,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
 }
 
+function isPluginEnabled(plugin: PluginResponse): boolean {
+  if (plugin.is_disabled_on_disk) return false;
+  const status = (plugin.status || "").toLowerCase();
+  return status === "enabled" || status === "installed";
+}
+
 export interface ParsedPluginMetadata {
   title: string;
   version: string;
@@ -504,7 +510,7 @@ export function PluginListPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {paginatedPlugins.map((p) => {
                 const meta = parsePluginMetadata(p);
-                const isEnabled = p.status === "enabled";
+                const isEnabled = isPluginEnabled(p);
                 const filename = p.filename || (p as { file_name?: string | null }).file_name;
                 const toggleLabel = isEnabled ? `Disable ${p.name}` : `Enable ${p.name}`;
                 const uninstallLabel = `Uninstall ${p.name}`;
@@ -589,12 +595,22 @@ export function PluginListPage() {
                             onClick={() => {
                               if (isEnabled) {
                                 disablePlugin.mutate(p.plugin_id, {
-                                  onSuccess: () => toast("success", "Plugin disabled", `"${p.name}" is disabled.`),
+                                  onSuccess: () =>
+                                    toast(
+                                      "success",
+                                      "Plugin disabled",
+                                      `"${p.name}" is disabled. Restart the server to apply.`,
+                                    ),
                                   onError: (err) => toast("error", "Disable failed", errorMessage(err)),
                                 });
                               } else {
                                 enablePlugin.mutate(p.plugin_id, {
-                                  onSuccess: () => toast("success", "Plugin enabled", `"${p.name}" is enabled.`),
+                                  onSuccess: () =>
+                                    toast(
+                                      "success",
+                                      "Plugin enabled",
+                                      `"${p.name}" is enabled. Restart the server to apply.`,
+                                    ),
                                   onError: (err) => toast("error", "Enable failed", errorMessage(err)),
                                 });
                               }
@@ -712,7 +728,7 @@ export function PluginListPage() {
               <tbody className="divide-y divide-border-subtle">
                 {paginatedPlugins.map((p) => {
                   const meta = parsePluginMetadata(p);
-                  const isEnabled = p.status === "enabled";
+                  const isEnabled = isPluginEnabled(p);
                   const filename = p.filename || (p as { file_name?: string | null }).file_name;
                   const toggleLabel = isEnabled ? `Disable ${p.name}` : `Enable ${p.name}`;
                   const uninstallLabel = `Uninstall ${p.name}`;
@@ -819,7 +835,12 @@ export function PluginListPage() {
                               type="button"
                               onClick={() =>
                                 disablePlugin.mutate(p.plugin_id, {
-                                  onSuccess: () => toast("success", "Plugin disabled", `"${p.name}" is disabled.`),
+                                  onSuccess: () =>
+                                    toast(
+                                      "success",
+                                      "Plugin disabled",
+                                      `"${p.name}" is disabled. Restart the server to apply.`,
+                                    ),
                                   onError: (err) => toast("error", "Disable failed", errorMessage(err)),
                                 })
                               }
@@ -835,7 +856,12 @@ export function PluginListPage() {
                               type="button"
                               onClick={() =>
                                 enablePlugin.mutate(p.plugin_id, {
-                                  onSuccess: () => toast("success", "Plugin enabled", `"${p.name}" is enabled.`),
+                                  onSuccess: () =>
+                                    toast(
+                                      "success",
+                                      "Plugin enabled",
+                                      `"${p.name}" is enabled. Restart the server to apply.`,
+                                    ),
                                   onError: (err) => toast("error", "Enable failed", errorMessage(err)),
                                 })
                               }

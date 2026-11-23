@@ -108,6 +108,120 @@ def _read_lockfile_bytes(worktree: Path) -> bytes | None:
         os.close(fd)
 
 
+def resolve_branch_lockfile(
+    server_id: str,
+    server_root: Path,
+    branch_name: str,
+    *,
+    layout: HostStateLayout | None = None,
+    commit_sha: str | None = None,
+) -> LockfileV21 | None:
+    """Resolve the authoritative lockfile for ``branch_name`` (worktree -> Git ref -> host)."""
+    eff_layout = layout or resolve_host_state_layout()
+    branch_svc = GitBranchService(eff_layout)
+    git_info = branch_svc.get_branch(server_id, server_root, branch_name)
+    if git_info is not None and git_info.worktree_path and git_info.worktree_path.is_dir():
+        with contextlib.suppress(Exception):
+            check_not_symlink_or_reparse(git_info.worktree_path)
+            raw_bytes = _read_lockfile_bytes(git_info.worktree_path)
+            if raw_bytes is not None:
+                return parse_lockfile(raw_bytes)
+
+    ref_candidates = [commit_sha, f"refs/heads/{branch_name}"]
+    for ref in ref_candidates:
+        if not ref:
+            continue
+        with contextlib.suppress(Exception):
+            repo_dir = eff_layout.repo_dir(server_id)
+            runner = GitRunner(
+                repo_path=repo_dir / "repo.git",
+                config_path=repo_dir / "gitconfig",
+            )
+            res = runner.run("show", f"{ref}:{LOCKFILE_RELPATH}", check=False)
+            if res.returncode == 0 and res.stdout:
+                return parse_lockfile(res.stdout.encode("utf-8"))
+
+    return LockfileService(eff_layout).read(server_id)
+
+
+def sync_lockfile_addons_to_dir(
+    server_type: str,
+    target_dir: Path,
+    lockfile: LockfileV21,
+    cas: ArtifactCas,
+    *,
+    prune: bool = True,
+) -> None:
+    """Materialize active/disabled addon JARs from ``lockfile`` into ``target_dir``."""
+    if not target_dir.is_dir():
+        return
+    check_not_symlink_or_reparse(target_dir)
+
+    addon_dir_name = get_addon_dir_name(server_type)
+    addon_dir = target_dir / addon_dir_name
+    addon_dir.mkdir(parents=True, exist_ok=True)
+    check_not_symlink_or_reparse(addon_dir)
+
+    desired_filenames: set[str] = set()
+    for entry in lockfile.files:
+        try:
+            relpath = validate_canonical_relpath(entry.path)
+        except ValueError:
+            continue
+        if not relpath.startswith(f"{addon_dir_name}/"):
+            continue
+        filename = Path(relpath).name
+        desired_filenames.add(filename)
+
+        # Always remove toggled counterpart (e.g., Foo.jar vs Foo.jar.disabled)
+        if filename.lower().endswith(".jar.disabled"):
+            counterpart = addon_dir / filename[:-9]
+        elif filename.lower().endswith(".jar"):
+            counterpart = addon_dir / f"{filename}.disabled"
+        else:
+            counterpart = None
+        if counterpart is not None and counterpart.is_file() and not counterpart.is_symlink():
+            with contextlib.suppress(OSError):
+                counterpart.unlink(missing_ok=True)
+
+        if not cas.has(entry.sha256):
+            continue
+        dest = target_dir / relpath
+        if dest.is_symlink():
+            continue
+        needs_write = True
+        if dest.is_file():
+            try:
+                fd = open_safe_path_fd(str(target_dir), relpath, flags=os.O_RDONLY)
+                try:
+                    h = hashlib.sha256()
+                    while True:
+                        chunk = os.read(fd, 65536)
+                        if not chunk:
+                            break
+                        h.update(chunk)
+                    needs_write = h.hexdigest() != entry.sha256
+                finally:
+                    os.close(fd)
+            except Exception:
+                needs_write = True
+        if needs_write:
+            with cas.open_blob(entry.sha256) as fh:
+                data = fh.read()
+            atomic_write_private(dest, data)
+
+    if prune and addon_dir.is_dir():
+        for existing in list(addon_dir.iterdir()):
+            if existing.is_symlink() or not existing.is_file():
+                continue
+            low = existing.name.lower()
+            if not (low.endswith(".jar") or low.endswith(".jar.disabled")):
+                continue
+            if existing.name not in desired_filenames:
+                with contextlib.suppress(OSError):
+                    existing.unlink(missing_ok=True)
+
+
 def _read_head_lockfile(
     layout: HostStateLayout,
     server_id: str,
@@ -322,7 +436,7 @@ def list_branch_plugins(
                 "version": version,
                 "description": description,
                 "author": author,
-                "status": "DISABLED" if is_disabled else "INSTALLED",
+                "status": "disabled" if is_disabled else "enabled",
                 "dependencies": deps,
                 "installed_at": now,
                 "updated_at": now,
@@ -368,7 +482,7 @@ def list_branch_plugins(
                 "version": (meta.version if meta and meta.version else None) or "uncommitted",
                 "description": (meta.description if meta and meta.description else None) or "",
                 "author": ", ".join(meta.authors) if meta and meta.authors else "",
-                "status": "DISABLED" if is_disabled else "INSTALLED",
+                "status": "disabled" if is_disabled else "enabled",
                 "dependencies": list(meta.dependencies) if meta and meta.dependencies else [],
                 "installed_at": now,
                 "updated_at": now,
@@ -739,6 +853,7 @@ def sync_main_lockfile_addons_to_server_root(
     server: Server,
     *,
     layout: HostStateLayout | None = None,
+    force_prune: bool = False,
 ) -> None:
     """Sync ``main``'s lockfile and materialize CAS addon JARs to the live server root."""
     if server.deployment is None or not server.deployment.root_path:
@@ -756,57 +871,11 @@ def sync_main_lockfile_addons_to_server_root(
     with contextlib.suppress(Exception):
         LockfileService(eff_layout).write(str(server.id), head_lf)
 
-    addon_dir_name = get_addon_dir_name(server.server_type.value)
-    addon_dir = server_root / addon_dir_name
-    addon_dir.mkdir(parents=True, exist_ok=True)
-    check_not_symlink_or_reparse(addon_dir)
-
-    cas = ArtifactCas(eff_layout.cas)
-    desired_filenames: set[str] = set()
-    for entry in head_lf.files:
-        try:
-            relpath = validate_canonical_relpath(entry.path)
-        except ValueError:
-            continue
-        if not relpath.startswith(f"{addon_dir_name}/"):
-            continue
-        filename = Path(relpath).name
-        desired_filenames.add(filename)
-        if not cas.has(entry.sha256):
-            continue
-        dest = server_root / relpath
-        if dest.is_symlink():
-            continue
-        needs_write = True
-        if dest.is_file():
-            try:
-                fd = open_safe_path_fd(str(server_root), relpath, flags=os.O_RDONLY)
-                try:
-                    h = hashlib.sha256()
-                    while True:
-                        chunk = os.read(fd, 65536)
-                        if not chunk:
-                            break
-                        h.update(chunk)
-                    needs_write = h.hexdigest() != entry.sha256
-                finally:
-                    os.close(fd)
-            except Exception:
-                needs_write = True
-        if needs_write:
-            with cas.open_blob(entry.sha256) as fh:
-                data = fh.read()
-            atomic_write_private(dest, data)
-
-    # Remove orphaned JARs when server is stopped so deletions/toggles merged to main take effect
     status_val = str(getattr(server.status, "value", server.status) or "").lower()
-    if status_val == "stopped" and addon_dir.is_dir():
-        for existing in list(addon_dir.iterdir()):
-            if existing.is_symlink() or not existing.is_file():
-                continue
-            low = existing.name.lower()
-            if not (low.endswith(".jar") or low.endswith(".jar.disabled")):
-                continue
-            if existing.name not in desired_filenames:
-                with contextlib.suppress(OSError):
-                    existing.unlink(missing_ok=True)
+    sync_lockfile_addons_to_dir(
+        server.server_type.value,
+        server_root,
+        head_lf,
+        ArtifactCas(eff_layout.cas),
+        prune=force_prune or status_val == "stopped",
+    )

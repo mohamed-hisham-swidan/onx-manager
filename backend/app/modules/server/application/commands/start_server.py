@@ -388,6 +388,22 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     exc,
                 )
 
+            if str(getattr(server.mode, "value", server.mode)).lower() == "advanced":
+                try:
+                    from app.modules.plugin.application.branch_plugins import (
+                        sync_main_lockfile_addons_to_server_root,
+                    )
+
+                    sync_main_lockfile_addons_to_server_root(server, force_prune=True)
+                except Exception as exc:
+                    logger.warning(
+                        'Main branch plugin sync failed during start — server="%s" '
+                        "server_id=%s error=%s",
+                        server_name,
+                        sid,
+                        exc,
+                    )
+
         with startup_timeline(server_name, sid):
             add_timeline_milestone(None, "Pre-flight started", server_name, sid)
             try:

@@ -91,6 +91,12 @@ function ClientOnlyBadge({ warning }: { warning?: string | null }) {
   );
 }
 
+function isModEnabled(mod: PluginResponse): boolean {
+  if (mod.is_disabled_on_disk) return false;
+  const st = (mod.status || "").toLowerCase();
+  return st === "enabled" || st === "installed";
+}
+
 function ModStatusToggle({
   mod,
   onToggle,
@@ -100,7 +106,7 @@ function ModStatusToggle({
   onToggle: () => void;
   isPending: boolean;
 }) {
-  const isEnabled = mod.status === "enabled" && !mod.is_disabled_on_disk;
+  const isEnabled = isModEnabled(mod);
   return (
     <div className="flex items-center gap-2">
       <button
@@ -328,7 +334,7 @@ export function ServerModsPage() {
   }
 
   function handleToggle(mod: PluginResponse) {
-    const isCurrentlyEnabled = mod.status === "enabled" && !mod.is_disabled_on_disk;
+    const isCurrentlyEnabled = isModEnabled(mod);
     const targetState = !isCurrentlyEnabled;
 
     toggleMod.mutate(
@@ -342,7 +348,7 @@ export function ServerModsPage() {
           toast(
             "success",
             targetState ? "Mod enabled" : "Mod disabled",
-            `"${mod.name}" is now ${targetState ? "enabled" : "disabled"}.`,
+            `"${mod.name}" is now ${targetState ? "enabled" : "disabled"}. Restart the server to apply.`,
           );
         },
         onError: (err) => {

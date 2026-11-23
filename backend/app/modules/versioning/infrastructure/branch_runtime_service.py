@@ -600,7 +600,15 @@ class BranchRuntimeService:
 
         lockfile = request.lockfile
         if lockfile is None:
-            lockfile = self.lockfile_service.read(request.server_id)
+            from app.modules.plugin.application.branch_plugins import resolve_branch_lockfile
+
+            lockfile = resolve_branch_lockfile(
+                request.server_id,
+                Path(request.server_root),
+                request.branch_name,
+                layout=self.layout,
+                commit_sha=commit_sha,
+            )
 
         secrets = request.secrets
         if secrets is None:
@@ -1010,6 +1018,20 @@ class BranchRuntimeService:
                 reason=f"runtime:{runtime_id}",
             )
             locked = True
+
+            if lockfile is not None and export_root.is_dir():
+                from app.modules.plugin.application.branch_plugins import (
+                    sync_lockfile_addons_to_dir,
+                )
+                from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
+
+                sync_lockfile_addons_to_dir(
+                    request.server_type,
+                    export_root,
+                    lockfile,
+                    ArtifactCas(self.layout.cas),
+                    prune=True,
+                )
 
             rcon_password = self._resolve_rcon_password(runtime) or generate_rcon_password()
 
