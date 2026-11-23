@@ -50,7 +50,7 @@
 | `settings.py` | `/api/v1/settings` | Live application settings inspection, runtime config updates, encrypted panel integration secrets |
 | `versioning.py` | `/api/v1/servers/{id}/versioning`, `/api/v1/servers/{id}/convert/*` & `/api/v1/webhooks/github` | Branches, protection, commits, merge, diff, tags, refresh/rollback, vaults, branch runtimes, data templates, Simple ↔ Advanced conversion, GitHub sync & webhook ingress, tests |
 
-*Total live routes: 213 across all routers + system/app routes (`/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (213/213 PASS).*
+*Total live routes: 215 across all routers + system/app routes (`/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (215/215 PASS).*
 
 ---
 

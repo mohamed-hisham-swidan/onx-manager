@@ -192,7 +192,7 @@ See [Database docs](architecture/DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest -q                 # Sequential full suite (5,296 passed, 7 skipped)
+python -m pytest -q                 # Sequential full suite (5,318 passed, 7 skipped)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -224,11 +224,11 @@ from app.core.persistence.db import database
 ### Frontend
 
 ```bash
-cd frontend && npm test            # All frontend tests (1,338 passed across 138 test files)
+cd frontend && npm test            # All frontend tests (1,353 passed across 139 test files)
 cd frontend && npm run test:watch  # Watch mode
 ```
 
-1,338 frontend tests across 138 test files. Vitest with jsdom environment.
+1,353 frontend tests across 139 test files. Vitest with jsdom environment.
 
 ## Docker Development
 

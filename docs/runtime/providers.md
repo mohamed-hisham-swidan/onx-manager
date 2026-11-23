@@ -11,11 +11,11 @@ The server manager abstracts OS process management behind the `ServerProvider` i
 
 | Provider Class | Status | Target Environment | Process Isolation Model |
 |---|---|---|---|
-| **`DockerProvider`** | **ACTIVE / SOLE LOCAL RUNTIME (P6)** | Docker Daemon | Hardened isolated containers (`--cap-drop=ALL`, non-root `--user`, `--pids-limit=2048`), bridge networking, loopback RCON, WSL2 support, DooD profile. |
+| **`DockerProvider`** | **ACTIVE / SOLE LOCAL RUNTIME** | Docker Daemon | Hardened isolated containers (`--cap-drop=ALL`, non-root `--user`, `--pids-limit=2048`), bridge networking, loopback RCON, WSL2 support, DooD profile. |
 | `SSHProvider` | *Deferred Stub* | Remote Linux Host | AsyncSSH remote sessions. |
 | `CloudProvider` | *Deferred Stub* | Cloud VM Instances | Cloud compute API instance management. |
 
-> **P6 Docker-Only Runtime:** The legacy host-process providers (`LocalLinuxProvider` / tmux and `LocalWindowsProvider`) were removed in P6 (`P6-2`); existing local servers migrate via `P6-1` Docker migration tooling.
+> **Docker-Only Runtime:** Legacy host-process providers (`LocalLinuxProvider` / tmux and `LocalWindowsProvider`) were removed; existing local servers migrate via Docker migration tooling.
 
 ---
 

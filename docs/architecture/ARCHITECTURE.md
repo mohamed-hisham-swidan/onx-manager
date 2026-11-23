@@ -42,7 +42,7 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 19 router files (213 live routes) + WebSocket
+│       ├── routers/           # 19 router files (215 live routes) + WebSocket
 │       └── schemas/           # Pydantic request/response schemas (BaseResponse UTC normalization)
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus + DatabaseBusyRetryMiddleware
@@ -202,11 +202,11 @@ Guided by `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` (v8.7), ONX Manager separat
 - **Authoritative Host-State Layout (`core/host_state.py`)**: Isolates panel-owned artifacts outside container-writable `/data` under `<host_state_dir>/`: `server-meta/` (authoritative Simple lockfiles), `cas/` (SHA-256 Artifact CAS), `lec/` (Loader Environment Cache), `class-c-vault/` (AES-256-GCM encrypted Class-C snapshots), `repos/` (native bare/worktree Git repos), `locks/` (`RepoLeaseManager` + `RepoWriteLock`), `journal/` (swap/refresh journals), `quarantine/`, and `data-templates/`.
 - **Allow-list v2.3 (`core/allowlist.py`)**: Enforces TOCTOU-free descriptor-relative traversal (`open_safe_path_fd` with `O_DIRECTORY | O_NOFOLLOW` and `(st_dev, st_ino)` checks) and classifies every path into Class A (code/jars → CAS + `onx-jars.lock.json`), Class B (configs → Git; 1–16 MiB auto-routed to A-CAS), Class C (runtime/world/player state → encrypted Class-C vault), Class D (ignored ephemeral files), or Class E (forbidden/hostile paths).
 - **Clean Export, Journaled Swap & Triad Rollback (`refresh_orchestrator.py`)**: Builds a deterministic staged `/data` tree (`CleanExportService` + `.onx-complete.json`), carries complement Class-C state, performs a crash-safe journaled directory swap (`renameat2(..., RENAME_EXCHANGE)` or journaled `live -> live.prev` + `staging -> live` with `RefreshStartupReconciler` recovery), and triggers automatic triad rollback (Class A+B, Class-C snapshot, pinned Class-E backup) if the health gate fails.
-- **Protected `main`, Structured Merge & Vaults (P3)**: Enforces system-level `main` branch protection and removes Promote; provides key-level 3-way merge for YAML/TOML/JSON/Properties + `diff3` (`merge_engine.py`), `DynamicClassCRegistry`, AES-256-GCM Class-C snapshots (`format_version=2`, `ONX_MASTER_KEK`), `${ONX_SECRET_*}` secret vault (`server_secrets`), and Structured & Pattern Secret Scanner (`secret_scanner.py`).
-- **Isolated Branch Runtimes & Data Templates (P4)**: Runs branch/test containers in parallel with production via `BranchRuntimeService`, atomic `HostPortSet` allocation, ephemeral Class-C overlays (`white-list=true`, `enforce-whitelist=true`), quiescent `DataTemplates` (60s-capped RCON `save-off` with startup `save-on` recovery), and live RCON branch console.
-- **GitHub Sync & Webhook Queue (P5)**: `GitHubSyncService` provides fetch-first remote sync, non-fast-forward `main` guards, plain-jar gates, credential scrubbing, and an encrypted `GitHubVault`; `github_webhook_router` validates HMAC signatures and enqueues durable `github_webhook_deliveries`.
-- **Modpacks, LEC & 1-Click Safe Upgrades (P5.5)**: `.mrpack` and CurseForge parsers with strict archive quarantine, 19-host HTTPS download allow-list (`download_allowlist.py`), `LoaderEnvCache` (`lec_store.py` / `lec_builder.py`) for Paper (Fill v3 pre-warm), Forge (`1.17.1`–`1.20.1` bounds & argfile launch), NeoForge, Fabric, and Quilt, hash-only Modrinth compatibility matrix + transitive dependency BFS (`upgrade_matrix.py`), NBT `level.dat` `DataVersion` verification (`nbt_reader.py`), and a 4-step race-free `UpgradeHealthGateEvaluator` (stdout regex, TCP + RCON `save-all flush`, NBT `DataVersion`, dimension smoke).
-- **Docker-Only Runtime & Two-Tier Backups (P6–P7)**: P6 removes local host tmux/Win32 execution providers in favor of Docker-only server containers (`DockerProvider`) with local-to-Docker migration; P7 adds Tier-1 snapshots (`tier1_snapshot.py`), chunked AES-256-GCM envelope-encrypted Tier-2 archives (`tier2_archive.py`, `envelope_crypto.py`), and Simple ↔ Advanced conversion endpoints (`/convert/to-advanced`, `/convert/to-simple`).
+- **Protected `main`, Structured Merge & Vaults**: Enforces system-level `main` branch protection and removes Promote; provides key-level 3-way merge for YAML/TOML/JSON/Properties + `diff3` (`merge_engine.py`), `DynamicClassCRegistry`, AES-256-GCM Class-C snapshots (`format_version=2`, `ONX_MASTER_KEK`), `${ONX_SECRET_*}` secret vault (`server_secrets`), and Structured & Pattern Secret Scanner (`secret_scanner.py`).
+- **Isolated Branch Runtimes & Data Templates**: Runs branch/test containers in parallel with production via `BranchRuntimeService`, atomic `HostPortSet` allocation, ephemeral Class-C overlays (`white-list=true`, `enforce-whitelist=true`), quiescent `DataTemplates` (60s-capped RCON `save-off` with startup `save-on` recovery), and live RCON branch console.
+- **GitHub Sync & Webhook Queue**: `GitHubSyncService` provides fetch-first remote sync, non-fast-forward `main` guards, plain-jar gates, credential scrubbing, and an encrypted `GitHubVault`; `github_webhook_router` validates HMAC signatures and enqueues durable `github_webhook_deliveries`.
+- **Modpacks, LEC & 1-Click Safe Upgrades**: `.mrpack` and CurseForge parsers with strict archive quarantine, loader gating (`fabric`, `forge`, `neoforge`, `quilt`), 19-host HTTPS download allow-list (`download_allowlist.py`), `LoaderEnvCache` (`lec_store.py` / `lec_builder.py`) for Paper (Fill v3 pre-warm), Forge (`1.17.1`–`1.20.1` bounds & argfile launch), NeoForge, Fabric, and Quilt, hash-only Modrinth compatibility matrix + transitive dependency BFS (`upgrade_matrix.py`), NBT `level.dat` `DataVersion` verification (`nbt_reader.py`), and a 4-step race-free `UpgradeHealthGateEvaluator` (stdout regex, TCP + RCON `save-all flush`, NBT `DataVersion`, dimension smoke).
+- **Docker-Only Runtime, Resource Budgeting & Two-Tier Backups**: Runs all servers inside hardened Docker containers (`DockerProvider`) with profile-aware host RAM/CPU admission budgeting (`ResourceBudgetService`), Tier-1 snapshots (`tier1_snapshot.py`), chunked AES-256-GCM envelope-encrypted Tier-2 archives (`tier2_archive.py`, `envelope_crypto.py`), and Simple ↔ Advanced conversion endpoints (`/convert/to-advanced`, `/convert/to-simple`).
 - **Container Hardening (`core/container_hardening.py`)**: All 4 Docker spawn paths (server, installer, isolated test, bot pool) enforce `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`, non-root `--user`, and a single `/data` bind mount.
 
 ---
@@ -220,7 +220,7 @@ Guided by `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` (v8.7), ONX Manager separat
 | Language | Python 3.12 (installer-pinned; `requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (52 revisions, head `b1e2100000032`, floor `b1e2100000032`) |
+| Migrations | Alembic (53 revisions, head `b1e2100000033`, floor `b1e2100000033`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
@@ -469,17 +469,16 @@ the properties file (and thus RCON config) is never found. This blocks TPS
 and player-count collection for affected servers even if RCON is enabled on
 disk.
 
-**Status**: Deferred — the pipeline completes correctly; the data source just
-isn't reachable until root_path is fixed.
+**Status**: Resolved — `MetricsCollector._resolve_server_properties_path` falls back to `AppSettings().servers_data_dir` when a legacy relative/nested `root_path` does not contain `server.properties`, and normalizes wildcard `rcon_host` addresses (`0.0.0.0`, `::`, `*`) to `127.0.0.1`.
 
 ---
 
 ## Testing
 
 ```bash
-pytest                          # Backend suite (5,293 tests collected across 325 test_*.py files)
+pytest                          # Backend suite (5,318 passed, 7 skipped across 328 test_*.py files)
 pytest tests/ -x -q             # Quick run, stop on first failure
-npm test                        # Frontend suite (137 test files)
+npm test                        # Frontend suite (1,353 passed across 139 test files)
 ```
 
 Test isolation: sandbox database + sandbox server directory, set via `ONX_DATABASE_URL` / `MCS_DATABASE_URL` and `ONX_SERVERS_DATA_DIR` / `MCS_SERVERS_DATA_DIR`.
@@ -488,13 +487,13 @@ Test isolation: sandbox database + sandbox server directory, set via `ONX_DATABA
 
 - **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `b1e2100000032`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
+  `b1e2100000033`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
   (`scripts/check-stray-db`), and Ruff baseline regression gate
   (`scripts/check-ruff-baseline`).
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
   verifies `pyproject.toml`, runtime, and frontend package versions agree.
 - **Route contract CI** (`.github/workflows/route-permission-ci.yml`): verifies
-  213 live routes match `contracts/permissions.yaml`.
+  215 live routes match `contracts/permissions.yaml`.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): typecheck, lint, test, build.
 - **Docker build smoke** (`.github/workflows/docker-build-smoke.yml`): builds Docker image on backend Dockerfile/requirements changes.
 - **Verification cadence & Windows CI** (`verification-cadence.yml`, `windows-ci.yml`): weekly scheduled cadence (`verification-cadence.yml`) and manual dispatch (`windows-ci.yml`).
@@ -503,7 +502,7 @@ Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`0.1.0` pins minimum Alembic revision `b1e2100000032`
+`0.1.0` pins minimum Alembic revision `b1e2100000033`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

@@ -82,13 +82,13 @@ Before submitting a PR, verify all of the following:
 | Gate | Command | Requirement |
 |---|---|---|
 | Version Propagation | `python3 scripts/check-version-propagation` | All versions match `0.1.0` |
-| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000032` |
+| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000033` |
 | Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
-| Route/Permission Contract | `python3 scripts/check-route-contract` | 213 / 213 routes match `contracts/permissions.yaml` |
+| Route/Permission Contract | `python3 scripts/check-route-contract` | 215 / 215 routes match `contracts/permissions.yaml` |
 | PowerShell UTF-8 BOM | `python3 scripts/check-ps1-bom` | All `.ps1` scripts have valid UTF-8 BOM |
 | Stray DB Check | `python3 scripts/check-stray-db` | No stray SQLite `.db` files at repo root or backend root |
-| Backend Tests | `cd backend && pytest` | All tests passing (5,293 collected across 325 `test_*.py` files) |
-| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test && npm run build` | Typecheck, lint, tests (137 test files), and build passing |
+| Backend Tests | `cd backend && pytest` | All tests passing (5,318 passed, 7 skipped across 328 `test_*.py` files) |
+| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test && npm run build` | Typecheck, lint, tests (1,353 passed across 139 test files), and build passing |
 
 ### PR Checklist
 

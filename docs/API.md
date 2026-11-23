@@ -7,7 +7,7 @@
 > Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
 > This document is maintained against the router code (`backend/app/api/v1/routers/`).
-> Verified across the 19 router files (213 live routes via `./scripts/check-route-contract`):
+> Verified across the 19 router files (215 live routes via `./scripts/check-route-contract`):
 > `activity, auth, backups, exposure, files, health, invites, marketplace, modpacks_upgrades,
 > monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`.
 
@@ -656,6 +656,7 @@ routes enforce server-scoped RBAC via `require_server_permission(...)`.
 | Method | Path | Auth | Request body | Query params | Response | Notes |
 |---|---|---|---|---|---|---|
 | `GET` | `/api/v1/monitoring/metrics` | `server.{id}.view` | — | `server_id` (required), `limit` (default `100`, 1–10000) | `200 list[dict]` | Metric points: `tps`, `players`, `ram_used_mb`, `cpu_percent`, `timestamp` |
+| `GET` | `/api/v1/monitoring/host-resources` | Bearer | — | — | `200 dict` | Host resource budget: `total_ram_mb`, `os_reserve_ram_mb`, `allocated_ram_mb`, `available_ram_mb`, `total_cpus`, `reserved_cpus`, `allocated_cpus`, `available_cpus`, `profile`, per-server breakdown |
 | `POST` | `/api/v1/monitoring/alerts/{server_id}` | `server.{id}.settings` | `CreateAlertRuleRequest` | — | `201 dict` | Create an alert rule — `server_id` path-based |
 | `GET` | `/api/v1/monitoring/alerts` | Bearer | — | `server_id` (optional) | `200 list[dict]` | DB-backed alert rules (`SQLAlertRuleRepository`) |
 | `DELETE` | `/api/v1/monitoring/alerts/{alert_rule_id}` | `global.settings` | — | — | `204` | Deletes stored alert rule |
@@ -787,8 +788,9 @@ setup/invite/verify/login/health paths) until the Owner is created.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
-| `GET` | `/api/v1/setup/status` | Public | — | `200 SystemStatusResponse` | `{"initialized": bool, "access_mode": "LOCAL"/"GLOBAL", "user_count": int, "version": str}` — consumed by the setup wizard and `SystemStatusGuard` |
+| `GET` | `/api/v1/setup/status` | Public | — | `200 SystemStatusResponse` | Includes `initialized`, `access_mode`, `deployment_profile` (`local`/`vps`), `password_configured`, `auth_mode` (`local_zero_login`/`jwt`), `user_count`, `version`, `advanced_mode_enabled` |
 | `POST` | `/api/v1/setup/bootstrap` | Public | `BootstrapRequest` | `201 BootstrapResponse` | **Single-use** first-run: creates the Owner user and marks the instance initialized with the chosen access mode. Rejected `409 Conflict` once initialized. |
+| `POST` | `/api/v1/setup/credentials` | Bearer / loopback `local` | `ConfigureCredentialsRequest` | `200` | Sets username and password on a `local_zero_login` instance, disabling passwordless auto-login and switching `auth_mode` to `jwt`. |
 | `PUT` | `/api/v1/setup/access-mode` | **Owner only** (`require_owner()`) | `AccessModeRequest` | `200 SystemStatusResponse` | Flips `LOCAL` ↔ `GLOBAL`. `admin:full` alone is **not** sufficient — the caller needs the `owner` role or a `global.*` permission claim. Rejected `400` if the instance is not initialized. |
 
 > **Owner authority:** the Owner is the bootstrap-created user who receives
@@ -807,8 +809,9 @@ The access mode can be changed at any time after bootstrap via
 
 ### Schemas
 
-`BootstrapRequest`: `email`, `password` (min 8 chars), `display_name`,
-`access_mode` (default `"LOCAL"`).
+`BootstrapRequest`: `username` (recommended; falls back from `email`/`display_name`), `password` (min 8 chars), optional `email`, optional `display_name`, `access_mode` (default `"LOCAL"`).
+
+`ConfigureCredentialsRequest`: `username` (`1`–`128` chars), `password` (min 8 chars), optional `display_name`, optional `email`.
 
 `UpdateAccessModeRequest` (alias `AccessModeRequest`): `access_mode` (`"LOCAL"` or `"GLOBAL"`).
 
@@ -821,7 +824,11 @@ The access mode can be changed at any time after bootstrap via
   "initialized": true,
   "access_mode": "LOCAL",
   "user_count": 1,
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "advanced_mode_enabled": true,
+  "deployment_profile": "local",
+  "password_configured": true,
+  "auth_mode": "jwt"
 }
 ```
 
@@ -1270,26 +1277,26 @@ Discard an unverified or failed test run.
 - **Auth:** Required (`server:test:execute`)
 - **Response `200 OK`:** `TestRunResponse` (`status: "discarded"`)
 
-### Live Refresh, Class-C Vault & Secret Vault (P2–P3)
+### Live Refresh, Class-C Vault & Secret Vault
 
 - `GET /api/v1/servers/{server_id}/versioning/refresh` / `POST /refresh` / `POST /rollback` / `POST /upgrade/confirm` / `POST /refresh/release-pins` (`server.{id}.versioning` / `server.{id}.edit`)
 - `GET / POST / DELETE /api/v1/servers/{server_id}/versioning/class-c/snapshots` & `POST .../restore`
 - `GET /api/v1/servers/{server_id}/versioning/class-c/dynamic` & `POST .../reset`
 - `GET /api/v1/servers/{server_id}/versioning/secrets`, `POST /secrets/extract`, `DELETE /secrets/{key_name}`
 
-### Isolated Branch Runtimes & Data Templates (P4)
+### Isolated Branch Runtimes & Data Templates
 
 - `GET / POST / DELETE /api/v1/servers/{server_id}/versioning/data-templates`
 - `POST / PUT /api/v1/servers/{server_id}/versioning/branches/{name}/port-set/allocate` & `.../port-set`
 - `GET / POST /api/v1/servers/{server_id}/versioning/branches/{name}/{runtime,run,stop,save-data-template,console,console/command}`
 
-### GitHub Sync & Webhooks (P5)
+### GitHub Sync & Webhooks
 
 - `GET / DELETE /api/v1/servers/{server_id}/versioning/github`, `POST /github/{deploy-key/generate,connect,credentials/rotate,fetch,push}`
 - `GET /api/v1/servers/{server_id}/versioning/github/webhooks/deliveries` & `POST .../redeliver`
 - `POST /api/v1/webhooks/github/{server_id}` (public HMAC-verified GitHub webhook ingress)
 
-### Modpacks, Safe Upgrades & Loader Environment Cache (P5.5)
+### Modpacks, Safe Upgrades & Loader Environment Cache
 
 Routes defined in `backend/app/api/v1/routers/modpacks_upgrades.py` (and `settings.py` for CurseForge credentials):
 
@@ -1299,7 +1306,7 @@ Routes defined in `backend/app/api/v1/routers/modpacks_upgrades.py` (and `settin
 - `GET /api/v1/lec/entries`, `POST /api/v1/lec/{prewarm,gc}`
 - `GET / PUT / DELETE /api/v1/settings/integrations/curseforge`
 
-### Simple ↔ Advanced Mode Conversion (P7-2)
+### Simple ↔ Advanced Mode Conversion
 
 - `POST /api/v1/servers/{server_id}/convert/to-advanced` (`server.versioning.manage`)
 - `POST /api/v1/servers/{server_id}/convert/to-simple` (`server.versioning.manage`)

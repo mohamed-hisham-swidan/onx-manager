@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (52 revisions, head `b1e2100000032`, floor `b1e2100000032`) |
+| Migrations | Alembic `>=1.13` (53 revisions, head `b1e2100000033`, floor `b1e2100000033`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -80,28 +80,28 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 ## 3. Repository shape — counts
 
-### Code size (measured 2026-11-22)
+### Code size (measured 2026-11-23)
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 872 | **229,177** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 480 | 114,356 | `find backend/app -name '*.py'` |
-| — `backend/tests` (325 `test_*.py` files) | 339 | 110,432 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + 52 revisions) | 53 | 4,389 | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 318 | **75,264** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 234 | 60,379 | `find frontend/src -name '*.tsx'` |
-| — `.ts` | 83 | 14,050 | `find frontend/src -name '*.ts'` |
+| Backend Python (app + tests + alembic) | 875 | **232,768** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 479 | 116,049 | `find backend/app -name '*.py'` |
+| — `backend/tests` (328 `test_*.py` files) | 342 | 112,182 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + 53 revisions) | 54 | 4,537 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 323 | **76,990** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 238 | 61,997 | `find frontend/src -name '*.tsx'` |
+| — `.ts` | 84 | 14,158 | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | 835 | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **1,190** | **304,441** | — |
-| Docs | 64 `.md` files | 14,314 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| **TOTAL (backend + frontend source)** | **1,198** | **309,758** | — |
+| Docs | 64 `.md` files | 14,196 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 872 |
-| `.tsx` | 234 |
-| `.ts` | 83 |
+| `.py` | 875 |
+| `.tsx` | 238 |
+| `.ts` | 84 |
 | `.css` | 1 |
 | **Total** | **1,190** |
 
@@ -123,13 +123,14 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | storage | 5 | 549 | Storage backends (local/S3/encryption) |
 | shared | 3 | 282 | Shared value objects / exceptions |
 
-### Tests (measured 2026-11-22)
+### Tests (measured 2026-11-23)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **5,293 collected** across 325 `test_*.py` files | `pytest --collect-only -q` (`backend/tests/`, post-P6/P7 merge) |
-| Frontend | **137 test files** on disk | `npx vitest run` (1,302 passed across 135 files at P5.5; P6/P7 added 2 test files) |
-| CI Gates | **6/6 PASS** | `check-version-propagation`, `check-db-revision` (`b1e2100000032`), `check-ruff-baseline`, `check-route-contract` (`213/213`), `check-ps1-bom`, `check-stray-db` |
+| Backend | **5,318 passed, 7 skipped** across 328 `test_*.py` files | `pytest -q` (`backend/tests/`) |
+| Frontend | **1,353 passed** across 139 test files | `npx vitest run --minWorkers=1 --maxWorkers=2` |
+| Desktop | **14 passed** (`0` failed) | `cd desktop && npm test` |
+| CI Gates | **6/6 PASS** | `check-version-propagation`, `check-db-revision` (`b1e2100000033`), `check-ruff-baseline`, `check-route-contract` (`215/215`), `check-ps1-bom`, `check-stray-db` |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -142,7 +143,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 19 REST router files (213 live routes + WebSocket; 213/213 contract gate)
+│   │   ├── routers/          # 19 REST router files (215 live routes + WebSocket; 215/215 contract gate)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security, allowlist, host_state, container_hardening
 │   ├── modules/              # 13 DDD modules (server, versioning, activity, exposure,
@@ -152,7 +153,7 @@ backend/
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
 │   ├── services/             # orchestrators (server, backup, deployment)
 │   └── registration.py       # bus handler & middleware registration
-├── alembic/                  # 52 migration revisions (head b1e2100000032)
+├── alembic/                  # 53 migration revisions (head b1e2100000033)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
 │                             #   infrastructure/ integration/ monitoring/ plugin/ tasks/ unit/ versioning/
 ├── config/                   # YAML settings
@@ -216,7 +217,7 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
   close even on commit failure.
 - **ABAC/RBAC authorization**: permission strings (`plugin:manage`, `server.x.view`, …)
   evaluated by `PermissionEvaluator`; enforced via `require_permission` /
-  `require_server_permission` dependencies + route→permission contract check (213/213 live routes).
+  `require_server_permission` dependencies + route→permission contract check (215/215 live routes).
 - **WebSocket layer**: `/ws` endpoint, channel subscriptions, auth via token,
   metrics batching + domain-event dispatch, reconnect/backoff client.
 - **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
@@ -313,18 +314,18 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | **301,861** |
-| Source files (backend + frontend) | **1,171** |
-| Python files / lines | 857 / 227,639 |
-| TS+TSX files / lines | 313 / 73,387 (+ 1 CSS file, 835 lines) |
-| REST endpoints / live routes | 213 live routes (19 router files + app routes; 213/213 contract gate) |
-| Alembic revisions | 52 (head `b1e2100000032`) |
-| DB tables | 56 ORM tables (`__tablename__`) |
+| Source lines (backend + frontend) | **309,758** |
+| Source files (backend + frontend) | **1,198** |
+| Python files / lines | 875 / 232,768 |
+| TS+TSX files / lines | 322 / 76,155 (+ 1 CSS file, 835 lines) |
+| REST endpoints / live routes | 215 live routes (19 router files + app routes; 215/215 contract gate) |
+| Alembic revisions | 53 (head `b1e2100000033`) |
+| DB tables | 56 ORM tables (`__tablename__`; 62 SQLite user tables) |
 | CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
 | ADRs | 23 ADRs (`0001`–`0023`) |
-| Backend test files / collected | 325 `test_*.py` test files / 5,293 collected tests |
-| Frontend test files | 137 test files |
+| Backend test files / suite | 328 `test_*.py` test files / 5,318 passed, 7 skipped |
+| Frontend test files / suite | 139 test files / 1,353 passed |
 | Docs | See `docs/README.md` for full documentation index |
 
 ---

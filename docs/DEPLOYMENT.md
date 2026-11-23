@@ -86,6 +86,7 @@ Put Nginx, Caddy, or a Cloudflare Tunnel in front of port `8000` for HTTPS in pr
 | `ONX_MASTER_KEK` / `ONX_MASTER_KEK_FILE` | *(auto-generated `0600` at `config/master_kek.key` on POSIX)* | 256-bit Master KEK for Class-C state snapshots and secret vault |
 | `ONX_HOST_DATA_DIR` / `ONX_HOST_STATE_HOST_DIR` | *(unset)* | Absolute host paths required for DooD sibling container volume mounts |
 | `ONX_CURSEFORGE_API_KEY` | *(unset)* | Optional CurseForge API key (can also be set in Settings UI) |
+| `ONX_HOST_RAM_RESERVE_MB` / `ONX_HOST_CPU_RESERVE` | *(profile-derived)* | Override OS RAM reserve (MB) and CPU core reserve (`local` defaults to at least `4096 MB` / `25%` RAM; `vps` to `1024 MB` / `15%` RAM) |
 | `ONX_DEBUG` / `ONX_LOG_LEVEL` | `false` / `INFO` | Debug flag and logging verbosity |
 
 > **Important Security Note on Auto-Generated Keys:** On first boot, ONX Manager generates `jwt_private_key.pem`, `backup_encryption_key.bin`, and (on POSIX) `master_kek.key` with strict `0600` permissions if not already configured. Always back up `onx-config` (Docker volume) or `backend/config/` — losing `backup_encryption_key.bin` or `master_kek.key` makes existing encrypted backups/snapshots unrecoverable.
@@ -112,18 +113,20 @@ docker compose build && docker compose up -d
 
 ## First-Boot Owner Bootstrap (`/setup`)
 
-Every fresh deployment starts **uninitialized** and automatically redirects browser visitors to `/setup`. You can bootstrap either in the browser GUI (recommended) or via API:
+- In **`vps`** profile, every fresh deployment starts uninitialized and redirects browser visitors to `/setup`.
+- In **`local`** profile bound strictly to loopback (`127.0.0.1` / `::1`), `auth_mode` starts as `local_zero_login` (non-loopback requests or spoofed `X-Forwarded-For`/`Host` headers fail closed with `401`). External tunnels and non-loopback binding return `403 PASSWORD_REQUIRED_FOR_EXPOSURE` until credentials are set via `POST /api/v1/setup/credentials` or the UI exposure modal.
+
+You can bootstrap a `vps` instance in the browser GUI (recommended) or via API:
 
 ```bash
 curl -s http://localhost:8000/api/v1/setup/status
-# {"initialized":false,"access_mode":"LOCAL","user_count":0,"version":"0.1.0","advanced_mode_enabled":true,"deployment_profile":"vps"}
+# {"initialized":false,"access_mode":"LOCAL","user_count":0,"version":"0.1.0","advanced_mode_enabled":true,"deployment_profile":"vps","password_configured":false,"auth_mode":"jwt"}
 
 curl -X POST http://localhost:8000/api/v1/setup/bootstrap \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "owner@example.com",
+    "username": "admin",
     "password": "a-strong-password",
-    "display_name": "Instance Owner",
     "access_mode": "GLOBAL"
   }'
 ```
@@ -132,7 +135,7 @@ curl -X POST http://localhost:8000/api/v1/setup/bootstrap \
 
 ## Database Migrations & Compatibility Floor
 
-**ONX Manager 0.1.0 requires Alembic revision `b1e2100000032`** (enforced fail-closed at startup via `app.core.persistence.db_revision`).
+**ONX Manager 0.1.0 requires Alembic revision `b1e2100000033`** (enforced fail-closed at startup via `app.core.persistence.db_revision`).
 
 - Docker entrypoint and `./install.sh` run `alembic upgrade head` automatically.
 - For manual upgrades:

@@ -13,7 +13,7 @@ Manage multiple servers, stream live console & telemetry, isolate plugin/mod cha
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-5296_backend_%7C_1338_frontend_%7C_138_suites-brightgreen?style=flat-square)](docs/testing.md)
+[![Tests](https://img.shields.io/badge/Tests-5318_backend_%7C_1353_frontend_%7C_139_suites-brightgreen?style=flat-square)](docs/testing.md)
 
 </div>
 
@@ -35,7 +35,7 @@ ONX Manager ships as a **single modular monolith** (SQLite + in-process async ta
 - **3-Way Structured Config Merge**: Semantic 3-way merge across `YAML`, `TOML`, `JSON`, `.properties`, and `diff3` — plus secret extraction (`${ONX_SECRET_*}`) and a structured secret scanner so tokens never leak into Git commits.
 - **Built-in Zero-Port-Forward Exposure**: First-class **Playit.gg** tunnels, **Cloudflare Named Tunnels**, and **UPnP** management directly in the panel.
 - **Two-Tier Envelope-Encrypted Backups**: Tier-1 snapshots + Tier-2 chunked **AES-256-GCM envelope-encrypted** archives, SHA-256 verification, and local or S3 storage.
-- **GUI-First Onboarding (`local` vs `vps` Profiles)**: Auto-generates `0600` cryptographic keys on first boot and opens straight into the `/setup` Owner wizard — zero terminal user creation required. Run as a full **VPS panel** (`ONX_DEPLOYMENT_PROFILE=vps`) or a streamlined **Local Desktop panel** (`ONX_DEPLOYMENT_PROFILE=local`).
+- **GUI-First Onboarding (`local` vs `vps` Profiles)**: Auto-generates `0600` cryptographic keys on first boot. **`local` profile** enables passwordless loopback (`127.0.0.1` / `::1`) desktop auto-login while blocking external tunnels and `0.0.0.0` binding fail-closed until a username and password are set; **`vps` profile** opens directly on the mandatory username-and-password `/setup` Owner wizard.
 
 ---
 
@@ -137,7 +137,7 @@ Build native installers (`desktop/dist/`) with `npm run build:win` (Windows NSIS
 | **GitOps & Testing** | Per-server Git branches/commits/tags, protected `main`, 3-way structured merge, Class-C encrypted snapshots (`format_version=2`), secret vault, GitHub sync/webhooks, FakePlayer/Mineflayer bot test runs |
 | **Console & Files** | WebSocket live console, real-time CPU/RAM/TPS/player telemetry, syntax-highlighted browser file editor, directory/ZIP import |
 | **Backups & Plugins** | Two-tier backups (Tier-1 snapshot + Tier-2 AES-256-GCM envelope archive), S3 or local storage, Modrinth marketplace, custom `.jar` upload |
-| **Security & Auth** | GUI `/setup` bootstrap (`LOCAL` or `GLOBAL` invite-only access), RS256 JWT, Argon2id passwords, `onx_` API keys, RBAC/ABAC verified across `213` live routes, Prometheus `/metrics` |
+| **Security & Auth** | Username-only GUI `/setup` (`LOCAL` or `GLOBAL` invite-only access), loopback `local` zero-login with fail-closed exposure password gate, RS256 JWT, Argon2id passwords, `onx_` API keys, RBAC/ABAC verified across `215` live routes, Prometheus `/metrics` |
 
 ---
 
@@ -145,7 +145,7 @@ Build native installers (`desktop/dist/`) with `npm run build:win` (Windows NSIS
 
 | | |
 |---|---|
-| **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2.0 async · Alembic (`52` revisions) · Pydantic v2 |
+| **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2.0 async · Alembic (`53` revisions) · Pydantic v2 |
 | **Frontend** | React 19 · TypeScript 5.5+ · Vite 5.4+ · TailwindCSS 4 · TanStack Query 5 · Zustand 5 |
 | **Database** | SQLite with WAL mode (default, zero config) or PostgreSQL 16 |
 | **Desktop Wrapper** | Electron (`desktop/`, optional thin shell with Local & Remote switcher) |
@@ -164,7 +164,7 @@ docker-compose.dood.yml Opt-in Docker-outside-of-Docker override for container r
 desktop/                Thin Electron desktop shell (Local auto-supervisor & Remote client)
 backend/                FastAPI modular monolith — 13 DDD modules, CQRS, API, WebSocket
 frontend/               React 19 SPA — multi-skin design system, dashboard, wizards
-contracts/              OpenAPI, events, permissions (213 routes), plugin & config schemas
+contracts/              OpenAPI, events, permissions (215 routes), plugin & config schemas
 docs/                   Architecture, deployment, API, database, runtime & dev guides
 scripts/                CI quality gates, preflight cleanup, bootstrap & developer utilities
 launcher.py             Unified CLI service supervisor & developer launcher
@@ -183,8 +183,8 @@ Full index: [`docs/README.md`](docs/README.md)
 | [Development Guide](docs/DEVELOPMENT.md) | Local dev workflow (`launcher.py --dev`), preflight, migrations & debugging |
 | [Desktop Wrapper](desktop/README.md) | Running, testing, and building Windows/Linux desktop packages |
 | [Architecture](docs/architecture/ARCHITECTURE.md) | Modular monolith, 13 DDD bounded contexts & Simple/Advanced architecture |
-| [Database Architecture](docs/architecture/DATABASE.md) | Schema (`56` tables), `52` Alembic migrations (`b1e2100000032`) & reconciler |
-| [API Reference](docs/API.md) | REST endpoints (`213` live routes) & `/ws` WebSocket protocol |
+| [Database Architecture](docs/architecture/DATABASE.md) | Schema (`56` ORM / `62` SQLite tables), `53` Alembic migrations (`b1e2100000033`) & reconciler |
+| [API Reference](docs/API.md) | REST endpoints (`215` live routes) & `/ws` WebSocket protocol |
 | [Testing Guide](docs/testing.md) | Backend, frontend, desktop & 6 CI quality gates |
 | [Contributing](CONTRIBUTING.md) | Contribution workflow, governance & code conventions |
 | [Security Policy](SECURITY.md) | Vulnerability reporting & key-handling practices |

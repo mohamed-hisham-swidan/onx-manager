@@ -7,7 +7,7 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (52 revisions, head `b1e2100000032`, floor `b1e2100000032`) |
+| Migrations | Alembic (53 revisions, head `b1e2100000033`, floor `b1e2100000033`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
@@ -50,7 +50,7 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 | `provisioning_error` | `Text` | `None` | Nullable error summary when status is `provisioning_failed` |
 | `provisioning_retryable` | `Boolean` | `False` | True if transient error is auto-retryable |
 | `motd`, `max_players`, `gamemode`, `difficulty`, `pvp`, etc. | varied | — | Direct server.properties mapping |
-| `provider` | `String(32)` | `"docker"` / `"local"` | `docker` (sole active local runtime per P6); `local`, `local_windows` (legacy/migrated), `remote` |
+| `provider` | `String(32)` | `"docker"` / `"local"` | `docker` (sole active local runtime); `local`, `local_windows` (legacy/migrated), `remote` |
 | `location_type` | `String(16)` | `"local"` | Filesystem placement |
 | `root_path`, `working_directory`, `startup_jar`, `startup_command` | varied | — | Deployment paths |
 | `launch_config_json` | `Text` | nullable | Full launch config snapshot |
@@ -466,7 +466,8 @@ alembic upgrade head
 | `b1e2100000029` | `server_data_templates` table and P4 branch/port indexes |
 | `b1e2100000030` | `server_github_connections` and `github_webhook_deliveries` tables |
 | `b1e2100000031` | `server_upgrades`, `loader_env_cache_entries`, `panel_integration_secrets`, and P5.5 upgrade/LEC columns |
-| `b1e2100000032` | P7-1 two-tier backups: `backup_jobs.tier` column and `ix_backup_jobs_server_tier` index (**head**) |
+| `b1e2100000032` | Two-tier backups: `backup_jobs.tier` column and `ix_backup_jobs_server_tier` index |
+| `b1e2100000033` | Make `users.email` nullable for username-only & `local` zero-login authentication (**head**) |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.

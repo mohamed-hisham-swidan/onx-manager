@@ -337,7 +337,7 @@ Production builds use `window.location.host` for API and WS URLs.
 
 Frontend CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR to
 `master` and gates on: `npm run typecheck`, `npm run lint`, `npm test`
-(137 test files), and `npm run build`.
+(139 test files), and `npm run build`.
 
 Key test areas: `authStore`, `uiStore`, `api.ts`, `wsStore`, `AuthGuard`, `LoginPage`, `Sidebar`, `TopBar`, `AppShell`, `WebSocketManager`, `ServersPage`, `DashboardPage`.
 

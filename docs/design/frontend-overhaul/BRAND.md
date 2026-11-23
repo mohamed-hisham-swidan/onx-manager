@@ -39,7 +39,7 @@ ONX Manager is built for the Minecraft server ecosystem, but **must never infrin
 ### Permitted Abstract Voxel Design Rules
 1. **Grid-Aligned Rectangles**: All voxel art is composed of pure crisp rectangles or isometric rhombi (`shapeRendering="crispEdges"`).
 2. **Abstract Topography & Strata**: Geometric ridges, floating island silhouettes, and tiered data spires.
-3. **Token Palette Shading**: Voxels are rendered with opacity gradients (`0.10` to `0.80`) over `currentColor` and accent tokens, adapting seamlessly to Graphite Dark, Azure, and Light modes.
+3. **Token Palette Shading**: Voxels are rendered with opacity gradients (`0.10` to `0.80`) over `currentColor` and accent tokens, adapting cleanly to Graphite Dark, Azure, and Light modes.
 
 ---
 

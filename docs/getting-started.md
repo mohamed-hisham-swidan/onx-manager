@@ -99,8 +99,9 @@ Dev UI runs at `http://localhost:5173` (proxying `/api` and `/ws` to `:8000`).
 
 A fresh instance starts **uninitialized** — no terminal registration step is needed:
 
-1. Open the panel URL in your browser (or launch the Desktop App). You are automatically redirected to **`/setup`**.
-2. Create the **Owner** account (Display Name, Email, Password).
+1. Open the panel URL in your browser (or launch the Desktop App):
+   - In **`local`** profile on loopback (`127.0.0.1` / `::1`), the dashboard opens directly without a login screen; you will be prompted to set a **Username** and **Password** before enabling any external tunnel or binding to `0.0.0.0`.
+   - In **`vps`** profile (or once credentials are configured), you are redirected to **`/setup`** to create the **Owner** account (**Username** and **Password**; email is optional).
 3. Choose the **Access Mode** (or keep the default **`LOCAL`** in Local Desktop profile):
    - **`LOCAL`**: Home-lab / LAN. Open registration stays available (`/register`).
    - **`GLOBAL`**: Public VPS. Registration is invite-only via `/invite/:token` links created by the Owner under **Settings → Invitations**.
