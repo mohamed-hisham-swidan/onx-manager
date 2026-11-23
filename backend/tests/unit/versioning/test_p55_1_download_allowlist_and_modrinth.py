@@ -297,6 +297,39 @@ class TestHardenedDownloader:
         assert data == body
         assert result.sha1 == _sha1(body)
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="ArtifactCas requires a POSIX environment; Windows = Simple-only",
+    )
+    @pytest.mark.asyncio
+    async def test_download_retries_transient_error_then_succeeds(self, tmp_path: Path) -> None:
+        body = b"retry-success-jar-payload"
+        cas = ArtifactCas(tmp_path / "cas")
+        session = _FakeSession(
+            [
+                _FakeResponse(503),
+                _FakeResponse(200, body=body),
+            ]
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            async def _no_sleep(_sec: float) -> None:
+                return None
+
+            mp.setattr(
+                "app.modules.versioning.infrastructure.download_allowlist.asyncio.sleep",
+                _no_sleep,
+            )
+            result = await download_verified_to_cas(
+                CDN,
+                cas,
+                expected_sha256=_sha256(body),
+                max_retries=3,
+                client=session,
+            )
+        assert result.sha256 == _sha256(body)
+        assert cas.has(result.sha256)
+        assert len(session.calls) == 2
+
 
 class _JsonResponse:
     def __init__(

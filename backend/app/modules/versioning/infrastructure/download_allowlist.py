@@ -9,6 +9,7 @@ rejection are enforced for every hop.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import ipaddress
@@ -34,6 +35,13 @@ from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 
 MAX_REDIRECT_HOPS = 5
 DEFAULT_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+_STREAM_DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
+    total=None,
+    connect=30,
+    sock_connect=30,
+    sock_read=60,
+)
+_RETRYABLE_STATUS_CODES = frozenset({0, 429, 500, 502, 503, 504})
 
 DEFAULT_ALLOWED_DOWNLOAD_HOSTS: frozenset[str] = frozenset(
     {
@@ -227,7 +235,10 @@ async def _stream_download(
             from_github_release=from_github_release,
         )
         try:
-            async with session.get(current_url, allow_redirects=False) as resp:
+            request_kwargs: dict[str, Any] = {"allow_redirects": False}
+            if isinstance(session, aiohttp.ClientSession):
+                request_kwargs["timeout"] = _STREAM_DOWNLOAD_TIMEOUT
+            async with session.get(current_url, **request_kwargs) as resp:
                 status = int(resp.status)
                 if status in _REDIRECT_STATUSES:
                     if redirect_count >= max_redirects:
@@ -302,6 +313,7 @@ async def download_verified_to_cas(
     extra_allowed_hosts: Iterable[str] = (),
     max_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES,
     max_redirects: int = MAX_REDIRECT_HOPS,
+    max_retries: int = 3,
     client: aiohttp.ClientSession | None = None,
 ) -> VerifiedDownloadResult:
     """Stream a validated download into the CAS, verifying hashes and size."""
@@ -309,20 +321,33 @@ async def download_verified_to_cas(
     tmp_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp_name = tempfile.mkstemp(prefix="download-", suffix=".part", dir=tmp_dir)
     tmp_path = Path(tmp_name)
+    attempts = max(1, int(max_retries))
     try:
         with os.fdopen(fd, "wb") as handle:
-            result = await _stream_download(
-                url,
-                write_chunk=handle.write,
-                extra_allowed_hosts=extra_allowed_hosts,
-                max_bytes=max_bytes,
-                max_redirects=max_redirects,
-                expected_size=expected_size,
-                expected_sha512=expected_sha512,
-                expected_sha1=expected_sha1,
-                expected_sha256=expected_sha256,
-                client=client,
-            )
+            result: VerifiedDownloadResult | None = None
+            for attempt in range(attempts):
+                handle.seek(0)
+                handle.truncate(0)
+                try:
+                    result = await _stream_download(
+                        url,
+                        write_chunk=handle.write,
+                        extra_allowed_hosts=extra_allowed_hosts,
+                        max_bytes=max_bytes,
+                        max_redirects=max_redirects,
+                        expected_size=expected_size,
+                        expected_sha512=expected_sha512,
+                        expected_sha1=expected_sha1,
+                        expected_sha256=expected_sha256,
+                        client=client,
+                    )
+                    break
+                except DownloadError as exc:
+                    is_last = attempt + 1 >= attempts
+                    if is_last or exc.status not in _RETRYABLE_STATUS_CODES:
+                        raise
+                    await asyncio.sleep(1.0 * (2**attempt))
+            assert result is not None
             handle.flush()
             os.fsync(handle.fileno())
         digest = cas.put_file(tmp_path)

@@ -475,15 +475,21 @@ async def _download_modrinth_plan_files(
     *,
     extra_allowed_hosts: Iterable[str],
     downloader: Callable[..., Awaitable[VerifiedDownloadResult]],
+    on_progress: Callable[[int, int, str, bool], Awaitable[None]] | None = None,
 ) -> dict[str, VerifiedDownloadResult]:
     downloaded: dict[str, VerifiedDownloadResult] = {}
-    for f in plan.files:
+    total = len(plan.files)
+    for idx, f in enumerate(plan.files, start=1):
         if f.sha256 and cas.has(f.sha256):
+            if on_progress is not None:
+                await on_progress(idx, total, f.path, True)
             continue
         if not f.downloads:
             raise ValidationError(
                 f"Modpack file '{f.path}' has no download URLs", field="files"
             )
+        if on_progress is not None:
+            await on_progress(idx, total, f.path, False)
         last_exc: Exception | None = None
         for url in f.downloads:
             try:
@@ -1015,16 +1021,49 @@ async def install_modpack(
         operation_id=op.id,
     )
 
+    async def _emit_progress(
+        pct: float,
+        message: str,
+        *,
+        level: str = "info",
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        with contextlib.suppress(Exception):
+            await op_service.record_step_progress(
+                op.id,
+                "INSTALL_MODPACK",
+                pct,
+                context=context,
+            )
+        with contextlib.suppress(Exception):
+            await op_service.emit_log(
+                op.id,
+                message,
+                level=level,
+                step_id="INSTALL_MODPACK",
+            )
+
     async def _run_install() -> ModpackInstallResponse:
         await op_service.start_step(op.id, "INSTALL_MODPACK")
         cas = upgrade_service._cas
         try:
+            await _emit_progress(
+                5.0,
+                f"Starting modpack installation ({len(plan.files)} server files, "
+                f"{len(plan.overrides)} overrides)...",
+                context={"stage": "preparing", "total": len(plan.files), "current": 0},
+            )
             override_blobs = _read_override_blobs_from_dir(
                 staged_dir / "overrides", plan
             )
             current_plan = plan
             downloaded: dict[str, VerifiedDownloadResult] = {}
             if current_plan.source == "curseforge":
+                await _emit_progress(
+                    15.0,
+                    f"Downloading CurseForge server files ({len(current_plan.files)} total)...",
+                    context={"stage": "downloading", "total": len(current_plan.files), "current": 0},
+                )
                 updated_plan, downloaded = await download_curseforge_plan_files(
                     current_plan,
                     cas,
@@ -1044,11 +1083,27 @@ async def install_modpack(
                     _raise_for_unresolved_blocker(updated_plan)
                 current_plan = updated_plan
             else:
+                async def _on_file(idx: int, total: int, fpath: str, cached: bool) -> None:
+                    ratio = idx / max(1, total)
+                    pct = round(10.0 + ratio * 65.0, 1)
+                    action = "Cached" if cached else "Downloading"
+                    await _emit_progress(
+                        pct,
+                        f"{action} ({idx}/{total}): {fpath}",
+                        context={
+                            "stage": "downloading",
+                            "current": idx,
+                            "total": total,
+                            "current_file": fpath,
+                        },
+                    )
+
                 downloaded = await _download_modrinth_plan_files(
                     current_plan,
                     cas,
                     extra_allowed_hosts=extra_hosts,
                     downloader=upgrade_service._download_to_cas,
+                    on_progress=_on_file,
                 )
 
             candidate_lec_key = _default_lec_key(
@@ -1057,9 +1112,20 @@ async def install_modpack(
                 fabric_installer_version=body.fabric_installer_version,
             )
             if body.build_lec and not lec_store.is_ready(candidate_lec_key):
+                await _emit_progress(
+                    80.0,
+                    f"Preparing Loader Environment Cache ({candidate_lec_key})...",
+                    context={"stage": "lec", "lec_key": candidate_lec_key},
+                )
                 await lec_builder.ensure_lec(candidate_lec_key)
             effective_lec_key = (
                 candidate_lec_key if lec_store.is_ready(candidate_lec_key) else None
+            )
+
+            await _emit_progress(
+                85.0,
+                "Writing verified mods and overrides to server directory...",
+                context={"stage": "writing"},
             )
 
             lockfile = build_lockfile_from_install_plan(
@@ -1122,6 +1188,12 @@ async def install_modpack(
             )
             shutil.rmtree(staged_dir, ignore_errors=True)
 
+            await _emit_progress(
+                100.0,
+                f"Modpack installation complete ({len(lockfile.files)} files, "
+                f"{len(lockfile.base_overrides)} overrides).",
+                context={"stage": "complete"},
+            )
             await op_service.complete_step(op.id, "INSTALL_MODPACK")
             await op_service.complete_operation(op.id)
 
