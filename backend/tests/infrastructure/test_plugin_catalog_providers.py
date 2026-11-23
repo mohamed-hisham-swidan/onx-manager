@@ -389,3 +389,81 @@ class TestModrinthProviderDownload:
             await provider.download("http://cdn.modrinth.com/file.jar")
         assert "not a valid Modrinth domain" in str(exc_info.value)
 
+    @pytest.mark.asyncio
+    async def test_download_uses_streaming_timeout_and_parallel_ranges(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import aiohttp
+
+        from app.modules.plugin.infrastructure.providers import modrinth as mod_mod
+
+        payload = b"A" * 400_000 + b"B" * 400_000 + b"C" * 160_000  # 960 KB (>256 KB)
+        captured_calls: list[tuple[str | None, aiohttp.ClientTimeout]] = []
+
+        class _FakeContent:
+            def __init__(self, data: bytes) -> None:
+                self._chunks = [data[i : i + 65536] for i in range(0, len(data), 65536)] + [b""]
+
+            async def read(self, _n: int) -> bytes:
+                return self._chunks.pop(0)
+
+        class _FakeResp:
+            def __init__(self, status: int, data: bytes, headers: dict[str, str]) -> None:
+                self.status = status
+                self.content = _FakeContent(data)
+                self.headers = headers
+
+            async def __aenter__(self) -> _FakeResp:
+                return self
+
+            async def __aexit__(self, *_args) -> bool:
+                return False
+
+        class _FakeSession(aiohttp.ClientSession):
+            def __init__(self) -> None:
+                pass
+
+            def get(self, _url: str, **kwargs):  # type: ignore[override]
+                headers = kwargs.get("headers") or {}
+                range_hdr = headers.get("Range")
+                captured_calls.append((range_hdr, kwargs["timeout"]))
+                assert range_hdr and range_hdr.startswith("bytes=")
+                start_s, end_s = range_hdr.removeprefix("bytes=").split("-")
+                start, end = int(start_s), min(len(payload) - 1, int(end_s))
+                slice_bytes = payload[start : end + 1]
+                return _FakeResp(
+                    206,
+                    slice_bytes,
+                    {"Content-Range": f"bytes {start}-{end}/{len(payload)}"},
+                )
+
+        session = _FakeSession()
+        monkeypatch.setattr(mod_mod, "get_http_client", lambda: session)
+        provider = ModrinthProvider()
+        result = await provider.download("https://cdn.modrinth.com/data/abc/VeinMiner.jar")
+        assert result == payload
+        assert len(captured_calls) > 1
+        for _hdr, timeout in captured_calls:
+            assert timeout.total is None
+            assert timeout.sock_read == mod_mod.MODRINTH_DOWNLOAD_READ_TIMEOUT_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_download_does_not_retry_404(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.core.exceptions import DownloadError
+        from app.modules.plugin.infrastructure.providers import modrinth as mod_mod
+
+        calls = 0
+
+        async def _fake_do_download(_client, url: str) -> bytes:
+            nonlocal calls
+            calls += 1
+            raise DownloadError(url, 404)
+
+        provider = ModrinthProvider()
+        monkeypatch.setattr(mod_mod, "get_http_client", lambda: object())
+        monkeypatch.setattr(provider, "_do_download", _fake_do_download)
+        with pytest.raises(DownloadError) as exc_info:
+            await provider.download("https://cdn.modrinth.com/data/missing.jar")
+        assert exc_info.value.status == 404
+        assert calls == 1
+

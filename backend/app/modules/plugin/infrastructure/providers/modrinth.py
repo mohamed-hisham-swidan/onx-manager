@@ -8,7 +8,13 @@ import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlsplit
+
+try:
+    import aiohttp
+except ImportError:  # pragma: no cover
+    aiohttp = None  # type: ignore[assignment]
 
 from app.core.exceptions import (
     CorruptedDownloadError,
@@ -33,10 +39,27 @@ logger = logging.getLogger(__name__)
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 
 MODRINTH_TIMEOUT_SECONDS: int = 30
+MODRINTH_DOWNLOAD_READ_TIMEOUT_SECONDS: int = 60
 MODRINTH_MAX_RETRIES: int = 2
 MODRINTH_BATCH_CHUNK_SIZE: int = 200
 MODRINTH_BATCH_MAX_RETRIES: int = 3
 MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS: float = 60.0
+_DOWNLOAD_RETRYABLE_STATUS_CODES = frozenset({0, 429, 500, 502, 503, 504})
+_RANGE_INITIAL_BYTES: int = 256 * 1024
+_RANGE_CONCURRENCY: int = 6
+_RANGE_MAX_PART_BYTES: int = 512 * 1024
+_MAX_PLUGIN_DOWNLOAD_BYTES: int = 256 * 1024 * 1024
+_CONTENT_RANGE_RE = re.compile(r"\Abytes\s+(\d+)-(\d+)/(\d+)\Z", re.IGNORECASE)
+_DOWNLOAD_STREAM_TIMEOUT = (
+    aiohttp.ClientTimeout(
+        total=None,
+        connect=MODRINTH_TIMEOUT_SECONDS,
+        sock_connect=MODRINTH_TIMEOUT_SECONDS,
+        sock_read=MODRINTH_DOWNLOAD_READ_TIMEOUT_SECONDS,
+    )
+    if aiohttp is not None
+    else None
+)
 
 _SHA512_RE = re.compile(r"\A[0-9a-f]{128}\Z")
 _SHA1_RE = re.compile(r"\A[0-9a-f]{40}\Z")
@@ -252,6 +275,11 @@ class ModrinthProvider(PluginCatalogProvider):
                 content = await self._do_download(client, url)
                 break
             except (DownloadError, DownloadTimeoutError) as e:
+                if (
+                    isinstance(e, DownloadError)
+                    and e.status not in _DOWNLOAD_RETRYABLE_STATUS_CODES
+                ):
+                    raise
                 last_exception = e
                 if attempt < MODRINTH_MAX_RETRIES:
                     wait = 1.0 * (2**attempt)
@@ -271,20 +299,162 @@ class ModrinthProvider(PluginCatalogProvider):
         return content
 
     @staticmethod
-    async def _do_download(client, url: str) -> bytes:
+    async def _read_response_bytes(resp: Any, url: str) -> bytes:
+        buffer = bytearray()
+        while True:
+            chunk = await resp.content.read(65536)
+            if not chunk:
+                break
+            if len(buffer) + len(chunk) > _MAX_PLUGIN_DOWNLOAD_BYTES:
+                raise DownloadError(
+                    url,
+                    0,
+                    f"Download exceeded maximum allowed size ({_MAX_PLUGIN_DOWNLOAD_BYTES} bytes)",
+                )
+            buffer.extend(chunk)
+        return bytes(buffer)
+
+    @classmethod
+    async def _download_range_part(
+        cls,
+        client: Any,
+        url: str,
+        start: int,
+        end: int,
+        semaphore: asyncio.Semaphore,
+    ) -> bytes:
+        expected_len = end - start + 1
+        last_exc: Exception | None = None
+        async with semaphore:
+            for attempt in range(MODRINTH_MAX_RETRIES + 1):
+                try:
+                    kwargs: dict[str, Any] = {
+                        "headers": {"Range": f"bytes={start}-{end}"},
+                    }
+                    if _DOWNLOAD_STREAM_TIMEOUT is not None:
+                        kwargs["timeout"] = _DOWNLOAD_STREAM_TIMEOUT
+                    async with client.get(url, **kwargs) as resp:
+                        if resp.status not in (200, 206):
+                            raise DownloadError(url, resp.status)
+                        data = await cls._read_response_bytes(resp, url)
+                        if resp.status == 200 and len(data) >= end + 1:
+                            return data[start : end + 1]
+                        if len(data) != expected_len:
+                            raise DownloadError(
+                                url,
+                                0,
+                                f"Incomplete byte range {start}-{end}: got {len(data)} bytes",
+                            )
+                        return data
+                except TimeoutError as e:
+                    last_exc = DownloadTimeoutError(
+                        url, MODRINTH_DOWNLOAD_READ_TIMEOUT_SECONDS
+                    )
+                    last_exc.__cause__ = e
+                except (DownloadError, DownloadTimeoutError) as e:
+                    if (
+                        isinstance(e, DownloadError)
+                        and e.status not in _DOWNLOAD_RETRYABLE_STATUS_CODES
+                    ):
+                        raise
+                    last_exc = e
+                except Exception as e:
+                    last_exc = DownloadError(url, 0, str(e))
+                    last_exc.__cause__ = e
+                if attempt < MODRINTH_MAX_RETRIES:
+                    await asyncio.sleep(0.5 * (2**attempt))
+            assert last_exc is not None
+            raise last_exc
+
+    @classmethod
+    async def _do_download(cls, client: Any, url: str) -> bytes:
         try:
-            async with client.get(url) as resp:
-                if resp.status != 200:
+            if aiohttp is None or not isinstance(client, aiohttp.ClientSession):
+                async with client.get(url) as resp:
+                    if resp.status != 200:
+                        raise DownloadError(url, resp.status)
+                    return await cls._read_response_bytes(resp, url)
+
+            probe_kwargs: dict[str, Any] = {
+                "headers": {"Range": f"bytes=0-{_RANGE_INITIAL_BYTES - 1}"},
+            }
+            if _DOWNLOAD_STREAM_TIMEOUT is not None:
+                probe_kwargs["timeout"] = _DOWNLOAD_STREAM_TIMEOUT
+
+            async with client.get(url, **probe_kwargs) as resp:
+                if resp.status == 200:
+                    return await cls._read_response_bytes(resp, url)
+                if resp.status == 416:
+                    plain_kwargs = (
+                        {"timeout": _DOWNLOAD_STREAM_TIMEOUT}
+                        if _DOWNLOAD_STREAM_TIMEOUT is not None
+                        else {}
+                    )
+                    async with client.get(url, **plain_kwargs) as plain_resp:
+                        if plain_resp.status != 200:
+                            raise DownloadError(url, plain_resp.status)
+                        return await cls._read_response_bytes(plain_resp, url)
+                if resp.status != 206:
                     raise DownloadError(url, resp.status)
-                buffer = bytearray()
-                while True:
-                    chunk = await resp.content.read(8192)
-                    if not chunk:
-                        break
-                    buffer.extend(chunk)
-                return bytes(buffer)
+
+                cr_raw = ""
+                if hasattr(resp, "headers") and resp.headers is not None:
+                    cr_raw = str(resp.headers.get("Content-Range") or "").strip()
+                first_bytes = await cls._read_response_bytes(resp, url)
+
+            m = _CONTENT_RANGE_RE.match(cr_raw)
+            if not m:
+                plain_kwargs = (
+                    {"timeout": _DOWNLOAD_STREAM_TIMEOUT}
+                    if _DOWNLOAD_STREAM_TIMEOUT is not None
+                    else {}
+                )
+                async with client.get(url, **plain_kwargs) as plain_resp:
+                    if plain_resp.status != 200:
+                        raise DownloadError(url, plain_resp.status)
+                    return await cls._read_response_bytes(plain_resp, url)
+
+            start, end, total = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if (
+                start != 0
+                or total <= 0
+                or total > _MAX_PLUGIN_DOWNLOAD_BYTES
+                or end >= total
+                or len(first_bytes) != (end - start + 1)
+            ):
+                raise DownloadError(url, 0, f"Malformed Content-Range header: {cr_raw!r}")
+
+            if end + 1 >= total:
+                return first_bytes
+
+            remaining = total - (end + 1)
+            per_worker = (remaining + _RANGE_CONCURRENCY - 1) // _RANGE_CONCURRENCY
+            part_size = max(
+                _RANGE_INITIAL_BYTES,
+                min(_RANGE_MAX_PART_BYTES, per_worker),
+            )
+            ranges: list[tuple[int, int]] = []
+            offset = end + 1
+            while offset < total:
+                part_end = min(total - 1, offset + part_size - 1)
+                ranges.append((offset, part_end))
+                offset = part_end + 1
+
+            semaphore = asyncio.Semaphore(_RANGE_CONCURRENCY)
+            parts = await asyncio.gather(
+                *[
+                    cls._download_range_part(client, url, r_start, r_end, semaphore)
+                    for r_start, r_end in ranges
+                ]
+            )
+
+            out = bytearray(total)
+            out[0 : len(first_bytes)] = first_bytes
+            for (r_start, r_end), part_bytes in zip(ranges, parts, strict=True):
+                out[r_start : r_end + 1] = part_bytes
+            return bytes(out)
         except TimeoutError as e:
-            raise DownloadTimeoutError(url, MODRINTH_TIMEOUT_SECONDS) from e
+            raise DownloadTimeoutError(url, MODRINTH_DOWNLOAD_READ_TIMEOUT_SECONDS) from e
         except (DownloadError, DownloadTimeoutError):
             raise
         except Exception as e:
