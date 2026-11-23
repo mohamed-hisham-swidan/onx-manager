@@ -592,6 +592,7 @@ def test_start_backend_retries_only_on_bind_failure(tmp_path):
          patch("launcher.PROJECT_ROOT", tmp_path), \
          patch("launcher.BACKEND_LOG", tmp_path / "backend.log"), \
          patch.object(PortManager, "resolve_startup_port", side_effect=decisions), \
+         patch.object(PortManager, "can_bind", return_value=True), \
          patch("launcher.get_canonical_db_url", return_value="sqlite:///test.db"), \
          patch("launcher.TerminalOpener.open_backend", return_value=4242) as mock_open, \
          patch("launcher._wait_for_backend_attempt", side_effect=["bind", "healthy"]), \
@@ -612,6 +613,8 @@ def test_start_backend_timeout_is_not_retried(tmp_path):
          patch("launcher.PROJECT_ROOT", tmp_path), \
          patch("launcher.BACKEND_LOG", tmp_path / "backend.log"), \
          patch.object(PortManager, "resolve_startup_port", return_value=decision), \
+         patch.object(PortManager, "get_pid_by_port", return_value=None), \
+         patch("launcher.check_backend_health", return_value=False), \
          patch("launcher.get_canonical_db_url", return_value="sqlite:///test.db"), \
          patch("launcher.TerminalOpener.open_backend", return_value=4242) as mock_open, \
          patch("launcher._wait_for_backend_attempt", return_value="timeout"), \
