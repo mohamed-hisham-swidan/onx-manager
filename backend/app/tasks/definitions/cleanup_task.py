@@ -48,6 +48,24 @@ async def run_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
             )
             counts["events_deleted"] = result.rowcount if result.rowcount != -1 else 0
 
+        if params.get("cleanup_metrics", True):
+            cutoff = datetime.now(UTC) - timedelta(days=params.get("metrics_retention_days", 7))
+            result = await session.execute(
+                text("DELETE FROM metric_points WHERE recorded_at < :cutoff"),
+                {"cutoff": cutoff},
+            )
+            counts["metric_points_deleted"] = result.rowcount if result.rowcount != -1 else 0
+
+        if params.get("cleanup_refresh_tokens", True):
+            now_utc = datetime.now(UTC)
+            result = await session.execute(
+                text(
+                    "DELETE FROM refresh_tokens WHERE expires_at < :now OR is_revoked = 1"
+                ),
+                {"now": now_utc},
+            )
+            counts["refresh_tokens_deleted"] = result.rowcount if result.rowcount != -1 else 0
+
         if params.get("cleanup_task_queue", True):
             cutoff = datetime.now(UTC) - timedelta(days=params.get("task_retention_days", 7))
             result = await session.execute(

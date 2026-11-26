@@ -40,7 +40,7 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 |---|---|---|---|
 | `id` | `String(36)` PK | — | UUID |
 | `name` | `String(255)` | — | |
-| `server_type` | `String(32)` | `"vanilla"` | vanilla, paper, purpur, fabric, forge, neoforge, spigot, bukkit |
+| `server_type` | `String(32)` | `"vanilla"` | vanilla, paper, purpur, fabric, forge, neoforge, spigot |
 | `minecraft_version` | `String(16)` | — | |
 | `memory_min_mb` | `Integer` | 1024 | |
 | `memory_max_mb` | `Integer` | 2048 | |

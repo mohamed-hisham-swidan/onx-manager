@@ -469,6 +469,7 @@ class PlayitAgentSupervisor:
         claim_code: str | None = None,
         on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
         on_secret: Callable[[str], Awaitable[None]] | None = None,
+        on_reconcile: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Restart supervisor with a fresh secret or claim."""
         await self.stop()
@@ -477,6 +478,7 @@ class PlayitAgentSupervisor:
             claim_code=claim_code,
             on_status=on_status or self._on_status,
             on_secret=on_secret or self._on_secret,
+            on_reconcile=on_reconcile or self._on_reconcile,
         )
 
     def _write_secret_file(self, secret: bytes) -> Path:

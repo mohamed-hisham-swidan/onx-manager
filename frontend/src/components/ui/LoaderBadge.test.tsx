@@ -3,40 +3,56 @@ import { render, screen } from "@testing-library/react";
 import { LoaderBadge } from "./LoaderBadge";
 
 describe("LoaderBadge", () => {
-  it("renders Paper badge correctly", () => {
+  it("renders Paper badge with semantic tokens", () => {
     render(<LoaderBadge loader="paper" />);
+    const badge = screen.getByTestId("loader-badge");
     expect(screen.getByText("Paper")).toBeInTheDocument();
-    expect(screen.getByTestId("loader-badge")).toHaveClass("text-teal-700");
+    expect(badge).toHaveClass("text-status-info");
+    expect(badge.className).not.toMatch(/teal-|purple-|sky-|amber-|orange-|gray-/);
   });
 
-  it("renders Purpur badge correctly", () => {
+  it("renders Purpur badge with semantic tokens", () => {
     render(<LoaderBadge loader="purpur" />);
     expect(screen.getByText("Purpur")).toBeInTheDocument();
-    expect(screen.getByTestId("loader-badge")).toHaveClass("text-purple-700");
+    expect(screen.getByTestId("loader-badge")).toHaveClass("text-text-accent");
   });
 
-  it("renders Fabric badge correctly", () => {
+  it("renders Fabric badge with semantic tokens", () => {
     render(<LoaderBadge loader="fabric" />);
     expect(screen.getByText("Fabric")).toBeInTheDocument();
-    expect(screen.getByTestId("loader-badge")).toHaveClass("text-sky-700");
+    expect(screen.getByTestId("loader-badge")).toHaveClass("text-status-info");
   });
 
-  it("renders Forge badge correctly", () => {
-    render(<LoaderBadge loader="forge" />);
+  it("renders Forge and NeoForge badges with semantic tokens", () => {
+    const { rerender } = render(<LoaderBadge loader="forge" />);
     expect(screen.getByText("Forge")).toBeInTheDocument();
-    expect(screen.getByTestId("loader-badge")).toHaveClass("text-amber-700");
-  });
+    expect(screen.getByTestId("loader-badge")).toHaveClass("text-status-warning");
 
-  it("renders NeoForge badge correctly", () => {
-    render(<LoaderBadge loader="neoforge" />);
+    rerender(<LoaderBadge loader="neoforge" />);
     expect(screen.getByText("NeoForge")).toBeInTheDocument();
-    expect(screen.getByTestId("loader-badge")).toHaveClass("text-orange-700");
+    expect(screen.getByTestId("loader-badge")).toHaveClass("text-status-warning");
   });
 
-  it("renders Vanilla badge correctly", () => {
+  it("renders Vanilla badge with semantic tokens", () => {
     render(<LoaderBadge loader="vanilla" />);
     expect(screen.getByText("Vanilla")).toBeInTheDocument();
-    expect(screen.getByTestId("loader-badge")).toHaveClass("text-gray-700");
+    expect(screen.getByTestId("loader-badge")).toHaveClass("text-text-secondary");
+  });
+
+  it("renders Folia, Velocity, BungeeCord, Waterfall, and Minestom badges", () => {
+    const entries: Array<[string, string]> = [
+      ["folia", "Folia"],
+      ["velocity", "Velocity"],
+      ["bungeecord", "BungeeCord"],
+      ["waterfall", "Waterfall"],
+      ["minestom", "Minestom"],
+    ];
+
+    for (const [loader, label] of entries) {
+      const { unmount } = render(<LoaderBadge loader={loader} />);
+      expect(screen.getByText(label)).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("gracefully falls back for unknown loader type", () => {

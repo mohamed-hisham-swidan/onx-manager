@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db, require_permission
 from app.core.identity import IDENTITY
 from app.core.timeutil import format_datetime_utc
-from app.tasks.scheduler import CronJobModel, get_scheduler
+from app.tasks.scheduler import CronJobModel, Scheduler, get_scheduler
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.schedules")
 
@@ -21,10 +21,17 @@ router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
 __all__ = ["router"]
 
 
+def _normalize_task_name(task_name: str | None) -> str:
+    cleaned = (task_name or "").strip()
+    if not cleaned or cleaned == "backup":
+        return "run_backup_task"
+    return cleaned
+
+
 class CreateScheduleRequest(BaseModel):
     name: str | None = None
     cron_expression: str = "0 0 * * *"
-    task_name: str = "backup"
+    task_name: str = "run_backup_task"
     params: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
 
@@ -49,7 +56,7 @@ async def list_schedules(
             "id": j.id,
             "name": j.name,
             "cron_expression": j.cron_expression,
-            "task_name": j.task_name,
+            "task_name": _normalize_task_name(j.task_name),
             "params": params,
             "enabled": bool(j.enabled),
             "last_run_at": format_datetime_utc(j.last_run_at) if j.last_run_at else None,
@@ -62,8 +69,15 @@ async def list_schedules(
 async def create_schedule(
     body: CreateScheduleRequest = Body(default_factory=CreateScheduleRequest),
     db: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(require_permission("global.settings")),
+    _current_user: dict = Depends(require_permission("settings:write")),
 ) -> dict[str, Any]:
+    normalized_task_name = _normalize_task_name(body.task_name)
+    if not body.cron_expression.startswith("interval:"):
+        try:
+            Scheduler._parse_cron(body.cron_expression)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     job_id = uuid.uuid4().hex
     sched_name = body.name or f"schedule-{job_id[:8]}"
 
@@ -77,7 +91,7 @@ async def create_schedule(
         id=job_id,
         name=sched_name,
         cron_expression=body.cron_expression,
-        task_name=body.task_name,
+        task_name=normalized_task_name,
         params_json=json.dumps(body.params or {}),
         enabled=1 if body.enabled else 0,
         created_at=now,
@@ -86,7 +100,7 @@ async def create_schedule(
     await db.commit()
 
     scheduler = get_scheduler()
-    if scheduler and getattr(scheduler, "_aps", None):
+    if body.enabled and scheduler and getattr(scheduler, "_aps", None):
         try:
             scheduler._schedule_job(model)
         except Exception as e:
@@ -98,7 +112,7 @@ async def create_schedule(
         "id": job_id,
         "name": sched_name,
         "cron_expression": body.cron_expression,
-        "task_name": body.task_name,
+        "task_name": normalized_task_name,
         "params": body.params,
         "enabled": body.enabled,
         "created_at": format_datetime_utc(now),
@@ -109,7 +123,7 @@ async def create_schedule(
 async def delete_schedule(
     schedule_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(require_permission("global.settings")),
+    _current_user: dict = Depends(require_permission("settings:write")),
 ) -> None:
     model = await db.get(CronJobModel, schedule_id)
     if model is not None:

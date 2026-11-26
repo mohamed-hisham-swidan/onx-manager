@@ -153,6 +153,14 @@ class Scheduler:
             return
 
         params = json.loads(model.params_json) if model.params_json else {}
+        resolved_task_name = (
+            "run_backup_task" if model.task_name == "backup" else model.task_name
+        )
+        dispatch_params = (
+            {**params, "scheduled": True}
+            if resolved_task_name == "run_backup_task" and "backup_id" not in params
+            else params
+        )
 
         is_subminute_interval = False
         if model.cron_expression.startswith("interval:"):
@@ -173,27 +181,27 @@ class Scheduler:
                     and self._task_queue
                     and hasattr(self._task_queue, "_handlers")
                 ):
-                    handler = self._task_queue._handlers.get(model.task_name)
+                    handler = self._task_queue._handlers.get(resolved_task_name)
                     if handler:
                         try:
-                            await handler(params)
+                            await handler(dispatch_params)
                         except asyncio.CancelledError:
                             if self._is_shutdown_cancellation():
                                 logger.debug(
                                     'Sub-minute task "%s" cancelled during scheduler shutdown',
-                                    model.task_name,
+                                    resolved_task_name,
                                 )
                                 return
                             raise
                         except Exception:
                             logger.exception(
                                 'Sub-minute task "%s" failed (direct execution)',
-                                model.task_name,
+                                resolved_task_name,
                             )
                     else:
-                        await self._task_queue.enqueue(model.task_name, params)
+                        await self._task_queue.enqueue(resolved_task_name, dispatch_params)
                 elif self._task_queue:
-                    await self._task_queue.enqueue(model.task_name, params)
+                    await self._task_queue.enqueue(resolved_task_name, dispatch_params)
 
                 if not is_subminute_interval:
                     try:

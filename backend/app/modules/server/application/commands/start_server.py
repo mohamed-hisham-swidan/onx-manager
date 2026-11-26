@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from typing import TYPE_CHECKING
@@ -21,13 +22,16 @@ from app.modules.plugin.application.services.plugin_deletion_service import (
 )
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
+    extract_provider_crash_lines,
     format_event,
+    persist_crash_evidence,
     progress_phase,
     startup_timeline,
 )
 from app.modules.server.application.runtime_ownership import (
     RuntimeOwnershipManager,
     _port_is_listening,
+    resolve_docker_host_rcon_port,
 )
 from app.modules.server.application.startup_guard import check_startup_readiness
 from app.modules.server.application.supervisor import RuntimeSupervisor
@@ -236,6 +240,9 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     exclude_server_id=sid,
                 )
                 await RuntimeSupervisor.stop_for(sid)
+                if server.runtime:
+                    server.runtime.last_log_lines = []
+                    server.runtime.last_crash_time = None
                 server.start()
                 await repo.save(server)
                 for event in server.collect_events():
@@ -407,6 +414,25 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
         with startup_timeline(server_name, sid):
             add_timeline_milestone(None, "Pre-flight started", server_name, sid)
             try:
+                companion_ports: list[dict[str, object]] = []
+                with contextlib.suppress(Exception):
+                    from sqlalchemy import select
+
+                    from app.modules.exposure.infrastructure.models import ServerRegisteredPortModel
+
+                    async with database.session_factory() as p_sess:
+                        rows = (
+                            await p_sess.execute(
+                                select(ServerRegisteredPortModel).where(
+                                    ServerRegisteredPortModel.server_id == sid
+                                )
+                            )
+                        ).scalars().all()
+                        companion_ports = [
+                            {"port": r.port, "protocol": r.protocol}
+                            for r in rows
+                            if getattr(r, "port", None)
+                        ]
                 config = {
                     "java_args": server.java_args.as_list(),
                     "memory_min_mb": server.memory.min_mb,
@@ -415,7 +441,17 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     "cpu_cores": server.cpu.cores,
                     "cpu_affinity": server.cpu.affinity,
                     "minecraft_version": str(server.minecraft_version),
+                    "server_type": server.server_type.value,
+                    "companion_ports": companion_ports,
                 }
+                if provider_type == "docker":
+                    host_rcon_port = await resolve_docker_host_rcon_port(
+                        server=server,
+                        provider=provider,
+                        server_dir=server_dir,
+                    )
+                    if host_rcon_port is not None:
+                        config["rcon_port"] = host_rcon_port
                 add_timeline_milestone(None, "Preparing provider environment", server_name, sid)
                 await provider.prepare_environment(
                     server_id=sid,
@@ -471,7 +507,9 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
                     if still_running:
-                        server.crash(reason="Start timed out and runtime cleanup failed")
+                        reason_msg = "Start timed out and runtime cleanup failed"
+                        server.crash(reason=reason_msg)
+                        await persist_crash_evidence(uow.session, sid, [f"[ERROR] {reason_msg}"])
                     else:
                         server.mark_stopped()
                     await repo.save(server)
@@ -495,11 +533,19 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     provider_type,
                     sid,
                 )
+                crash_lines = extract_provider_crash_lines(exc)
+                if server_dir:
+                    from app.modules.server.infrastructure.providers.docker import (
+                        _remove_persisted_rcon_port,
+                    )
+
+                    _remove_persisted_rcon_port(server_dir)
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.crash(exit_code=-1, last_log_lines=[str(exc)])
+                    server.crash(exit_code=-1, last_log_lines=crash_lines)
                     await repo.save(server)
+                    await persist_crash_evidence(uow.session, sid, crash_lines)
                     for event in server.collect_events():
                         uow.add_event(event)
                     await uow.commit()

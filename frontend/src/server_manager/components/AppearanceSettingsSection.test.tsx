@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { useUIStore } from "@/stores/uiStore";
-import { CORNER_STYLE_KEY } from "@/tokens/storageKeys";
+import { CORNER_STYLE_KEY, THEME_SKINS } from "@/tokens/storageKeys";
 
 interface NodeFs {
   readFileSync: (path: string, encoding: "utf8" | "utf-8") => string;
@@ -23,13 +23,11 @@ describe("AppearanceSettingsSection - Corner Style Setting", () => {
     document.documentElement.className = "";
     document.documentElement.removeAttribute("data-mode");
     document.documentElement.removeAttribute("data-skin");
-    document.documentElement.removeAttribute("data-density");
     document.documentElement.removeAttribute("data-accent");
     document.documentElement.removeAttribute("data-corners");
     useUIStore.setState({
       theme: "dark",
       skin: "graphite",
-      density: "comfortable",
       cornerStyle: "rounded",
     });
   });
@@ -73,18 +71,23 @@ describe("AppearanceSettingsSection - Corner Style Setting", () => {
     expect(roundedCard).toHaveAttribute("aria-checked", "true");
   });
 
-  it("4. Reset Appearance to Default restores corner style to 'rounded'", () => {
+  it("4. Reset Default restores corner style to 'rounded' and accent to canonical 'theme'", () => {
     useUIStore.getState().setCornerStyle("sharp");
+    useUIStore.getState().setAccent("blue");
     render(<AppearanceSettingsSection />);
 
     expect(useUIStore.getState().cornerStyle).toBe("sharp");
+    expect(useUIStore.getState().accent).toBe("blue");
 
-    const resetButton = screen.getByRole("button", { name: /Reset Appearance to Default/i });
+    const resetButton = screen.getByRole("button", { name: /Reset Default/i });
     fireEvent.click(resetButton);
 
     expect(useUIStore.getState().cornerStyle).toBe("rounded");
     expect(localStorage.getItem(CORNER_STYLE_KEY)).toBe("rounded");
     expect(document.documentElement.getAttribute("data-corners")).toBe("rounded");
+    expect(useUIStore.getState().accent).toBe("theme");
+    expect(localStorage.getItem("onx_accent")).toBe("theme");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("theme");
   });
 
   it("5. CSS contains radius token scale under @theme and [data-corners='sharp'] overrides", () => {
@@ -127,12 +130,47 @@ describe("AppearanceSettingsSection - Corner Style Setting", () => {
     expect(cyberMatches).toHaveLength(1);
   });
 
-  it("7. Density cards use bg-surface-muted without inner bordered boxes", () => {
-    const { container } = render(<AppearanceSettingsSection />);
-    // Density preview boxes should use bg-surface-muted and not have border-border-subtle inside the card
-    const mutedDensityBoxes = container.querySelectorAll(".bg-surface-muted");
-    expect(mutedDensityBoxes.length).toBeGreaterThan(0);
-    const densityBorderedBoxes = container.querySelectorAll(".space-y-2.border-border-subtle, .space-y-1.border-border-subtle");
-    expect(densityBorderedBoxes.length).toBe(0);
+  it("7. Selecting Skin Default uses canonical 'theme' accent and preview uses non-interactive chips", () => {
+    useUIStore.getState().setAccent("emerald");
+    render(<AppearanceSettingsSection />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Skin Default/i }));
+    expect(useUIStore.getState().accent).toBe("theme");
+    expect(localStorage.getItem("onx_accent")).toBe("theme");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("theme");
+
+    expect(screen.queryByRole("button", { name: /Primary Accent Action/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/survival-main · Online/i)).toBeInTheDocument();
+  });
+
+  it("8. Skin Default accent swatch reflects every Visual Skin's default accent color", () => {
+    render(<AppearanceSettingsSection />);
+    for (const skinMeta of THEME_SKINS) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(skinMeta.name, "i") }));
+      expect(screen.getByTestId("skin-default-swatch")).toHaveStyle({
+        backgroundColor: skinMeta.accentColor,
+      });
+    }
+  });
+
+  it("9. Accent CSS overrides beat [data-skin][data-mode] specificity and include brand icon & accent tokens", () => {
+    const cssPath = path.resolve(process.cwd().endsWith("frontend") ? "src/index.css" : "frontend/src/index.css");
+    const cssText = fs.readFileSync(cssPath, "utf-8");
+
+    for (const preset of ["blue", "emerald", "violet", "amber", "rose", "cyan"]) {
+      expect(cssText).toContain(`:root[data-skin][data-accent="${preset}"]`);
+      expect(cssText).toContain(`[data-skin][data-mode][data-accent="${preset}"]`);
+      expect(cssText).toContain(`:root[data-skin][data-mode="dark"][data-accent="${preset}"]`);
+
+      const blockPattern = new RegExp(
+        `\\[data-skin\\]\\.dark\\[data-accent="${preset}"\\]\\s*\\{([^}]+)\\}`
+      );
+      const match = cssText.match(blockPattern);
+      expect(match, `Missing accent override block for ${preset}`).not.toBeNull();
+      expect(match![1]).toContain("--accent-primary:");
+      expect(match![1]).toContain("--text-accent:");
+      expect(match![1]).toContain("--brand-mark-1:");
+      expect(match![1]).toContain("--border-focus:");
+    }
   });
 });

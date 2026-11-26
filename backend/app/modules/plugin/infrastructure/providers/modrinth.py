@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
 import re
+import threading
 import time
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -44,6 +47,14 @@ MODRINTH_MAX_RETRIES: int = 2
 MODRINTH_BATCH_CHUNK_SIZE: int = 200
 MODRINTH_BATCH_MAX_RETRIES: int = 3
 MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS: float = 60.0
+MODRINTH_CACHE_MAX_ENTRIES: int = 256
+MODRINTH_SEARCH_TTL_SECONDS: float = 120.0
+MODRINTH_PROJECT_TTL_SECONDS: float = 300.0
+VALID_SORT_OPTIONS = frozenset({"relevance", "downloads", "follows", "newest", "updated"})
+_GAME_VERSION_RE = re.compile(r"\A[A-Za-z0-9._+-]{1,32}\Z")
+_CACHE_LOCK = threading.Lock()
+_TTL_CACHE: OrderedDict[tuple[str, tuple[tuple[str, str], ...]], tuple[float, Any]] = OrderedDict()
+_SHARED_RATELIMIT_NOT_BEFORE: float = 0.0
 _DOWNLOAD_RETRYABLE_STATUS_CODES = frozenset({0, 429, 500, 502, 503, 504})
 _RANGE_INITIAL_BYTES: int = 64 * 1024
 _RANGE_CONCURRENCY: int = 6
@@ -99,11 +110,22 @@ class ModrinthProjectMeta:
     loaders: tuple[str, ...]
     game_versions: tuple[str, ...]
 
-_PLUGIN_CATEGORIES = ("bukkit", "paper", "purpur", "spigot", "folia")
+_PLUGIN_CATEGORIES = (
+    "bukkit",
+    "paper",
+    "purpur",
+    "spigot",
+    "folia",
+    "velocity",
+    "bungeecord",
+    "waterfall",
+    "minestom",
+)
 _PLUGIN_FACET = '["project_type:plugin"]'
 _PLUGIN_LOADER_FACETS = (
     '["categories:bukkit","categories:paper","categories:purpur","categories:spigot",'
-    '"categories:folia"]'
+    '"categories:folia","categories:velocity","categories:bungeecord",'
+    '"categories:waterfall","categories:minestom"]'
 )
 
 _MOD_CATEGORIES = ("fabric", "forge", "neoforge", "quilt")
@@ -127,12 +149,22 @@ _LOADER_CATEGORY_NAMES = frozenset(
 class ModrinthProvider(PluginCatalogProvider):
     name = "modrinth"
 
+    @classmethod
+    def clear_cache(cls) -> None:
+        """Clear the in-memory Modrinth response cache and rate-limit cooldown."""
+        global _SHARED_RATELIMIT_NOT_BEFORE
+        with _CACHE_LOCK:
+            _TTL_CACHE.clear()
+            _SHARED_RATELIMIT_NOT_BEFORE = 0.0
+
     async def search(
         self,
         query: str,
         *,
         project_type: str = "plugin",
         loader: str | None = None,
+        sort: str = "relevance",
+        game_version: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> PluginSearchPage:
@@ -146,19 +178,44 @@ class ModrinthProvider(PluginCatalogProvider):
             facet_loaders = _PLUGIN_LOADER_FACETS
             target_type = "plugin"
 
-        # Single-platform tag filter: "?loader=paper" narrows the search to
-        # projects published for that one platform. The loader token is
-        # validated against a conservative charset so it can never inject
-        # extra facet-syntax fragments; an invalid value is ignored.
+        # Platform tag filter: expand compatible server loaders into an OR facet
+        # (e.g. purpur -> purpur|paper|spigot|bukkit) strictly within the requested
+        # project_type family so project_type=plugin&loader=fabric never leaks mods.
+        allowed_family_loaders = (
+            set(_MOD_CATEGORIES) if target_type == "mod" else set(_PLUGIN_CATEGORIES)
+        )
         loader_token = (loader or "").strip().lower()
         if loader_token and re.fullmatch(r"[a-z0-9-]{1,50}", loader_token):
-            facet_loaders = f'["categories:{loader_token}"]'
+            from app.modules.plugin.application.services.version_selector import (
+                compatible_loaders_for_server,
+            )
+
+            compat_loaders = [
+                ldr
+                for ldr in compatible_loaders_for_server(loader_token)
+                if re.fullmatch(r"[a-z0-9-]{1,50}", ldr) and ldr in allowed_family_loaders
+            ]
+            if not compat_loaders:
+                return PluginSearchPage(items=[], total_hits=0, offset=offset, limit=limit)
+            facet_loaders = (
+                "[" + ",".join(f'"categories:{ldr}"' for ldr in compat_loaders) + "]"
+            )
+
+        facet_groups = [facet_type, facet_loaders]
+        gv_token = (game_version or "").strip()
+        if gv_token and _GAME_VERSION_RE.fullmatch(gv_token):
+            facet_groups.append(f'["versions:{gv_token}"]')
+
+        sort_token = (sort or "relevance").strip().lower()
+        if sort_token not in VALID_SORT_OPTIONS:
+            sort_token = "relevance"
 
         params = {
             "query": query,
             "limit": str(limit),
             "offset": str(offset),
-            "facets": f"[{facet_type},{facet_loaders}]",
+            "index": sort_token,
+            "facets": f"[{','.join(facet_groups)}]",
         }
         data = await self._get_json("/search", params=params)
         hits = data.get("hits") or []
@@ -188,9 +245,11 @@ class ModrinthProvider(PluginCatalogProvider):
                     color=hit.get("color"),
                 ),
             )
+        raw_total = int(data.get("total_hits", 0))
+        adjusted_total = len(results) if raw_total <= len(hits) else raw_total
         return PluginSearchPage(
             items=results,
-            total_hits=int(data.get("total_hits", 0)),
+            total_hits=adjusted_total,
             offset=offset,
             limit=limit,
         )
@@ -213,6 +272,12 @@ class ModrinthProvider(PluginCatalogProvider):
                 author = (owner.get("user") or {}).get("username", "")
             except (DownloadError, DownloadTimeoutError):
                 author = ""
+        raw_followers = data.get("followers")
+        follows = (
+            int(raw_followers)
+            if raw_followers is not None
+            else int(data.get("follows", 0) or 0)
+        )
         return PluginProject(
             project_id=data.get("id", project_id),
             slug=data.get("slug", ""),
@@ -224,7 +289,7 @@ class ModrinthProvider(PluginCatalogProvider):
             loaders=data.get("loaders") or [],
             game_versions=data.get("game_versions") or [],
             downloads=data.get("downloads", 0),
-            follows=data.get("follows", 0),
+            follows=follows,
             icon_url=data.get("icon_url", ""),
             wiki_url=data.get("wiki_url"),
             source_url=data.get("source_url"),
@@ -483,18 +548,70 @@ class ModrinthProvider(PluginCatalogProvider):
                 )
 
     async def _get_json(self, path: str, params: dict | None = None) -> dict:
+        global _SHARED_RATELIMIT_NOT_BEFORE
+        cache_key = (
+            path,
+            tuple(sorted((str(k), str(v)) for k, v in (params or {}).items())),
+        )
+        now = time.monotonic()
+        cached_value = None
+        with _CACHE_LOCK:
+            cached = _TTL_CACHE.get(cache_key)
+            if cached is not None:
+                expires_at, val = cached
+                if expires_at > now:
+                    _TTL_CACHE.move_to_end(cache_key)
+                    cached_value = val
+                else:
+                    _TTL_CACHE.pop(cache_key, None)
+        if cached_value is not None:
+            return copy.deepcopy(cached_value)
+
         client = get_http_client()
         url = f"{MODRINTH_API_BASE}{path}"
         last_exception: Exception | None = None
         for attempt in range(MODRINTH_MAX_RETRIES + 1):
+            if attempt == 0:
+                with _CACHE_LOCK:
+                    not_before = max(self._ratelimit_not_before, _SHARED_RATELIMIT_NOT_BEFORE)
+                cooldown = not_before - time.monotonic()
+                if cooldown > 0:
+                    await asyncio.sleep(min(cooldown, MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS))
+
             try:
-                return await self._do_get_json(client, url, params)
+                result = await self._do_get_json(client, url, params)
+                ttl = (
+                    MODRINTH_SEARCH_TTL_SECONDS
+                    if path == "/search"
+                    else MODRINTH_PROJECT_TTL_SECONDS
+                )
+                stored_copy = copy.deepcopy(result)
+                with _CACHE_LOCK:
+                    _TTL_CACHE[cache_key] = (time.monotonic() + ttl, stored_copy)
+                    _TTL_CACHE.move_to_end(cache_key)
+                    while len(_TTL_CACHE) > MODRINTH_CACHE_MAX_ENTRIES:
+                        _TTL_CACHE.popitem(last=False)
+                return result
             except (DownloadError, DownloadTimeoutError) as e:
-                if isinstance(e, DownloadError) and e.status == 404:
+                if isinstance(e, DownloadError) and e.status in (400, 404):
                     raise
                 last_exception = e
                 if attempt < MODRINTH_MAX_RETRIES:
-                    wait = 1.0 * (2**attempt)
+                    base_wait = 1.0 * (2**attempt)
+                    cooldown_until = 0.0
+                    if isinstance(e, DownloadError) and e.status == 429:
+                        hint = e.details.get("retry_after") or e.details.get("ratelimit_reset") or 0
+                        wait = min(
+                            max(float(hint), base_wait),
+                            MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS,
+                        )
+                        cooldown_until = time.monotonic() + wait
+                        with _CACHE_LOCK:
+                            _SHARED_RATELIMIT_NOT_BEFORE = max(
+                                _SHARED_RATELIMIT_NOT_BEFORE, cooldown_until
+                            )
+                    else:
+                        wait = min(base_wait, MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS)
                     logger.warning(
                         "Modrinth API attempt %d failed for %s, retrying in %.1fs",
                         attempt + 1,
@@ -502,17 +619,64 @@ class ModrinthProvider(PluginCatalogProvider):
                         wait,
                     )
                     await asyncio.sleep(wait)
+                    if cooldown_until:
+                        with _CACHE_LOCK:
+                            if cooldown_until == _SHARED_RATELIMIT_NOT_BEFORE:
+                                _SHARED_RATELIMIT_NOT_BEFORE = 0.0
                     continue
                 raise
         raise last_exception  # type: ignore[misc]
 
     @staticmethod
     async def _do_get_json(client, url: str, params: dict | None) -> dict:
+        global _SHARED_RATELIMIT_NOT_BEFORE
         try:
-            async with client.get(url, params=params) as resp:
+            req_kwargs: dict[str, Any] = {"params": params}
+            if aiohttp is not None and isinstance(client, aiohttp.ClientSession):
+                req_kwargs["headers"] = {"User-Agent": f"onx-manager/{get_app_version()}"}
+            async with client.get(url, **req_kwargs) as resp:
+                resp_headers = getattr(resp, "headers", None)
+                remaining = (
+                    ModrinthProvider._int_header(resp_headers, "X-Ratelimit-Remaining")
+                    if resp_headers is not None
+                    else None
+                )
+                reset = (
+                    ModrinthProvider._int_header(resp_headers, "X-Ratelimit-Reset")
+                    if resp_headers is not None
+                    else None
+                )
+                if resp.status == 429:
+                    retry_after = (
+                        ModrinthProvider._int_header(resp_headers, "Retry-After")
+                        if resp_headers is not None
+                        else None
+                    )
+                    err = DownloadError(url, 429, "Modrinth rate limit exceeded")
+                    if retry_after is not None:
+                        err.details["retry_after"] = retry_after
+                    if reset is not None:
+                        err.details["ratelimit_reset"] = reset
+                    raise err
                 if resp.status != 200:
                     raise DownloadError(url, resp.status)
-                return await resp.json()
+                data = await resp.json()
+                if (
+                    remaining is not None
+                    and remaining <= 0
+                    and reset is not None
+                    and reset > 0
+                ):
+                    cooldown_until = time.monotonic() + min(
+                        float(reset),
+                        MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS,
+                    )
+                    with _CACHE_LOCK:
+                        _SHARED_RATELIMIT_NOT_BEFORE = max(
+                            _SHARED_RATELIMIT_NOT_BEFORE,
+                            cooldown_until,
+                        )
+                return data
         except TimeoutError as e:
             raise DownloadTimeoutError(url, MODRINTH_TIMEOUT_SECONDS) from e
         except (DownloadError, DownloadTimeoutError):
@@ -535,9 +699,23 @@ class ModrinthProvider(PluginCatalogProvider):
                     primary=bool(f.get("primary", False)),
                 ),
             )
-        deps = [
-            d.get("project_id", "") for d in (data.get("dependencies") or []) if d.get("project_id")
-        ]
+        deps: list[str] = []
+        req_deps: list[str] = []
+        seen_req: set[str] = set()
+        for d in data.get("dependencies") or []:
+            if not isinstance(d, dict):
+                continue
+            pid = d.get("project_id")
+            if not pid:
+                continue
+            pid_str = str(pid)
+            deps.append(pid_str)
+            dep_type = str(d.get("dependency_type") or "required").strip().lower()
+            if dep_type == "required" and pid_str not in seen_req:
+                seen_req.add(pid_str)
+                req_deps.append(pid_str)
+        raw_changelog = data.get("changelog")
+        changelog = raw_changelog if isinstance(raw_changelog, str) else None
         return PluginVersionInfo(
             version_id=data.get("id", ""),
             project_id=data.get("project_id", ""),
@@ -547,7 +725,10 @@ class ModrinthProvider(PluginCatalogProvider):
             loaders=data.get("loaders") or [],
             files=files,
             dependencies=deps,
+            required_dependencies=req_deps,
+            changelog=changelog,
             date_published=data.get("date_published", ""),
+            version_type=(str(data.get("version_type") or "release").strip().lower() or "release"),
         )
 
     # ------------------------------------------------------------------
@@ -598,15 +779,19 @@ class ModrinthProvider(PluginCatalogProvider):
         max_retries: int = MODRINTH_BATCH_MAX_RETRIES,
     ) -> object:
         """Rate-limit-aware JSON request helper for batch endpoints."""
+        global _SHARED_RATELIMIT_NOT_BEFORE
         url = f"{MODRINTH_API_BASE}{path}"
         client = get_http_client()
         headers = {"User-Agent": f"onx-manager/{get_app_version()}"}
         attempt = 0
 
         while True:
-            cooldown = self._ratelimit_not_before - time.monotonic()
-            if cooldown > 0:
-                await asyncio.sleep(cooldown)
+            if attempt == 0:
+                with _CACHE_LOCK:
+                    not_before = max(self._ratelimit_not_before, _SHARED_RATELIMIT_NOT_BEFORE)
+                cooldown = not_before - time.monotonic()
+                if cooldown > 0:
+                    await asyncio.sleep(min(cooldown, MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS))
 
             try:
                 async with client.request(
@@ -627,9 +812,20 @@ class ModrinthProvider(PluginCatalogProvider):
                                 url, 429, "Modrinth rate limit exceeded"
                             )
                         base_wait = max(float(retry_after or reset or 0), 1.0 * (2**attempt))
-                        await asyncio.sleep(
-                            min(base_wait, MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS)
-                        )
+                        wait_s = min(base_wait, MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS)
+                        cooldown_until = time.monotonic() + wait_s
+                        self._ratelimit_not_before = max(self._ratelimit_not_before, cooldown_until)
+                        with _CACHE_LOCK:
+                            _SHARED_RATELIMIT_NOT_BEFORE = max(
+                                _SHARED_RATELIMIT_NOT_BEFORE,
+                                cooldown_until,
+                            )
+                        await asyncio.sleep(wait_s)
+                        with _CACHE_LOCK:
+                            if cooldown_until == _SHARED_RATELIMIT_NOT_BEFORE:
+                                _SHARED_RATELIMIT_NOT_BEFORE = 0.0
+                        if self._ratelimit_not_before == cooldown_until:
+                            self._ratelimit_not_before = 0.0
                         attempt += 1
                         continue
 
@@ -655,14 +851,19 @@ class ModrinthProvider(PluginCatalogProvider):
                         and reset is not None
                         and reset > 0
                     ):
+                        cooldown_until = time.monotonic() + min(
+                            float(reset),
+                            MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS,
+                        )
                         self._ratelimit_not_before = max(
                             self._ratelimit_not_before,
-                            time.monotonic()
-                            + min(
-                                float(reset),
-                                MODRINTH_MAX_RATELIMIT_SLEEP_SECONDS,
-                            ),
+                            cooldown_until,
                         )
+                        with _CACHE_LOCK:
+                            _SHARED_RATELIMIT_NOT_BEFORE = max(
+                                _SHARED_RATELIMIT_NOT_BEFORE,
+                                cooldown_until,
+                            )
                     return data
             except TimeoutError as exc:
                 if attempt >= max_retries:

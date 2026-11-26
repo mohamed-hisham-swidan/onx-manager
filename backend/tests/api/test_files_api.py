@@ -635,3 +635,70 @@ async def test_delete_sensitive_file_blocked(client, created_user, tmp_path):
     assert resp.status_code == 204
     assert not (server_root / "eula.txt").exists()
 
+
+@pytest.mark.asyncio
+async def test_files_listing_includes_metadata_and_hides_env(
+    client: AsyncClient, created_user: dict, tmp_path
+):
+    server_id = "srv-meta-env"
+    server_root = tmp_path / "server_meta_env"
+    server_root.mkdir(parents=True, exist_ok=True)
+    (server_root / ".env").write_text("SECRET=1\n")
+    (server_root / ".ENV ").write_text("SECRET=2\n")
+    (server_root / "server.properties").write_text("motd=Hello\n")
+    (server_root / "server.jar").write_bytes(b"\x50\x4b\x03\x04")
+    (server_root / "config").mkdir()
+
+    await _seed_server(server_id, "Meta Server", root_path=str(server_root))
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=admin_header)
+    assert resp.status_code == 200
+    items = resp.json()
+    names = [item["name"] for item in items]
+    assert ".env" not in names
+    assert ".ENV " not in names
+
+    by_name = {item["name"]: item for item in items}
+    assert by_name["server.properties"]["modified_at"] is not None
+    assert by_name["server.properties"]["file_class"] == "B"
+    assert by_name["server.properties"]["editable"] is True
+
+    assert by_name["server.jar"]["file_class"] == "A"
+    assert by_name["server.jar"]["editable"] is False
+
+    assert by_name["config"]["modified_at"] is not None
+    assert by_name["config"]["editable"] is False
+
+
+@pytest.mark.asyncio
+async def test_files_content_read_and_write_reject_over_5mb_with_413(
+    client: AsyncClient, created_user: dict, tmp_path
+):
+    server_id = "srv-5mb-cap"
+    server_root = tmp_path / "server_5mb"
+    server_root.mkdir(parents=True, exist_ok=True)
+    oversized = b"a" * (5 * 1024 * 1024 + 1)
+    (server_root / "huge.log").write_bytes(oversized)
+
+    await _seed_server(server_id, "Cap Server", root_path=str(server_root))
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    read_resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "huge.log"},
+        headers=admin_header,
+    )
+    assert read_resp.status_code == 413
+    assert read_resp.json()["code"] == "FILE_TOO_LARGE"
+
+    write_resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "too_big.txt"},
+        json={"content": "b" * (5 * 1024 * 1024 + 1)},
+        headers=admin_header,
+    )
+    assert write_resp.status_code == 413
+    assert write_resp.json()["code"] == "FILE_TOO_LARGE"
+    assert not (server_root / "too_big.txt").exists()
+

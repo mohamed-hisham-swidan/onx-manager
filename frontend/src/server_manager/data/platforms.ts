@@ -100,6 +100,14 @@ const PLATFORMS: Record<string, PlatformInfo> = {
     description: "Lightweight server software built without vanilla features.",
     kind: "Plugin",
   },
+  geyser: {
+    label: "Geyser Extension",
+    icon: "globe",
+    color: "#0ea5e9",
+    projectType: "plugin",
+    description: "Extension for GeyserMC Bedrock-to-Java bridge.",
+    kind: "Extension",
+  },
   fabric: {
     label: "Fabric",
     icon: "fabric",
@@ -187,4 +195,29 @@ export function getPlatformSoftwareInfo(key: string): PlatformInfo | undefined {
   const info = PLATFORMS[key.toLowerCase()];
   if (!info?.description) return undefined;
   return info;
+}
+
+/**
+ * Resolves the effective marketplace types ("plugin" and/or "mod") for a project
+ * by inspecting both its declared `project_types` and its published `loaders`.
+ * Ensures dual-platform projects (e.g. Fabric + Paper) display both Plugin and Mod.
+ */
+export function inferProjectTypes(
+  projectTypes?: string[] | null,
+  loaders?: string[] | null,
+): Array<"plugin" | "mod"> {
+  const normalizedTypes = (projectTypes ?? []).map((t) => t.trim().toLowerCase());
+  const hasPluginType = normalizedTypes.includes("plugin");
+  const hasModType = normalizedTypes.includes("mod");
+  const hasPluginLoader = (loaders ?? []).some(
+    (l) => getPlatformInfo(l).projectType === "plugin",
+  );
+  const hasModLoader = (loaders ?? []).some(
+    (l) => getPlatformInfo(l).projectType === "mod",
+  );
+
+  const result: Array<"plugin" | "mod"> = [];
+  if (hasPluginType || hasPluginLoader) result.push("plugin");
+  if (hasModType || hasModLoader) result.push("mod");
+  return result.length > 0 ? result : ["plugin"];
 }

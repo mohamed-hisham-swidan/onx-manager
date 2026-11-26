@@ -17,6 +17,13 @@ from typing import Any, cast
 
 from app.core.allowlist import validate_canonical_relpath
 from app.core.exceptions import UntrustedDownloadHostError, UpgradeBlockerError
+from app.modules.plugin.application.services.version_selector import (
+    _game_version_matches,
+    compatible_loaders_for_server,
+    loader_tier_index,
+    loader_tiers_for_server,
+    version_type_rank,
+)
 from app.modules.plugin.infrastructure.providers.base import (
     PluginFile,
     PluginVersionInfo,
@@ -42,7 +49,19 @@ MAX_BFS_DEPTH = 8
 MAX_BFS_PROJECTS = 500
 MODRINTH_BATCH_CHUNK_SIZE = 200
 
-_PLUGIN_LOADERS = frozenset({"paper", "purpur", "spigot", "bukkit", "folia"})
+_PLUGIN_LOADERS = frozenset(
+    {
+        "paper",
+        "purpur",
+        "spigot",
+        "bukkit",
+        "folia",
+        "velocity",
+        "bungeecord",
+        "waterfall",
+        "minestom",
+    }
+)
 
 
 class MatrixStatus(enum.StrEnum):
@@ -74,6 +93,29 @@ BLOCKER_STATUSES: frozenset[MatrixStatus] = frozenset(
 )
 
 
+def _derive_action_label(
+    status: MatrixStatus,
+    *,
+    excluded_by_operator: bool,
+    kept_by_operator: bool,
+) -> str:
+    if excluded_by_operator or status == MatrixStatus.REMOVE:
+        return "excluded"
+    if kept_by_operator:
+        return "kept_current"
+    if status in (MatrixStatus.ADD, MatrixStatus.CARRIED):
+        return "will_upgrade"
+    if status == MatrixStatus.UNCHANGED:
+        return "compatible"
+    if status == MatrixStatus.WARNING_UNRESOLVED_CARRIED:
+        return "unresolved_carried"
+    if status == MatrixStatus.BLOCKER_MANUAL_DOWNLOAD_REQUIRED:
+        return "manual_upload"
+    if status in BLOCKER_STATUSES:
+        return "blocker"
+    return "warning"
+
+
 @dataclass(frozen=True)
 class MatrixEntry:
     """Single file or dependency row in a compatibility matrix."""
@@ -92,17 +134,33 @@ class MatrixEntry:
     target_project_id: str | None = None
     target_version_id: str | None = None
     target_version_number: str | None = None
+    target_filename: str | None = None
     download_url: str | None = None
     required_by: tuple[str, ...] = ()
     detail: str = ""
     manual_blocker: ManualDownloadBlocker | None = None
     excluded_by_operator: bool = False
+    kept_by_operator: bool = False
+    action_label: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.action_label:
+            object.__setattr__(
+                self,
+                "action_label",
+                _derive_action_label(
+                    self.status,
+                    excluded_by_operator=self.excluded_by_operator,
+                    kept_by_operator=self.kept_by_operator,
+                ),
+            )
 
     @property
     def is_blocker(self) -> bool:
         return (
             (self.status in BLOCKER_STATUSES)
             and not self.excluded_by_operator
+            and not self.kept_by_operator
             and not (self.manual_blocker is not None and self.manual_blocker.resolved)
         )
 
@@ -122,6 +180,7 @@ class MatrixEntry:
             "target_project_id": self.target_project_id,
             "target_version_id": self.target_version_id,
             "target_version_number": self.target_version_number,
+            "target_filename": self.target_filename,
             "download_url": self.download_url,
             "required_by": list(self.required_by),
             "detail": self.detail,
@@ -129,6 +188,8 @@ class MatrixEntry:
                 self.manual_blocker.to_dict() if self.manual_blocker is not None else None
             ),
             "excluded_by_operator": self.excluded_by_operator,
+            "kept_by_operator": self.kept_by_operator,
+            "action_label": self.action_label,
             "is_blocker": self.is_blocker,
         }
 
@@ -167,11 +228,14 @@ class MatrixEntry:
             target_project_id=data.get("target_project_id"),
             target_version_id=data.get("target_version_id"),
             target_version_number=data.get("target_version_number"),
+            target_filename=data.get("target_filename"),
             download_url=data.get("download_url"),
             required_by=tuple(data.get("required_by") or ()),
             detail=str(data.get("detail") or ""),
             manual_blocker=manual_blocker,
             excluded_by_operator=bool(data.get("excluded_by_operator", False)),
+            kept_by_operator=bool(data.get("kept_by_operator", False)),
+            action_label=str(data.get("action_label") or ""),
         )
 
 
@@ -187,6 +251,7 @@ class CompatibilityMatrix:
     bfs_depth_reached: int = 0
     bfs_projects_resolved: int = 0
     excluded_paths: tuple[str, ...] = ()
+    kept_paths: tuple[str, ...] = ()
 
     @property
     def blockers(self) -> tuple[MatrixEntry, ...]:
@@ -227,6 +292,7 @@ class CompatibilityMatrix:
             "bfs_depth_reached": self.bfs_depth_reached,
             "bfs_projects_resolved": self.bfs_projects_resolved,
             "excluded_paths": list(self.excluded_paths),
+            "kept_paths": list(self.kept_paths),
             "has_blockers": self.has_blockers,
             "blockers_count": len(self.blockers),
             "warnings_count": len(self.warnings),
@@ -251,6 +317,7 @@ class CompatibilityMatrix:
             bfs_depth_reached=int(data.get("bfs_depth_reached", 0)),
             bfs_projects_resolved=int(data.get("bfs_projects_resolved", 0)),
             excluded_paths=tuple(data.get("excluded_paths") or ()),
+            kept_paths=tuple(data.get("kept_paths") or ()),
         )
 
 
@@ -291,6 +358,18 @@ def _dependency_relpath(loader_id: str, filename: str) -> str:
     return validate_canonical_relpath(f"{folder}/{clean}")
 
 
+def _loaders_compatible_for_target(
+    target_loader_id: str,
+    candidate_loaders: Iterable[str],
+) -> bool:
+    allowed = set(compatible_loaders_for_server(target_loader_id))
+    return any(str(loader).strip().lower() in allowed for loader in candidate_loaders)
+
+
+def _mc_version_compatible(target_mc: str, candidate_versions: Iterable[str]) -> bool:
+    return any(_game_version_matches(target_mc, str(gv)) for gv in candidate_versions)
+
+
 def _matches_target_env(
     record: ModrinthVersionRecord,
     *,
@@ -299,9 +378,9 @@ def _matches_target_env(
     version_types: Sequence[str],
     projects_cache: Mapping[str, ModrinthProjectMeta],
 ) -> bool:
-    if target_mc not in record.game_versions:
+    if not _mc_version_compatible(target_mc, record.game_versions):
         return False
-    if target_loader_id.lower() not in [loader.lower() for loader in record.loaders]:
+    if not _loaders_compatible_for_target(target_loader_id, record.loaders):
         return False
     if version_types and record.version_type and record.version_type not in version_types:
         return False
@@ -319,6 +398,12 @@ def _coerce_version_record(
 ) -> ModrinthVersionRecord:
     if isinstance(item, ModrinthVersionRecord):
         return item
+    req_pids = getattr(item, "required_dependencies", None)
+    effective_required = (
+        list(req_pids)
+        if isinstance(req_pids, (list, tuple))
+        else []
+    )
     deps = tuple(
         ModrinthDependency(
             version_id=None,
@@ -326,7 +411,7 @@ def _coerce_version_record(
             file_name=None,
             dependency_type="required",
         )
-        for pid in item.dependencies
+        for pid in effective_required
         if pid
     )
     return ModrinthVersionRecord(
@@ -334,7 +419,7 @@ def _coerce_version_record(
         project_id=item.project_id,
         name=item.name,
         version_number=item.version_number,
-        version_type="",
+        version_type=getattr(item, "version_type", "release") or "release",
         game_versions=tuple(item.game_versions),
         loaders=tuple(item.loaders),
         environment=None,
@@ -416,9 +501,9 @@ async def _resolve_dependency_version(
         for item in raw_items:
             game_versions = getattr(item, "game_versions", ())
             loaders = getattr(item, "loaders", ())
-            if target_mc not in game_versions:
+            if not _mc_version_compatible(target_mc, game_versions):
                 continue
-            if target_loader_id.lower() not in [str(loader).lower() for loader in loaders]:
+            if not _loaders_compatible_for_target(target_loader_id, loaders):
                 continue
             if isinstance(item, ModrinthVersionRecord):
                 direct_records.append(item)
@@ -439,6 +524,12 @@ async def _resolve_dependency_version(
             direct_records.extend(resolved_records)
 
         direct_records.sort(key=lambda r: r.date_published or "", reverse=True)
+        direct_records.sort(
+            key=lambda r: (
+                loader_tier_index(target_loader_id, r.loaders),
+                -version_type_rank(r.version_type),
+            )
+        )
         project_versions_cache[dep.project_id] = direct_records
 
     for candidate in project_versions_cache[dep.project_id]:
@@ -460,6 +551,64 @@ async def _resolve_dependency_version(
     return None
 
 
+async def _resolve_project_fallback_version(
+    *,
+    project_id: str,
+    modrinth_client: ModrinthProvider,
+    target_mc: str,
+    target_loader_id: str,
+    version_types: Sequence[str],
+    projects_cache: dict[str, ModrinthProjectMeta],
+    fallback_versions_cache: dict[str, list[ModrinthVersionRecord]],
+) -> ModrinthVersionRecord | None:
+    """Fall back to project versions filtered by parent-loader chain and game version."""
+    if project_id not in fallback_versions_cache:
+        page = await modrinth_client.get_project_versions(project_id)
+        raw_items = (
+            page.items
+            if isinstance(page, PluginVersionsPage)
+            else list(cast(Iterable[Any], page))
+        )
+        fallback_versions_cache[project_id] = [
+            _coerce_version_record(item) for item in raw_items
+        ]
+
+    loader_chain = compatible_loaders_for_server(target_loader_id)
+    loader_rank = {ldr: idx for idx, ldr in enumerate(loader_chain)}
+    candidates: list[ModrinthVersionRecord] = []
+    for rec in fallback_versions_cache[project_id]:
+        if (
+            rec.environment not in ("server_only", "client_and_server")
+            and rec.project_id
+        ):
+            await _ensure_projects_cached(modrinth_client, [rec.project_id], projects_cache)
+        if not _matches_target_env(
+            rec,
+            target_mc=target_mc,
+            target_loader_id=target_loader_id,
+            version_types=version_types,
+            projects_cache=projects_cache,
+        ):
+            continue
+        if _select_primary_file(rec) is None:
+            continue
+        candidates.append(rec)
+
+    if not candidates:
+        return None
+
+    def _rank(rec: ModrinthVersionRecord) -> tuple[int, int, int]:
+        exact_mc = 0 if target_mc in rec.game_versions else 1
+        best_tier = loader_tier_index(target_loader_id, rec.loaders)
+        vt_score = -version_type_rank(rec.version_type)
+        return (exact_mc, best_tier, vt_score)
+
+    # Prefer exact MC match -> native loader tier -> release > beta > alpha -> newest date_published.
+    candidates.sort(key=lambda r: r.date_published or "", reverse=True)
+    candidates.sort(key=_rank)
+    return candidates[0]
+
+
 async def build_compatibility_matrix(
     current_lockfile: LockfileV21,
     *,
@@ -469,6 +618,7 @@ async def build_compatibility_matrix(
     cas: ArtifactCas | None = None,
     target_install_plan: InstallPlan | None = None,
     excluded_paths: Iterable[str] = (),
+    keep_paths: Iterable[str] = (),
     extra_allowed_hosts: Iterable[str] = (),
     version_types: Sequence[str] = ("release",),
     auto_include_dependencies: bool = True,
@@ -478,6 +628,10 @@ async def build_compatibility_matrix(
     for raw_path in excluded_paths:
         normalized_excluded.append(validate_canonical_relpath(raw_path))
     excluded_set = frozenset(normalized_excluded)
+    normalized_kept: list[str] = []
+    for raw_path in keep_paths:
+        normalized_kept.append(validate_canonical_relpath(raw_path))
+    kept_set = frozenset(normalized_kept) - excluded_set
     extra_hosts = tuple(extra_allowed_hosts)
 
     entries_by_path: dict[str, MatrixEntry] = {}
@@ -693,9 +847,17 @@ async def build_compatibility_matrix(
     # ------------------------------------------------------------------
     # Hash-Only Modrinth Pipeline (all non-papermc or loose user jars)
     # ------------------------------------------------------------------
+    def _is_root_server_jar(relpath: str) -> bool:
+        norm = relpath.replace("\\", "/").lstrip("./")
+        return "/" not in norm and norm.lower().endswith(".jar")
+
     candidates: list[LockfileFile] = []
     for entry in current_lockfile.files:
         if entry.path in excluded_set:
+            continue
+        if _is_root_server_jar(entry.path):
+            # Root server core JARs (e.g. server.jar, purpur-*.jar) are replaced
+            # by the target loader / LEC build and are never Modrinth addons.
             continue
         if target_install_plan is not None:
             if entry.origin == Origin.USER:
@@ -734,17 +896,37 @@ async def build_compatibility_matrix(
         found_by_hash = await modrinth_client.lookup_version_files_by_hashes(
             unique_hashes, algorithm="sha512"
         )
-        updates_by_hash = await modrinth_client.lookup_version_updates_by_hashes(
-            unique_hashes,
-            loaders=[target_loader.id],
-            game_versions=[target_mc],
-            algorithm="sha512",
-            version_types=version_types,
+        tiers = loader_tiers_for_server(target_loader.id) or (
+            compatible_loaders_for_server(target_loader.id),
         )
+        remaining_hashes = list(unique_hashes)
+        allowed_vtypes = {str(vt).strip().lower() for vt in version_types if str(vt).strip()}
+        for tier_loaders in tiers:
+            if not remaining_hashes or not tier_loaders:
+                break
+            tier_updates = await modrinth_client.lookup_version_updates_by_hashes(
+                remaining_hashes,
+                loaders=list(tier_loaders),
+                game_versions=[target_mc],
+                algorithm="sha512",
+                version_types=version_types,
+            )
+            matched_in_tier: set[str] = set()
+            for digest, rec in tier_updates.items():
+                if (
+                    allowed_vtypes
+                    and rec.version_type
+                    and rec.version_type.strip().lower() not in allowed_vtypes
+                ):
+                    continue
+                updates_by_hash[digest] = rec
+                matched_in_tier.add(digest)
+            remaining_hashes = [h for h in remaining_hashes if h not in matched_in_tier]
 
     projects_cache: dict[str, ModrinthProjectMeta] = {}
     versions_cache: dict[str, ModrinthVersionRecord] = {}
     project_versions_cache: dict[str, list[ModrinthVersionRecord]] = {}
+    fallback_versions_cache: dict[str, list[ModrinthVersionRecord]] = {}
 
     # Pre-check project.server_side when update version.environment is unspecified
     ambiguous_update_pids = [
@@ -763,6 +945,29 @@ async def build_compatibility_matrix(
 
         src_project_id = entry.project_id or (identified.project_id if identified else None)
         src_version_id = entry.version_id or (identified.version_id if identified else None)
+
+        if entry.path in kept_set:
+            if src_project_id:
+                installed_project_ids.add(src_project_id)
+            entries_by_path[entry.path] = MatrixEntry(
+                path=entry.path,
+                status=MatrixStatus.CARRIED,
+                origin=Origin.MODRINTH.value if identified is not None else entry.origin.value,
+                source_sha256=entry.sha256,
+                source_sha512=src_sha512,
+                source_project_id=src_project_id,
+                source_version_id=src_version_id,
+                target_sha256=entry.sha256,
+                target_sha512=src_sha512,
+                target_sha1=entry.sha1,
+                target_size=entry.size,
+                target_project_id=src_project_id,
+                target_version_id=src_version_id,
+                detail="Kept current JAR on target version by operator choice",
+                kept_by_operator=True,
+                action_label="kept_current",
+            )
+            continue
 
         # Filter client-only targets strictly from Version.environment (OD-v8.4-10)
         if target_rec is not None and target_rec.environment == "client_only":
@@ -795,6 +1000,21 @@ async def build_compatibility_matrix(
                 detail="Not found on Modrinth via hash lookup; carried unchanged",
             )
             continue
+
+        if (
+            target_rec is None
+            and src_project_id
+            and (identified is not None or entry.origin == Origin.MODRINTH)
+        ):
+            target_rec = await _resolve_project_fallback_version(
+                project_id=src_project_id,
+                modrinth_client=modrinth_client,
+                target_mc=target_mc,
+                target_loader_id=target_loader.id,
+                version_types=version_types,
+                projects_cache=projects_cache,
+                fallback_versions_cache=fallback_versions_cache,
+            )
 
         if target_rec is None:
             entries_by_path[entry.path] = MatrixEntry(
@@ -871,6 +1091,7 @@ async def build_compatibility_matrix(
             target_project_id=target_rec.project_id,
             target_version_id=target_rec.version_id,
             target_version_number=target_rec.version_number,
+            target_filename=None if unchanged else (primary_file.filename or None),
             download_url=primary_file.url,
         )
         active_root_records.append((entry.path, target_rec))
@@ -1096,6 +1317,7 @@ async def build_compatibility_matrix(
         bfs_depth_reached=bfs_depth_reached,
         bfs_projects_resolved=bfs_projects_resolved,
         excluded_paths=tuple(sorted(excluded_set)),
+        kept_paths=tuple(sorted(kept_set)),
     )
 
 

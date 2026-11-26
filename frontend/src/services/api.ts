@@ -4,9 +4,12 @@ import type {
   BackupResponse,
   CreateAlertRuleRequest,
   CreateBackupRequest,
+  CreateScheduleRequest,
   CreateUserRequest,
+  HealthDashboardResponse,
   HealthResponse,
   InstallModrinthPluginRequest,
+  ScheduleResponse,
   InstallModrinthPluginResponse,
   LoginRequest,
   LoginResponse,
@@ -228,6 +231,7 @@ interface RequestConfig {
   cache?: RequestCache;
   responseType?: "json" | "blob" | "text";
   headers?: Record<string, string>;
+  onResponse?: (response: Response) => void;
 }
 
 function buildUrl(base: string, path: string, params?: Record<string, string | undefined>): string {
@@ -390,12 +394,14 @@ export function createApiClient(
       throw new ApiError(response.status, errCode, errMsg, errDetail);
     }
 
+    config.onResponse?.(response);
     return data as T;
   }
 
   return {
     // Health
     health: () => request<HealthResponse>("/health"),
+    getHealthDashboard: () => request<HealthDashboardResponse>("/api/v1/health/dashboard"),
 
     // Auth
     login: (body: LoginRequest) =>
@@ -967,10 +973,23 @@ export function createApiClient(
       }),
 
     // Plugins
-    listPlugins: (serverId: string, branch?: string) =>
-      request<PluginResponse[]>(`/api/v1/servers/${serverId}/plugins`, {
+    listPlugins: async (serverId: string, branch?: string) => {
+      let hasUncommitted = false;
+      const items = await request<PluginResponse[]>(`/api/v1/servers/${serverId}/plugins`, {
         params: branch ? { branch } : undefined,
-      }),
+        onResponse: (res) => {
+          hasUncommitted = res.headers.get("X-ONX-Has-Uncommitted") === "true";
+        },
+      });
+      if (hasUncommitted && Array.isArray(items)) {
+        Object.defineProperty(items, "__hasUncommitted", {
+          value: true,
+          enumerable: false,
+          configurable: true,
+        });
+      }
+      return items;
+    },
     getPlugin: (serverId: string, pluginId: string, branch?: string) =>
       request<PluginResponse>(`/api/v1/servers/${serverId}/plugins/${pluginId}`, {
         params: branch ? { branch } : undefined,
@@ -1011,14 +1030,49 @@ export function createApiClient(
       }),
 
     // Plugin marketplace
-    searchMarketplace: (serverId: string, query: string, projectType?: string, limit?: number, offset?: number, loader?: string) =>
+    searchMarketplace: (
+      serverId: string,
+      query: string,
+      projectType?: string,
+      limit?: number,
+      offset?: number,
+      loader?: string,
+      sort?: string,
+      gameVersion?: string,
+      compatibleOnly?: boolean,
+    ) =>
       request<PluginSearchResultsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
-        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString(), loader },
+        params: {
+          query,
+          project_type: projectType,
+          limit: limit?.toString(),
+          offset: offset?.toString(),
+          loader,
+          sort: sort && sort !== "relevance" ? sort : undefined,
+          game_version: gameVersion || undefined,
+          compatible_only: compatibleOnly ? "true" : undefined,
+        },
       }),
     // Global variant: server-independent marketplace search (no server_id in the path).
-    searchMarketplaceGlobal: (query: string, projectType?: string, limit?: number, offset?: number, loader?: string) =>
+    searchMarketplaceGlobal: (
+      query: string,
+      projectType?: string,
+      limit?: number,
+      offset?: number,
+      loader?: string,
+      sort?: string,
+      gameVersion?: string,
+    ) =>
       request<PluginSearchResultsResponse>(`/api/v1/marketplace/search`, {
-        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString(), loader },
+        params: {
+          query,
+          project_type: projectType,
+          limit: limit?.toString(),
+          offset: offset?.toString(),
+          loader,
+          sort: sort && sort !== "relevance" ? sort : undefined,
+          game_version: gameVersion || undefined,
+        },
       }),
     getMarketplaceProject: (projectId: string) =>
       request<PluginProjectResponse>(`/api/v1/marketplace/projects/${projectId}`),
@@ -1037,9 +1091,11 @@ export function createApiClient(
         body: branch && !body.branch ? { ...body, branch } : body,
       }),
 
-    // Monitoring
+    // Monitoring & Health
     getMetrics: (serverId: string, limit?: number) =>
       request<MetricsSnapshot[]>("/api/v1/monitoring/metrics", { params: { server_id: serverId, limit: limit?.toString() } }),
+    getServerHealthStatus: (serverId: string) =>
+      request<ServerHealthStatusResponse>(`/api/v1/health/status/${serverId}`),
     listAlerts: () =>
       request<Record<string, unknown>[]>("/api/v1/monitoring/alerts"),
     createAlertRule: (serverId: string, body: CreateAlertRuleRequest) =>
@@ -1049,9 +1105,12 @@ export function createApiClient(
 
     // Schedules
     listSchedules: () =>
-      request<Record<string, unknown>[]>("/api/v1/schedules"),
-    createSchedule: (body: Record<string, unknown>) =>
-      request<Record<string, unknown>>("/api/v1/schedules", { method: "POST", body }),
+      request<ScheduleResponse[]>("/api/v1/schedules"),
+    createSchedule: (body: CreateScheduleRequest | Record<string, unknown>) =>
+      request<ScheduleResponse & { success?: boolean; schedule_id?: string }>("/api/v1/schedules", {
+        method: "POST",
+        body,
+      }),
     deleteSchedule: (scheduleId: string) =>
       request<void>(`/api/v1/schedules/${scheduleId}`, { method: "DELETE" }),
 
@@ -1149,10 +1208,10 @@ export function createApiClient(
       request<SettingsUpdateResponse>("/api/v1/settings", { method: "PATCH", body }),
 
     // Files
-    listServerFiles: (serverId: string, path?: string, branch?: string) =>
-      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files`, { params: { path, branch } }),
-    readServerFileContent: (serverId: string, path: string, branch?: string) =>
-      request<import("@/server_manager/types").FileContentResponse>(`/api/v1/servers/${serverId}/files/content`, { params: { path, branch } }),
+    listServerFiles: (serverId: string, path?: string, branch?: string, scope?: string) =>
+      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files`, { params: { path, branch, scope } }),
+    readServerFileContent: (serverId: string, path: string, branch?: string, scope?: string) =>
+      request<import("@/server_manager/types").FileContentResponse>(`/api/v1/servers/${serverId}/files/content`, { params: { path, branch, scope } }),
     writeServerFileContent: (serverId: string, path: string, content: string, branch?: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "PUT", params: { path, branch }, body: { content } }),
     deleteServerFile: (serverId: string, path: string, branch?: string) =>
@@ -1162,8 +1221,8 @@ export function createApiClient(
       formData.append("file", file);
       return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/upload`, { method: "POST", params: { path, branch }, body: formData });
     },
-    downloadServerFile: (serverId: string, path: string, branch?: string) =>
-      request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path, branch }, responseType: "blob" }),
+    downloadServerFile: (serverId: string, path: string, branch?: string, scope?: string) =>
+      request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path, branch, scope }, responseType: "blob" }),
     mkdirServerDirectory: (serverId: string, path: string, folderName?: string, branch?: string) => {
       const fullPath = folderName
         ? (path ? `${path.replace(/\/+$/, "")}/${folderName.replace(/^\/+/, "")}` : folderName)
@@ -1232,10 +1291,14 @@ export function createApiClient(
       }),
 
     // Server Exposure & Targets (Phase 7.5)
-    getServerExposure: (serverId: string, branch?: string) =>
-      request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
-        params: branch && branch !== "main" ? { branch } : undefined,
-      }),
+    getServerExposure: (serverId: string, branch?: string, probe?: boolean) => {
+      const params: Record<string, string | undefined> = {};
+      if (branch && branch !== "main") params.branch = branch;
+      if (probe) params.probe = "true";
+      return request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
+        params: Object.keys(params).length > 0 ? params : undefined,
+      });
+    },
     setServerExposure: (serverId: string, body: ServerExposureUpdateRequest, branch?: string) =>
       request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
         method: "PUT",
@@ -1270,7 +1333,7 @@ export function createApiClient(
         body,
       }),
     deleteExposureTarget: (serverId: string, targetId: string) =>
-      request<void>(`/api/v1/servers/${serverId}/exposure/targets/${targetId}`, {
+      request<void>(`/api/v1/servers/${serverId}/ports/${targetId}`, {
         method: "DELETE",
       }),
     listServerPorts: (serverId: string) =>
@@ -1473,6 +1536,16 @@ export interface MetricsSnapshot {
   ram_used_mb: number;
   cpu_percent: number;
   timestamp: string;
+}
+
+export interface ServerHealthStatusResponse {
+  server_id: string;
+  status: string;
+  previous_status?: string | null;
+  contributing_factors?: string[];
+  trend?: string;
+  confidence?: number;
+  last_updated?: string | null;
 }
 
 

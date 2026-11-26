@@ -754,6 +754,43 @@ class TestBackups:
         assert resp.status_code == 201
         assert "backup_id" in resp.json()
 
+    async def test_list_backups_includes_server_name_and_deleted_flag(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
+        from app.core.persistence.db import database
+        from app.modules.backup.domain.aggregate import BackupJob
+        from app.modules.backup.infrastructure.repository import SQLBackupRepository
+        from app.modules.shared.value_objects import BackupJobId, ServerId
+
+        server_id = created_server["server_id"]
+        srv_resp = await client.get(f"/api/v1/servers/{server_id}", headers=privileged_header)
+        assert srv_resp.status_code == 200
+        server_name = srv_resp.json()["name"]
+        await client.post(
+            "/api/v1/backups",
+            json={"server_id": server_id, "backup_type": "full"},
+            headers=privileged_header,
+        )
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            orphan = BackupJob.create(
+                backup_id=BackupJobId("api-orphan-bak"),
+                server_id=ServerId("deleted-srv-id"),
+            )
+            orphan.collect_events()
+            await repo.save_job(orphan)
+            await session.commit()
+
+        list_resp = await client.get("/api/v1/backups", headers=privileged_header)
+        assert list_resp.status_code == 200
+        rows = list_resp.json()
+        live_row = next(r for r in rows if r["server_id"] == server_id)
+        orphan_row = next(r for r in rows if r["backup_id"] == "api-orphan-bak")
+        assert live_row["server_name"] == server_name
+        assert live_row["server_deleted"] is False
+        assert orphan_row["server_name"] is None
+        assert orphan_row["server_deleted"] is True
+
     async def test_create_and_get_backup(
         self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
     ) -> None:
@@ -783,6 +820,9 @@ class TestBackups:
         assert verify_resp.status_code == 200
         data = verify_resp.json()
         assert "valid" in data
+        assert "artifact_present" in data
+        assert "artifact_matches" in data
+        assert "artifact_error" in data
 
     async def test_delete_backup(
         self,
@@ -1433,6 +1473,90 @@ class TestPluginMarketplace:
         assert data["client_side"] == "optional"
         assert data["server_side"] == "required"
 
+    async def test_global_marketplace_search_threads_sort_and_game_version(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+    ):
+        from app.modules.plugin.infrastructure.providers.base import PluginSearchPage
+
+        passed_kwargs: dict = {}
+
+        class _CaptureProvider:
+            name = "modrinth"
+
+            async def search(self, query: str = "", **kwargs):
+                passed_kwargs["query"] = query
+                passed_kwargs.update(kwargs)
+                return PluginSearchPage(items=[], total_hits=0, offset=0, limit=20)
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_CaptureProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/search",
+                params={
+                    "query": "sodium",
+                    "project_type": "mod",
+                    "loader": "fabric",
+                    "sort": "downloads",
+                    "game_version": "1.21.1",
+                },
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        assert passed_kwargs["project_type"] == "mod"
+        assert passed_kwargs["loader"] == "fabric"
+        assert passed_kwargs["sort"] == "downloads"
+        assert passed_kwargs["game_version"] == "1.21.1"
+
+    async def test_server_marketplace_search_compatible_only_uses_server_profile(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ):
+        from sqlalchemy import update
+
+        from app.core.persistence.db import database
+        from app.modules.plugin.infrastructure.providers.base import PluginSearchPage
+        from app.modules.server.infrastructure.models import ServerModel
+
+        server_id = created_server["server_id"]
+        async with database._session_factory() as session:
+            await session.execute(
+                update(ServerModel)
+                .where(ServerModel.id == server_id)
+                .values(server_type="fabric", minecraft_version="1.21.1")
+            )
+            await session.commit()
+
+        passed_kwargs: dict = {}
+
+        class _CaptureProvider:
+            name = "modrinth"
+
+            async def search(self, query: str = "", **kwargs):
+                passed_kwargs["query"] = query
+                passed_kwargs.update(kwargs)
+                return PluginSearchPage(items=[], total_hits=0, offset=0, limit=20)
+
+        with patch(
+            "app.api.v1.routers.plugins.build_plugin_catalog_provider",
+            return_value=_CaptureProvider(),
+        ):
+            resp = await client.get(
+                f"/api/v1/servers/{server_id}/plugins/marketplace/search",
+                params={"query": "sodium", "compatible_only": "true", "sort": "updated"},
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        assert passed_kwargs["sort"] == "updated"
+        assert passed_kwargs["loader"] == "fabric"
+        assert passed_kwargs["game_version"] == "1.21.1"
+        assert passed_kwargs["project_type"] == "mod"
+
 
 class TestUsers:
     async def test_list_users(
@@ -1626,6 +1750,7 @@ class TestSchedules:
     ) -> None:
         resp = await client.post("/api/v1/schedules", json={}, headers=admin_header)
         assert resp.status_code == 201
+        assert resp.json()["task_name"] == "run_backup_task"
 
     async def test_delete_schedule_unauthorized(
         self, client: AsyncClient, auth_header: dict[str, str]
@@ -1680,7 +1805,7 @@ class TestSchedules:
         assert matched is not None
         assert matched["name"] == "daily-world-backup"
         assert matched["cron_expression"] == "0 2 * * *"
-        assert matched["task_name"] == "backup"
+        assert matched["task_name"] == "run_backup_task"
         assert matched["params"] == {"backup_type": "full"}
         assert matched["enabled"] is True
 

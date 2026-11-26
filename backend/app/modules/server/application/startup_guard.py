@@ -56,7 +56,7 @@ async def check_startup_readiness(
             warnings.append(
                 f"Environment: disk space warning ({env_report.available_disk_mb:.0f} MB free)"
             )
-        if not env_report.java_versions:
+        if not env_report.java_versions and not env_report.prerequisites.get("docker"):
             reasons.append("Environment: no Java runtime detected")
     except Exception as exc:
         reasons.append(f"Environment scan failed: {exc}")

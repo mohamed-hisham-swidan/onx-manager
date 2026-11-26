@@ -48,9 +48,17 @@ class ToggleModStateHandler(CommandHandler[ToggleModStateCommand]):
             plugin = None
             if command.plugin_id:
                 try:
-                    plugin = await repo.get(PluginId(command.plugin_id))
+                    candidate = await repo.get(PluginId(command.plugin_id))
                 except Exception:
-                    plugin = None
+                    candidate = None
+                if candidate is not None:
+                    if candidate.server_id != server_id:
+                        return CommandResult(
+                            success=False,
+                            error="Mod/plugin not found on this server.",
+                            error_code="PLUGIN_NOT_FOUND",
+                        )
+                    plugin = candidate
 
             if plugin is None and command.mod_id:
                 all_plugins = await repo.list_all_by_server(server_id)
@@ -86,9 +94,11 @@ class ToggleModStateHandler(CommandHandler[ToggleModStateCommand]):
                     os.path.join(server_dir, "plugins"),
                     os.path.join(server_dir, "mods"),
                 ]
+                any_dir_exists = False
                 renamed_ok = False
                 for d in dict.fromkeys(dirs_to_check):
                     if self._fs.exists(d):
+                        any_dir_exists = True
                         try:
                             toggle_addon_file(d, plugin.filename, command.enabled)
                             renamed_ok = True
@@ -102,11 +112,16 @@ class ToggleModStateHandler(CommandHandler[ToggleModStateCommand]):
                                 error_code="FS_ERROR",
                             )
 
-                if not renamed_ok:
+                if any_dir_exists and not renamed_ok:
                     logger.warning(
                         "Addon file '%s' was not found on disk during toggle on server %s",
                         plugin.filename,
                         server_id,
+                    )
+                    return CommandResult(
+                        success=False,
+                        error=f"Addon file '{plugin.filename}' was not found on disk.",
+                        error_code="FILE_NOT_FOUND",
                     )
 
             plugin.set_disabled_on_disk(not command.enabled)

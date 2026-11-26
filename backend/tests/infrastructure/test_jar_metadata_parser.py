@@ -173,3 +173,36 @@ clientSideOnly = true
     assert meta.is_client_only is True
     assert meta.warning is not None
 
+
+def test_parse_universal_multiloader_jar_prefers_plugin_on_paper(tmp_path) -> None:
+    jar = tmp_path / "universal-addon.jar"
+    _create_jar(
+        jar,
+        {
+            "fabric.mod.json": '{"id": "chunky", "name": "Chunky", "version": "1.4.0"}',
+            "plugin.yml": "name: Chunky\nversion: 1.4.0\nmain: org.popcraft.chunky.ChunkyBukkit\n",
+        },
+    )
+    # Default keeps historical Fabric-first behavior
+    default_meta = parse_jar_metadata(str(jar))
+    assert default_meta.loader == "fabric"
+
+    # Paper/plugin servers prefer Bukkit/Paper descriptor over bundled Fabric metadata
+    paper_meta = parse_jar_metadata(str(jar), preferred_server_type="paper")
+    assert paper_meta.loader == "bukkit"
+    assert paper_meta.name == "Chunky"
+
+    # With paper-plugin.yml + fabric.mod.json on Purpur -> resolves to paper
+    jar_paper = tmp_path / "universal-paper.jar"
+    _create_jar(
+        jar_paper,
+        {
+            "fabric.mod.json": '{"id": "bluemap", "name": "BlueMap", "version": "5.0"}',
+            "paper-plugin.yml": (
+                "name: BlueMap\nversion: '5.0'\nmain: de.bluecolored.bluemap.Paper\n"
+            ),
+        },
+    )
+    purpur_meta = parse_jar_metadata(str(jar_paper), preferred_server_type="purpur")
+    assert purpur_meta.loader == "paper"
+

@@ -196,6 +196,14 @@ class ConsoleStreamManager:
                     self._docker_logs_producer(target_name, queue),
                     name=f"docker-producer-{channel}",
                 )
+            elif channel.startswith("server:"):
+                # Single authoritative source: never tail logs/latest.log (a different
+                # line format than container stdout) next to the docker history the HTTP
+                # endpoint serves. Wait for the container, then follow its stdout only.
+                producer_task = asyncio.create_task(
+                    self._await_container_producer(channel, queue),
+                    name=f"await-container-producer-{channel}",
+                )
             elif log_path is not None:
                 producer_task = asyncio.create_task(
                     self._file_tail_producer(log_path, queue),
@@ -260,36 +268,60 @@ class ConsoleStreamManager:
         except Exception as exc:
             logger.debug("docker logs stderr reader error [%s]: %s", container_name, exc)
 
+    async def _await_container_producer(
+        self,
+        channel: str,
+        queue: asyncio.Queue[str],
+        poll_seconds: float = 1.0,
+    ) -> None:
+        """Poll until the server has a container, then stream its docker stdout."""
+        while self._running:
+            try:
+                target_name, mode, _ = await self._resolve_target(channel)
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.debug("await container resolve failed for %s: %s", channel, exc)
+                target_name, mode = "", "file_tail"
+            if mode == "docker" and target_name:
+                # Small tail covers lines emitted before the container was discovered;
+                # clients de-duplicate overlap against the HTTP history.
+                await self._docker_logs_producer(target_name, queue, tail="200")
+                return
+            try:
+                await asyncio.sleep(poll_seconds)
+            except asyncio.CancelledError:
+                return
+
     async def _docker_logs_producer(
         self,
         container_name: str,
         queue: asyncio.Queue[str],
+        tail: str = "0",
     ) -> None:
         backoff = 1.0
+        current_tail = tail
         while self._running:
             proc = None
-            stderr_task = None
             try:
+                # Merge container stderr into stdout so JVM errors / crash traces
+                # are never silently dropped, and raise StreamReader limit to 1 MiB.
                 proc = await asyncio.create_subprocess_exec(
                     "docker",
                     "logs",
                     "--follow",
                     "--timestamps",
                     "--tail",
-                    "0",
+                    current_tail,
                     container_name,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    limit=1024 * 1024,
                 )
+                current_tail = "0"
                 backoff = 1.0
                 if proc.stdout is None:
                     break
-
-                if proc.stderr is not None:
-                    stderr_task = asyncio.create_task(
-                        self._drain_stderr(proc.stderr, container_name),
-                        name=f"docker-stderr-{container_name}",
-                    )
 
                 while self._running:
                     raw_line = await proc.stdout.readline()
@@ -303,10 +335,6 @@ class ConsoleStreamManager:
             except Exception as exc:
                 logger.debug("docker logs stream for %s encountered: %s", container_name, exc)
             finally:
-                if stderr_task and not stderr_task.done():
-                    stderr_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await stderr_task
                 if proc and proc.returncode is None:
                     with contextlib.suppress(Exception):
                         proc.kill()

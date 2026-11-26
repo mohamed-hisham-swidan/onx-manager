@@ -494,3 +494,77 @@ async def test_collect_normalizes_wildcard_rcon_host(tmp_path) -> None:
     assert seen_hosts == ["127.0.0.1"]
     assert metric.players == 2
 
+
+@pytest.mark.asyncio
+async def test_collect_skips_synthetic_zero_on_docker_stats_timeout() -> None:
+    """When docker stats misses a running container, never emit synthetic 0.0 MB drops."""
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    event_bus = MagicMock()
+    event_bus.publish = AsyncMock()
+    collector = mod.MetricsCollector(
+        event_bus=event_bus, known_servers=["srv-docker-1"], per_server_timeout=5.0
+    )
+
+    fake_server = MagicMock()
+    fake_server.name = "DockerSMP"
+    fake_server.status.value = "running"
+    fake_server.runtime.pid = None
+    fake_server.runtime.external_id = "onx-srv-docker-1"
+    fake_server.runtime.host = "172.17.0.5"
+    fake_server.deployment.root_path = None
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session_ctx
+    session_ctx.add = MagicMock()
+    fake_db = MagicMock()
+    fake_db.session_factory = lambda: session_ctx
+    fake_repo = MagicMock()
+    fake_repo.get = AsyncMock(return_value=fake_server)
+    metric_repo = MagicMock()
+    metric_repo.record = AsyncMock()
+
+    # 1. Cold timeout (no cached valid stats yet): must NOT persist or publish 0.0 MB
+    collector._docker_stats_cache = {}
+    with (
+        patch.object(mod, "database", fake_db),
+        patch.object(mod, "SQLServerRepository", return_value=fake_repo),
+        patch.object(mod, "SQLMetricRepository", return_value=metric_repo),
+    ):
+        await collector.collect("srv-docker-1")
+
+    metric_repo.record.assert_not_awaited()
+    event_bus.publish.assert_not_awaited()
+
+    # 2. Valid sample recorded and cached
+    collector._docker_stats_cache = {
+        "onx-srv-docker-1": mod.ContainerStats(
+            name="onx-srv-docker-1",
+            cpu_percent=18.5,
+            ram_used_mb=1536.0,
+        )
+    }
+    with (
+        patch.object(mod, "database", fake_db),
+        patch.object(mod, "SQLServerRepository", return_value=fake_repo),
+        patch.object(mod, "SQLMetricRepository", return_value=metric_repo),
+    ):
+        valid_metric = await collector.collect("srv-docker-1")
+
+    assert valid_metric.ram_used_mb == 1536.0
+    assert valid_metric.cpu_percent == 18.5
+    assert metric_repo.record.await_count == 1
+
+    # 3. Subsequent transient docker stats timeout carries forward recent valid sample (never 0.0!)
+    collector._docker_stats_cache = {}
+    with (
+        patch.object(mod, "database", fake_db),
+        patch.object(mod, "SQLServerRepository", return_value=fake_repo),
+        patch.object(mod, "SQLMetricRepository", return_value=metric_repo),
+    ):
+        carried = await collector.collect("srv-docker-1")
+
+    assert carried.ram_used_mb == 1536.0
+    assert carried.cpu_percent == 18.5
+    assert metric_repo.record.await_count == 2
+

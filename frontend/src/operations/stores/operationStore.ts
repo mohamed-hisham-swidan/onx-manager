@@ -34,9 +34,32 @@ export const useOperationStore = create<OperationStoreState>((set, get) => ({
   closeDrawer: () => set({ activeDrawerId: null }),
 
   setOperation: (operation: OperationDetail) =>
-    set((state) => ({
-      operations: { ...state.operations, [operation.id]: operation },
-    })),
+    set((state) => {
+      const metaLogs = Array.isArray(operation.metadata?.logs)
+        ? (operation.metadata.logs as Array<Record<string, unknown>>)
+            .filter((entry) => entry && typeof entry.line === "string")
+            .map((entry) => ({
+              level: typeof entry.level === "string" ? entry.level : "info",
+              line: String(entry.line),
+              timestamp:
+                typeof entry.timestamp === "number"
+                  ? entry.timestamp
+                  : Date.now() / 1000,
+            }))
+        : [];
+      const existingLogs = state.logs[operation.id] || [];
+      let nextLogs = existingLogs;
+      if (metaLogs.length > 0 && metaLogs.length >= existingLogs.length) {
+        nextLogs = metaLogs.slice(-MAX_LOG_LINES);
+      }
+      return {
+        operations: { ...state.operations, [operation.id]: operation },
+        logs:
+          nextLogs !== existingLogs
+            ? { ...state.logs, [operation.id]: nextLogs }
+            : state.logs,
+      };
+    }),
 
   removeOperation: (operationId: string) =>
     set((state) => {
@@ -118,7 +141,9 @@ export const useOperationStore = create<OperationStoreState>((set, get) => ({
             event_type === "operation.completed"
               ? "COMPLETED"
               : event_type === "operation.failed"
-              ? "FAILED"
+              ? event.failure_code === "OPERATION_TIMEOUT"
+                ? "TIMED_OUT"
+                : "FAILED"
               : event_type === "operation.cancelled"
               ? "CANCELLED"
               : "RUNNING",
@@ -219,7 +244,8 @@ export const useOperationStore = create<OperationStoreState>((set, get) => ({
             : s
         );
       } else if (event_type === "operation.failed") {
-        updatedOp.status = "FAILED";
+        updatedOp.status =
+          event.failure_code === "OPERATION_TIMEOUT" ? "TIMED_OUT" : "FAILED";
         updatedOp.failure_code = event.failure_code || null;
         updatedOp.error_message = event.error_message || null;
         updatedOp.finished_at = new Date().toISOString();

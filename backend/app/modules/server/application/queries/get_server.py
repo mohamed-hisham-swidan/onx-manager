@@ -1,3 +1,7 @@
+import contextlib
+
+from sqlalchemy import select
+
 from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.application.branch_settings import read_branch_settings_overlay
@@ -40,5 +44,59 @@ class GetServerHandler(QueryHandler[GetServerQuery]):
             overlay = await read_branch_settings_overlay(session, server, query.branch_name)
             for key, value in overlay.items():
                 setattr(detail, key, value)
+
+            # Enrich with active exposure public_address (parity with ListServersHandler)
+            target_branch = query.branch_name or "main"
+            with contextlib.suppress(Exception):
+                from app.modules.exposure.infrastructure.models import (
+                    ServerExposureModel,
+                    ServerExposureTargetModel,
+                )
+
+                exp_stmt = (
+                    select(
+                        ServerExposureTargetModel.service_type,
+                        ServerExposureTargetModel.public_address,
+                    )
+                    .join(
+                        ServerExposureTargetModel,
+                        ServerExposureTargetModel.exposure_id == ServerExposureModel.id,
+                    )
+                    .where(
+                        ServerExposureModel.server_id == detail.server_id,
+                        ServerExposureModel.branch_name == target_branch,
+                        ServerExposureModel.desired_state == "ENABLED",
+                        ServerExposureModel.aggregate_status == "ACTIVE",
+                        ServerExposureTargetModel.public_address.is_not(None),
+                    )
+                )
+                exp_rows = (await session.execute(exp_stmt)).all()
+                public_address: str | None = None
+                for svc_type, pub_addr in exp_rows:
+                    if not pub_addr:
+                        continue
+                    if public_address is None or svc_type == "java":
+                        public_address = pub_addr
+                if public_address:
+                    detail.public_address = public_address
+
+            # Enrich with active_branch for Advanced servers (parity with ListServersHandler)
+            if detail.mode == "advanced":
+                active_branch = "main"
+                with contextlib.suppress(Exception):
+                    from app.modules.versioning.infrastructure.models import ServerBranchModel
+
+                    br_stmt = select(ServerBranchModel.name).where(
+                        ServerBranchModel.server_id == detail.server_id,
+                        ServerBranchModel.name != "main",
+                        ServerBranchModel.runtime_status.in_(("running", "starting")),
+                    )
+                    br_rows = (await session.execute(br_stmt)).all()
+                    for (branch_name,) in br_rows:
+                        if branch_name:
+                            active_branch = branch_name
+                            break
+                detail.active_branch = active_branch
+
             return detail
 

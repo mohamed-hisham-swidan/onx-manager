@@ -63,22 +63,22 @@ describe("VersionList", () => {
     expect(screen.getByText("Compatibility is unconfirmed for this server version.")).toBeInTheDocument();
   });
 
-  it("calls onSelectVersion when an install button is clicked", () => {
+  it("calls onSelectVersion when an select button is clicked", () => {
     const handleSelect = vi.fn();
     render(<VersionList versions={mockVersions} onSelectVersion={handleSelect} />);
 
-    const installButtons = screen.getAllByRole("button", { name: /install/i });
-    expect(installButtons).toHaveLength(2);
-    fireEvent.click(installButtons[1]);
+    const selectButtons = screen.getAllByRole("button", { name: /select version/i });
+    expect(selectButtons).toHaveLength(2);
+    fireEvent.click(selectButtons[1]);
 
     expect(handleSelect).toHaveBeenCalledWith(mockVersions[1]);
   });
 
-  it("calls onSelectVersion when an install button is activated with keyboard Enter or Space", () => {
+  it("calls onSelectVersion when a select button is activated with keyboard Enter or Space", () => {
     const handleSelect = vi.fn();
     render(<VersionList versions={mockVersions} onSelectVersion={handleSelect} />);
 
-    const button = screen.getByRole("button", { name: `Install version ${mockVersions[0].version_number}` });
+    const button = screen.getByRole("button", { name: `Select version ${mockVersions[0].version_number}` });
     fireEvent.click(button);
     expect(handleSelect).toHaveBeenCalledWith(mockVersions[0]);
   });

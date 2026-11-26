@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginListPage, parsePluginMetadata } from "./PluginListPage";
+import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
+import { toast } from "@/stores/toastStore";
 import type { PluginResponse } from "@/types";
 
 const mockNavigate = vi.fn();
@@ -65,10 +67,16 @@ const mockPlugins: PluginResponse[] = [
 let mockPluginsData: PluginResponse[] = mockPlugins;
 let mockIsLoading = false;
 let mockError: Error | null = null;
+const mockUploadPluginMutateAsync = vi.fn();
+
+vi.mock("@/stores/toastStore", () => ({
+  toast: vi.fn(),
+  useToastStore: vi.fn(() => ({ toasts: [], dismiss: vi.fn() })),
+}));
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServersList: vi.fn(() => ({
-    data: [{ server_id: "srv-1", name: "Test Server" }],
+    data: [{ server_id: "srv-1", name: "Test Server", server_type: "paper" }],
   })),
 }));
 
@@ -81,10 +89,25 @@ vi.mock("@/server_manager/hooks/usePlugins", () => ({
   useEnablePlugin: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDisablePlugin: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useUninstallPlugin: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useUploadPluginOrMod: vi.fn(() => ({
+    mutateAsync: mockUploadPluginMutateAsync,
+    isPending: false,
+  })),
 }));
 
 function renderPage() {
   const qc = new QueryClient();
+  qc.setQueryData(["auth", "me"], {
+    user_id: "u1",
+    username: "admin",
+    email: null,
+    display_name: "Admin",
+    is_active: true,
+    roles: ["owner"],
+    permissions: ["admin:full"],
+    created_at: "",
+    last_login_at: null,
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
@@ -100,9 +123,15 @@ function selectServer() {
 
 describe("PluginListPage", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockPluginsData = mockPlugins;
     mockIsLoading = false;
     mockError = null;
+    mockUploadPluginMutateAsync.mockResolvedValue({
+      plugin_id: "plg-new",
+      name: "DroppedPlugin",
+      version: "1.0.0",
+    });
     useLastUsedServerStore.setState({ lastUsedServerId: "" });
     localStorage.removeItem("onx_last_used_server");
     localStorage.removeItem("onx_plugins_view_mode");
@@ -130,29 +159,32 @@ describe("PluginListPage", () => {
     selectServer();
     expect(screen.getByText("Essentials")).toBeInTheDocument();
     expect(screen.getByText("WorldGuard")).toBeInTheDocument();
-    expect(screen.getAllByText("enabled").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("disabled").length).toBeGreaterThanOrEqual(1);
+    // State is communicated by the toggle switch, not a raw status pill
+    expect(screen.queryByText("enabled")).not.toBeInTheDocument();
+    expect(screen.queryByText("disabled")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Disable Essentials")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("Enable WorldGuard")).toHaveAttribute("aria-checked", "false");
   });
 
-  it("renders filename and marketplace badge for modrinth plugins", () => {
+  it("renders filename for modrinth plugins without a source badge", () => {
     renderPage();
     selectServer();
     expect(screen.getByText("Essentials-2.0.0.jar")).toBeInTheDocument();
-    expect(screen.getByText("Marketplace")).toBeInTheDocument();
+    expect(screen.queryByText("Marketplace")).not.toBeInTheDocument();
   });
 
-  it("renders detected badge and filename for on-disk plugins", () => {
+  it("renders filename for on-disk plugins without a detected pill", () => {
     renderPage();
     selectServer();
-    expect(screen.getByText("Detected on disk")).toBeInTheDocument();
+    expect(screen.queryByText("Detected on disk")).not.toBeInTheDocument();
     expect(screen.getByText("WorldGuard-1.0.0.jar")).toBeInTheDocument();
   });
 
-  it("renders manual badge for legacy manual rows", () => {
+  it("renders legacy manual rows without a Manual pill", () => {
     renderPage();
     selectServer();
     expect(screen.getByText("ManualPlugin")).toBeInTheDocument();
-    expect(screen.getByText("Manual")).toBeInTheDocument();
+    expect(screen.queryByText("Manual")).not.toBeInTheDocument();
   });
 
   it("shows enable/disable and uninstall actions", () => {
@@ -276,7 +308,7 @@ describe("PluginListPage", () => {
       });
       expect(meta.title).toBe("ViaVersion");
       expect(meta.version).toBe("5.12.2");
-      expect(meta.author).toBe("Local .jar / Modrinth");
+      expect(meta.author).toBe("");
     });
 
     it("parses hyphenated package filename like veinminer-paper-2.12.3.jar", () => {
@@ -295,8 +327,8 @@ describe("PluginListPage", () => {
       });
       expect(meta.title).toBe("VeinMiner Paper");
       expect(meta.version).toBe("2.12.3");
-      expect(meta.author).toBe("Local .jar / Modrinth");
-      expect(meta.loaders).toContain("Paper");
+      expect(meta.author).toBe("");
+      expect(meta.loaders).not.toContain("Bukkit");
     });
 
     it("preserves established human plugin names like WorldEdit and EssentialsX", () => {
@@ -360,8 +392,8 @@ describe("PluginListPage", () => {
       selectServer();
 
       expect(screen.getByText("ViaVersion")).toBeInTheDocument();
-      expect(screen.getByText("5.12.2")).toBeInTheDocument();
-      expect(screen.getByText("Local .jar / Modrinth")).toBeInTheDocument();
+      expect(screen.getByText("v5.12.2")).toBeInTheDocument();
+      expect(screen.queryByText("Local .jar / Modrinth")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
     });
 
@@ -376,6 +408,165 @@ describe("PluginListPage", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /Grid card view/i }));
       expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Drag & drop .jar upload validation", () => {
+    it("uploads valid .jar via drag-and-drop and surfaces backend validation errors", async () => {
+      const qc = new QueryClient();
+      qc.setQueryData(["auth", "me"], {
+        user_id: "u1",
+        username: "admin",
+        email: null,
+        display_name: "Admin",
+        is_active: true,
+        roles: ["owner"],
+        permissions: ["admin:full"],
+        created_at: "",
+        last_login_at: null,
+      });
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/servers/srv-1/plugins"]}>
+            <Routes>
+              <Route path="/servers/:serverId/plugins" element={<PluginListPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      const dropzone = screen.getByTestId("plugins-dropzone");
+      const jarFile = new File(["jar-bytes"], "MyPlugin.jar", { type: "application/java-archive" });
+      fireEvent.drop(dropzone, { dataTransfer: { files: [jarFile], types: ["Files"] } });
+
+      await waitFor(() => {
+        expect(mockUploadPluginMutateAsync).toHaveBeenCalledWith(jarFile);
+      });
+      expect(toast).toHaveBeenCalledWith(
+        "success",
+        "Plugin uploaded",
+        expect.stringContaining("DroppedPlugin"),
+      );
+
+      // Rejects non-.jar client-side without calling backend
+      mockUploadPluginMutateAsync.mockClear();
+      const txtFile = new File(["hello"], "readme.txt", { type: "text/plain" });
+      fireEvent.drop(dropzone, { dataTransfer: { files: [txtFile], types: ["Files"] } });
+      expect(mockUploadPluginMutateAsync).not.toHaveBeenCalled();
+      expect(toast).toHaveBeenCalledWith(
+        "error",
+        "Invalid file type",
+        expect.stringContaining("not a .jar file"),
+      );
+
+      // Surfaces exact backend validation error when JAR is invalid
+      mockUploadPluginMutateAsync.mockRejectedValueOnce(
+        new Error("Not a valid plugin JAR: missing plugin.yml / paper-plugin.yml / bungee.yml / velocity-plugin.json"),
+      );
+      const badJar = new File(["corrupt"], "bad.jar", { type: "application/java-archive" });
+      fireEvent.drop(dropzone, { dataTransfer: { files: [badJar], types: ["Files"] } });
+      await waitFor(() => {
+        expect(toast).toHaveBeenCalledWith(
+          "error",
+          "Failed to upload bad.jar",
+          expect.stringContaining("missing plugin.yml"),
+        );
+      });
+    });
+
+    it("blocks drag-and-drop upload on protected main branch and allows working branch", async () => {
+      const qc = new QueryClient();
+      qc.setQueryData(["auth", "me"], {
+        user_id: "u1",
+        username: "admin",
+        email: null,
+        display_name: "Admin",
+        is_active: true,
+        roles: ["owner"],
+        permissions: ["admin:full"],
+        created_at: "",
+        last_login_at: null,
+      });
+      const { unmount } = render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/servers/srv-1/plugins"]}>
+            <ServerBranchContext.Provider value={{ branch: "main", setBranch: vi.fn(), gitBacked: true }}>
+              <Routes>
+                <Route path="/servers/:serverId/plugins" element={<PluginListPage />} />
+              </Routes>
+            </ServerBranchContext.Provider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      const jarFile = new File(["jar-bytes"], "BranchPlugin.jar", { type: "application/java-archive" });
+      const dropzoneMain = screen.getByTestId("plugins-dropzone");
+      fireEvent.dragEnter(dropzoneMain, { dataTransfer: { files: [jarFile], types: ["Files"] } });
+      expect(await screen.findByTestId("plugins-drop-main-blocked-notice")).toBeInTheDocument();
+      fireEvent.drop(dropzoneMain, { dataTransfer: { files: [jarFile], types: ["Files"] } });
+      expect(mockUploadPluginMutateAsync).not.toHaveBeenCalled();
+      unmount();
+
+      // Working branch dev allows drop
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/servers/srv-1/plugins"]}>
+            <ServerBranchContext.Provider value={{ branch: "dev", setBranch: vi.fn(), gitBacked: true }}>
+              <Routes>
+                <Route path="/servers/:serverId/plugins" element={<PluginListPage />} />
+              </Routes>
+            </ServerBranchContext.Provider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      fireEvent.drop(screen.getByTestId("plugins-dropzone"), {
+        dataTransfer: { files: [jarFile], types: ["Files"] },
+      });
+      await waitFor(() => {
+        expect(mockUploadPluginMutateAsync).toHaveBeenCalledWith(jarFile);
+      });
+    });
+
+    it("does not render Change Version or a duplicate marketplace CTA in the header", () => {
+      const qc = new QueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/servers/srv-1/plugins"]}>
+            <Routes>
+              <Route path="/servers/:serverId/plugins" element={<PluginListPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      expect(screen.queryByTestId("plugins-open-change-version-btn")).not.toBeInTheDocument();
+      expect(screen.queryByText("Change Version")).not.toBeInTheDocument();
+      expect(screen.queryByText("Browse Marketplace")).not.toBeInTheDocument();
+      expect(screen.getByText("Install Plugin")).toBeInTheDocument();
+    });
+
+    it("renders non-plugin guard with Manage Mods link on Fabric servers and never lists mods as plugins", async () => {
+      const { useServersList } = await import("@/server_manager/hooks/useServers");
+      vi.mocked(useServersList).mockReturnValueOnce({
+        data: [{ server_id: "srv-fab", name: "Fabric World", server_type: "fabric" }],
+      } as unknown as ReturnType<typeof useServersList>);
+
+      const qc = new QueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/servers/srv-fab/plugins"]}>
+            <Routes>
+              <Route path="/servers/:serverId/plugins" element={<PluginListPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      const guard = screen.getByTestId("non-plugin-server-guard");
+      expect(guard).toHaveTextContent("fabric");
+      const modsLink = screen.getByRole("link", { name: "Manage Mods" });
+      expect(modsLink).toHaveAttribute("href", "/servers/srv-fab/mods");
+      expect(screen.queryByText("Essentials")).not.toBeInTheDocument();
     });
   });
 });

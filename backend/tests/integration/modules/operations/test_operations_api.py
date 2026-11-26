@@ -226,3 +226,76 @@ async def test_operation_cancel_and_retry_flow():
         retried_op = retry_res.json()
         assert retried_op["id"] == failed_op_id
         assert retried_op["status"] == "PREPARING"
+
+
+@pytest.mark.asyncio
+async def test_stale_orphan_operation_reaped_and_live_conflict_returns_op_id():
+    import asyncio
+    import contextlib
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.operations.application.services import operation_service as op_svc_mod
+    from app.modules.operations.domain.aggregate import Operation
+    from app.modules.operations.domain.enums import OperationStatus
+    from app.modules.operations.infrastructure.repository import SQLOperationRepository
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        write_headers = auth_headers(["server:write"])
+        read_headers = auth_headers(["server:read"])
+
+        # 1. Seed a stale pre-boot active SERVER_UPGRADE operation with no live task
+        async with database.session_factory() as session:
+            repo = SQLOperationRepository(session)
+            stale_op = Operation.create(
+                type="SERVER_UPGRADE",
+                target_type="server",
+                target_id="srv-orphan-reap",
+            )
+            stale_op.created_at = datetime.now(UTC) - timedelta(hours=2)
+            stale_op.start(at=datetime.now(UTC) - timedelta(hours=2))
+            saved_stale = await repo.save(stale_op)
+            await session.commit()
+            stale_id = saved_stale.id
+
+        # 2. Creating a new mutating op on the same server reaps the dead-process row & succeeds
+        res_new = await client.post(
+            "/api/v1/operations",
+            json={
+                "type": "SERVER_UPGRADE",
+                "target_type": "server",
+                "target_id": "srv-orphan-reap",
+            },
+            headers=write_headers,
+        )
+        assert res_new.status_code == 202
+        live_op_id = res_new.json()["id"]
+        assert live_op_id != stale_id
+
+        # Verify the orphaned row was marked FAILED with PROCESS_TERMINATED
+        get_stale = await client.get(f"/api/v1/operations/{stale_id}", headers=read_headers)
+        assert get_stale.status_code == 200
+        assert get_stale.json()["status"] == OperationStatus.FAILED.value
+        assert get_stale.json()["failure_code"] == "PROCESS_TERMINATED"
+
+        # 3. Register a live task on the new operation -> genuine conflict returns operation_id
+        svc = op_svc_mod.get_operation_service()
+        live_task = asyncio.create_task(asyncio.sleep(30))
+        svc.executor.register_task(live_op_id, live_task)
+        try:
+            res_conflict = await client.post(
+                "/api/v1/operations",
+                json={
+                    "type": "SERVER_UPGRADE",
+                    "target_type": "server",
+                    "target_id": "srv-orphan-reap",
+                },
+                headers=write_headers,
+            )
+            assert res_conflict.status_code == 409
+            body = res_conflict.json()
+            assert "Mutating operation 'SERVER_UPGRADE' is already active" in body["message"]
+            assert body["detail"]["operation_id"] == live_op_id
+        finally:
+            live_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await live_task

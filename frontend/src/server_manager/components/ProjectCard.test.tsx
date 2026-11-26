@@ -47,11 +47,10 @@ describe("ProjectCard", () => {
     renderCard();
     expect(screen.getByText("Paper")).toBeInTheDocument();
     expect(screen.getByText("Spigot")).toBeInTheDocument();
-    expect(screen.getByText("management")).toBeInTheDocument();
-    expect(screen.getByText("economy")).toBeInTheDocument();
-    expect(screen.queryByText("Server-side")).not.toBeInTheDocument();
+    expect(screen.getByText("Server-side")).toBeInTheDocument();
+    expect(screen.queryByText("management")).not.toBeInTheDocument();
 
-    const overflow = screen.getByRole("link", { name: "1 more tags" });
+    const overflow = screen.getByRole("link", { name: "2 more tags" });
     expect(overflow).toHaveAttribute("href", "/marketplace/essentialsx");
   });
 
@@ -68,7 +67,7 @@ describe("ProjectCard", () => {
       ...mockProject,
       loaders: ["paper", "spigot", "purpur", "folia", "bukkit"],
     });
-    expect(screen.getByText("+4")).toBeInTheDocument();
+    expect(screen.getByText("+5")).toBeInTheDocument();
   });
 
   it("renders formatted downloads, follows and relative updated time", () => {
@@ -82,6 +81,16 @@ describe("ProjectCard", () => {
     renderCard(mockProject, new URLSearchParams("q=essentials&type=plugin"));
     const link = screen.getByRole("link", { name: /EssentialsX/ });
     expect(link).toHaveAttribute("href", "/marketplace/essentialsx?q=essentials&type=plugin");
+  });
+
+  it("shows Installed badge and Reinstall button when isInstalled is true", () => {
+    render(
+      <MemoryRouter>
+        <ProjectCard project={mockProject} searchParams={new URLSearchParams()} isInstalled onInstall={vi.fn()} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText("Installed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reinstall" })).toBeInTheDocument();
   });
 
   it("invokes onInstall when the Install button is clicked", () => {

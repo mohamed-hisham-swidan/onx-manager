@@ -10,6 +10,11 @@ RUN pip install --no-cache-dir --target=/deps -r requirements.txt
 
 FROM python:3.12-slim
 
+# Install git required by Advanced Mode versioning & branch workflows
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy static standalone Docker CLI binary (Phase 5 Decision 12 - DooD Policy)
 COPY --from=docker:27.5.1-cli /usr/local/bin/docker /usr/local/bin/docker
 

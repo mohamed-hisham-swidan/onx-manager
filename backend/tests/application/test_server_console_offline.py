@@ -134,3 +134,156 @@ class TestServerConsoleOfflineFallback:
         handler = GetServerConsoleHandler()
         result = await handler.handle(GetServerConsoleQuery(server_id=server_id, tail=10))
         assert result.lines == ["No log file exists on disk yet"]
+
+    @pytest.mark.asyncio
+    async def test_start_server_heals_stale_deployment_port_and_surfaces_fast_crash_logs(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from app.core.event_bus import EventBus
+        from app.core.exceptions import ProviderError
+        from app.modules.server.application.commands.start_server import (
+            StartServerCommand,
+            StartServerHandler,
+        )
+        from app.modules.server.domain.aggregate import ServerStatus
+        from app.modules.server.infrastructure.models import ServerModel
+
+        server_dir = tmp_path / "srv_fast_crash"
+        server_dir.mkdir(parents=True, exist_ok=True)
+        (server_dir / "server.jar").write_bytes(b"fake-jar")
+        (server_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
+        (server_dir / "server.properties").write_text(
+            "server-port=25566\nenable-rcon=true\nrcon.port=25575\nrcon.password=testpw\n",
+            encoding="utf-8",
+        )
+
+        sid = "srv-fast-crash-25566"
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = Server.create(
+                server_id=ServerId(sid),
+                name="CrashServer2",
+                server_type=ServerType.PURPUR,
+                minecraft_version=MinecraftVersion.parse("1.21.11"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments([]),
+                properties=ServerProperties(PortNumber(25566)),
+                deployment=ServerDeployment(
+                    location_type=LocationType.DOCKER,
+                    root_path=str(server_dir),
+                    working_directory=".",
+                    startup_jar="server.jar",
+                ),
+            )
+            await repo.save(server)
+            # Simulate legacy stale deployment_port=25565 while port=25566
+            row = await session.get(ServerModel, sid)
+            assert row is not None
+            row.deployment_port = 25565
+            await session.commit()
+
+        mock_provider = AsyncMock()
+        mock_provider.name = "docker"
+        mock_provider.prepare_environment = AsyncMock()
+        mock_provider.start = AsyncMock(
+            side_effect=ProviderError(
+                "docker",
+                "start",
+                "Container start failed: Bind for 127.0.0.1:25575 failed: "
+                "port is already allocated\n"
+                "failed to start containers: onx-srv-fast-crash-25566",
+            )
+        )
+
+        start_handler = StartServerHandler(EventBus(), provider=mock_provider)
+        with patch(
+            "app.modules.server.application.commands.start_server._port_is_listening",
+            return_value=False,
+        ):
+            res = await start_handler.handle(StartServerCommand(server_id=sid))
+
+        assert res.success is False
+        assert res.error_code == "PROVIDER_START_FAILED"
+
+        # Stale deployment_port must be auto-healed to 25566
+        async with database.session_factory() as session:
+            row = await session.get(ServerModel, sid)
+            assert row is not None
+            assert row.status == ServerStatus.CRASHED.value
+            assert row.port == 25566
+            assert row.deployment_port == 25566
+
+        # Console query must surface the full error immediately (not blank / placeholder)
+        console_handler = GetServerConsoleHandler()
+        console = await console_handler.handle(GetServerConsoleQuery(server_id=sid, tail=100))
+        assert len(console.lines) == 2
+        assert console.lines[0].startswith("[ERROR] docker start failed:")
+        assert "Bind for 127.0.0.1:25575 failed: port is already allocated" in console.lines[0]
+        assert "failed to start containers: onx-srv-fast-crash-25566" in console.lines[1]
+
+    @pytest.mark.asyncio
+    async def test_console_surfaces_crash_activity_log_when_evidence_bundle_missing(
+        self, tmp_path: Path
+    ) -> None:
+        import json
+
+        from app.modules.activity.infrastructure.models import ServerActivityLogModel
+        from app.modules.server.domain.aggregate import ServerStatus
+        from app.modules.server.infrastructure.models import ServerModel
+
+        server_dir = tmp_path / "srv_legacy_crash"
+        server_dir.mkdir(parents=True, exist_ok=True)
+        sid = "srv-legacy-crash-1"
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = Server.create(
+                server_id=ServerId(sid),
+                name="LegacyCrash",
+                server_type=ServerType.PURPUR,
+                minecraft_version=MinecraftVersion.parse("1.21.11"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments([]),
+                properties=ServerProperties(PortNumber(25566)),
+                deployment=ServerDeployment(
+                    location_type=LocationType.DOCKER,
+                    root_path=str(server_dir),
+                    working_directory=".",
+                    startup_jar="server.jar",
+                ),
+            )
+            await repo.save(server)
+            row = await session.get(ServerModel, sid)
+            assert row is not None
+            row.status = ServerStatus.CRASHED.value
+            row.external_id = ""
+            session.add(
+                ServerActivityLogModel(
+                    id="act-crash-1",
+                    server_id=sid,
+                    timestamp=1795517943.3,
+                    event_type="server.crashed",
+                    actor_type="system",
+                    summary="Server crashed (exit code: -1)",
+                    details_json=json.dumps(
+                        {
+                            "exit_code": -1,
+                            "last_log_lines": [
+                                "docker start failed: Container start failed: "
+                                "Bind for 127.0.0.1:25575 failed: port is already allocated\n"
+                                "failed to start containers: onx-test"
+                            ],
+                        }
+                    ),
+                )
+            )
+            await session.commit()
+
+        handler = GetServerConsoleHandler()
+        result = await handler.handle(GetServerConsoleQuery(server_id=sid, tail=100))
+        assert len(result.lines) == 2
+        assert result.lines[0].startswith("[ERROR] docker start failed:")
+        assert "Bind for 127.0.0.1:25575 failed: port is already allocated" in result.lines[0]
+        assert "failed to start containers: onx-test" in result.lines[1]

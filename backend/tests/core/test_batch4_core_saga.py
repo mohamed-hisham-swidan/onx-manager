@@ -36,9 +36,12 @@ class TestBatch4ADbRevision:
     """F004: RELEASE_MINIMUM_DB_REVISION alignment."""
 
     def test_release_minimum_db_revision_format(self) -> None:
-        from app.core.persistence.db_revision import RELEASE_MINIMUM_DB_REVISION
+        from app.core.persistence.db_revision import (
+            EXPECTED_ALEMBIC_HEAD,
+            RELEASE_MINIMUM_DB_REVISION,
+        )
 
-        assert RELEASE_MINIMUM_DB_REVISION == "b1e2100000033"
+        assert RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
         assert len(RELEASE_MINIMUM_DB_REVISION) == 13
 
 

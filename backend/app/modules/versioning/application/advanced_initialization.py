@@ -100,7 +100,7 @@ def initialize_advanced_server(server: Server) -> AdvancedInitializationResult:
 
     server_id = str(server.id)
     validate_server_segment(server_id)
-    server_root = validate_server_root(server.deployment.server_directory())
+    server_root = validate_server_root(os.path.abspath(server.deployment.server_directory()))
     layout = ensure_host_state_layout()
     _validate_containment(server_root, layout)
 

@@ -66,7 +66,7 @@ function formatRelativeTime(timestamp: number): string {
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 3600_000);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
@@ -83,6 +83,7 @@ export function ServerActivityPage() {
   const { serverId } = useParams<{ serverId: string }>();
   const branchCtx = useServerBranchContext();
   const gitBacked = Boolean(branchCtx?.gitBacked);
+  const isAdvancedMode = branchCtx?.serverMode === "advanced";
   const activeContextBranch = gitBacked ? branchCtx?.branch : undefined;
 
   const [logs, setLogs] = useState<ServerActivityLog[]>([]);
@@ -115,7 +116,7 @@ export function ServerActivityPage() {
   }, []);
 
   useEffect(() => {
-    if (!serverId) return;
+    if (!serverId || !isAdvancedMode) return;
     let isCancelled = false;
 
     const loadBranches = async () => {
@@ -136,7 +137,7 @@ export function ServerActivityPage() {
     return () => {
       isCancelled = true;
     };
-  }, [serverId, api]);
+  }, [serverId, isAdvancedMode, api]);
 
   useEffect(() => {
     if (!serverId) return;
@@ -211,9 +212,9 @@ export function ServerActivityPage() {
     { id: "server.stopped", label: "Server Stopped" },
     { id: "server.crashed", label: "Crashes" },
     { id: "server.config_changed", label: "Config Changes" },
-    { id: "plugin.installed", label: "Plugins/Mods" },
-    { id: "backup.completed", label: "Backups" },
-    { id: "versioning.commit_created", label: "Version Snapshots" },
+    { id: "plugin.", label: "Plugins/Mods" },
+    { id: "backup.", label: "Backups" },
+    { id: "versioning.", label: "Version Snapshots" },
   ];
 
   return (
@@ -223,10 +224,10 @@ export function ServerActivityPage() {
         <div>
           <h1 className="text-xl font-bold text-text-primary flex items-center gap-2.5">
             <Icon name="clock" size={22} className="text-accent-primary" />
-            Change History & Activity Log
+            Change History
           </h1>
           <p className="text-xs text-text-muted mt-1">
-            Durable operational audit trail for lifecycle transitions, configuration changes, mod/plugin management, and versioning snapshots.
+            Recent server events, config edits, and snapshots.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -270,7 +271,7 @@ export function ServerActivityPage() {
           </div>
 
           {/* Branch filter */}
-          {branches.length > 0 && (
+          {isAdvancedMode && branches.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               {activeContextBranch && (
                 <button

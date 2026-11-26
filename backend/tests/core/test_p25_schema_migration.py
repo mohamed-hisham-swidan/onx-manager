@@ -17,7 +17,7 @@ from app.core.persistence.reconciler import DatabaseReconciler, ReconcileStatus
 
 PRIOR_HEAD = "b1e2100000025"
 JOURNAL_REVISION = "b1e2100000026"
-HEAD_REVISION = "b1e2100000033"
+HEAD_REVISION = EXPECTED_ALEMBIC_HEAD
 ACTIVE_JOURNAL_INDEX = "ix_refresh_journals_server_active"
 
 LEASE_COLUMNS = {

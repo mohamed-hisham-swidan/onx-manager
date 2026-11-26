@@ -51,6 +51,28 @@ describe("HostResourceBudgetBar", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/exceeds currently unallocated RAM \(8 GB free\)/i);
   });
 
+  it("displays Shared CPU when running allocations do not pin CPU cores", () => {
+    const sharedCpuBudget: HostResourceBudget = {
+      ...sampleLocalBudget,
+      allocated_cpus: 0,
+      available_cpus: 6,
+      allocations: [
+        {
+          id: "srv-1",
+          name: "Survival",
+          kind: "server",
+          status: "running",
+          ram_mb: 4096,
+          cpu_cores: 0,
+        },
+      ],
+    };
+
+    render(<HostResourceBudgetBar budget={sharedCpuBudget} compact />);
+    expect(screen.getByText("Shared CPU (6 cores)")).toBeInTheDocument();
+    expect(screen.queryByText(/6 \/ 6 CPU avail/i)).not.toBeInTheDocument();
+  });
+
   it("ConfigStep renders budget bar, disables presets above ceiling, and blocks Next on over-limit", () => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false } },

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const THEME_KEY = "onx_theme";
 const SKIN_KEY = "onx_skin";
-const DENSITY_KEY = "onx_density";
 const ACCENT_KEY = "onx_accent";
 const CORNER_STYLE_KEY = "onx_corner_style";
 
@@ -12,7 +11,6 @@ describe("uiStore", () => {
     document.documentElement.className = "";
     document.documentElement.removeAttribute("data-mode");
     document.documentElement.removeAttribute("data-skin");
-    document.documentElement.removeAttribute("data-density");
     document.documentElement.removeAttribute("data-accent");
     document.documentElement.removeAttribute("data-corners");
     vi.resetModules();
@@ -83,25 +81,6 @@ describe("uiStore", () => {
       expect(localStorage.getItem(SKIN_KEY)).toBe(s);
       expect(document.documentElement.getAttribute("data-skin")).toBe(s);
     }
-  });
-
-  it("defaults to comfortable density and sets data-density attribute", async () => {
-    const { useUIStore } = await import("./uiStore");
-    expect(useUIStore.getState().density).toBe("comfortable");
-    expect(document.documentElement.getAttribute("data-density")).toBe("comfortable");
-  });
-
-  it("setDensity and toggleDensity update density attribute and persistence", async () => {
-    const { useUIStore } = await import("./uiStore");
-    useUIStore.getState().setDensity("compact");
-    expect(useUIStore.getState().density).toBe("compact");
-    expect(localStorage.getItem(DENSITY_KEY)).toBe("compact");
-    expect(document.documentElement.getAttribute("data-density")).toBe("compact");
-
-    useUIStore.getState().toggleDensity();
-    expect(useUIStore.getState().density).toBe("comfortable");
-    expect(localStorage.getItem(DENSITY_KEY)).toBe("comfortable");
-    expect(document.documentElement.getAttribute("data-density")).toBe("comfortable");
   });
 
   it("defaults to rounded corner style and sets data-corners attribute", async () => {
@@ -182,7 +161,6 @@ describe("uiStore", () => {
     expect(useUIStore.getState().theme).toBe("light");
 
     expect(() => useUIStore.getState().setSkin("azure")).not.toThrow();
-    expect(() => useUIStore.getState().setDensity("compact")).not.toThrow();
     expect(() => useUIStore.getState().setAccent("emerald")).not.toThrow();
 
     expect(warnSpy).toHaveBeenCalled();

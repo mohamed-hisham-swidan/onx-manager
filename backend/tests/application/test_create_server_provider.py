@@ -353,3 +353,51 @@ class TestCreateServerProviderSelection:
             repo = SQLServerRepository(session)
             servers = await repo.list()
             assert len(servers) == 0
+
+    @pytest.mark.asyncio
+    async def test_create_server_non_default_port_sets_deployment_port(
+        self, tmp_path: Path
+    ) -> None:
+        from app.modules.server.infrastructure.models import ServerModel
+
+        event_bus = EventBus()
+        handler = CreateServerHandler(event_bus)
+        cmd = CreateServerCommand(
+            name="second-server",
+            server_type="vanilla",
+            minecraft_version="1.21.11",
+            port=25566,
+            provider="docker",
+        )
+
+        with (
+            patch(
+                "app.modules.server.infrastructure.providers.provider_factory.get"
+            ) as mock_factory_get,
+            patch(
+                "app.modules.server.application.services.jar_service.download_server_jar",
+                AsyncMock(),
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service.resolve_server_dir",
+                return_value=str(tmp_path / "srv-25566"),
+            ),
+        ):
+            mock_docker = AsyncMock()
+            mock_docker.ping.return_value = True
+            mock_factory_get.return_value = mock_docker
+
+            result = await handler.handle(cmd)
+
+        assert result.success is True
+        server_id = result.data["server_id"]
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = await repo.get(ServerId(server_id))
+            assert server.properties.port.value == 25566
+            assert server.runtime.port == 25566
+            row = await session.get(ServerModel, server_id)
+            assert row is not None
+            assert row.port == 25566
+            assert row.deployment_port == 25566

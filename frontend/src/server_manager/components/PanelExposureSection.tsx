@@ -385,15 +385,15 @@ export function PanelExposureSection() {
   const panelPort = 8000;
 
   return (
-    <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-6">
+    <div className="rounded-xl border border-border-subtle bg-surface-card p-5 shadow-2xs space-y-5">
       {/* Header */}
       <div className="border-b border-border-subtle pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-text-primary">
-            Panel Network Exposure
+          <h3 className="text-sm font-semibold text-text-primary">
+            Panel Remote Access
           </h3>
-          <p className="text-xs text-text-muted mt-1">
-            Configure external network access to this ONX Manager web interface.
+          <p className="text-xs text-text-muted mt-0.5">
+            Publish this web panel over a tunnel or port forward.
           </p>
         </div>
         <div>
@@ -658,20 +658,20 @@ export function PanelExposureSection() {
           <button
             type="button"
             onClick={() => handleSelectMethod("none")}
-            className={`p-4 rounded-xl border text-left transition-all ${
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "none"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
-                : "border-border-default hover:border-border-strong bg-surface-card"
+                : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <h4 className="text-sm font-semibold text-text-primary">Local Only</h4>
               {draftMethod === "none" && (
-                <span className="text-xs font-medium text-accent-primary">Selected</span>
+                <span className="text-xs font-medium text-text-accent">Selected</span>
               )}
             </div>
-            <p className="text-xs text-text-muted leading-relaxed">
-              Disabled. Panel stays bound to localhost / local LAN only.
+            <p className="text-xs text-text-muted">
+              Reachable on localhost and LAN only.
             </p>
           </button>
 
@@ -679,25 +679,25 @@ export function PanelExposureSection() {
           <button
             type="button"
             onClick={() => handleSelectMethod("cloudflare_tunnel")}
-            className={`p-4 rounded-xl border text-left transition-all ${
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "cloudflare_tunnel"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
-                : "border-border-default hover:border-border-strong bg-surface-card"
+                : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5">
                 <h4 className="text-sm font-semibold text-text-primary">Cloudflare</h4>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent-primary/10 text-accent-primary">
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent-primary/12 text-text-accent">
                   Recommended
                 </span>
               </div>
               {draftMethod === "cloudflare_tunnel" && (
-                <span className="text-xs font-medium text-accent-primary">Selected</span>
+                <span className="text-xs font-medium text-text-accent">Selected</span>
               )}
             </div>
-            <p className="text-xs text-text-muted leading-relaxed">
-              Permanent Tunnel Token or zero-config Quick Preview HTTPS URL. Works behind CGNAT.
+            <p className="text-xs text-text-muted">
+              Encrypted HTTPS tunnel behind CGNAT.
             </p>
           </button>
 
@@ -705,20 +705,20 @@ export function PanelExposureSection() {
           <button
             type="button"
             onClick={() => handleSelectMethod("playit_http")}
-            className={`p-4 rounded-xl border text-left transition-all ${
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "playit_http"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
-                : "border-border-default hover:border-border-strong bg-surface-card"
+                : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <h4 className="text-sm font-semibold text-text-primary">playit.gg</h4>
               {draftMethod === "playit_http" && (
-                <span className="text-xs font-medium text-accent-primary">Selected</span>
+                <span className="text-xs font-medium text-text-accent">Selected</span>
               )}
             </div>
-            <p className="text-xs text-text-muted leading-relaxed">
-              Edge tunnel via shared playit agent. Works behind ISP CGNAT.
+            <p className="text-xs text-text-muted">
+              Edge tunnel via shared playit agent.
             </p>
           </button>
 
@@ -726,27 +726,27 @@ export function PanelExposureSection() {
           <button
             type="button"
             onClick={() => handleSelectMethod("port_forward")}
-            className={`p-4 rounded-xl border text-left transition-all ${
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "port_forward"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
-                : "border-border-default hover:border-border-strong bg-surface-card"
+                : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <h4 className="text-sm font-semibold text-text-primary">Port Forward</h4>
               {draftMethod === "port_forward" && (
-                <span className="text-xs font-medium text-accent-primary">Selected</span>
+                <span className="text-xs font-medium text-text-accent">Selected</span>
               )}
             </div>
-            <p className="text-xs text-text-muted leading-relaxed">
-              UPnP IGD local router mapping. Requires public WAN IP &amp; HTTP access.
+            <p className="text-xs text-text-muted">
+              UPnP router mapping on public IP.
             </p>
           </button>
         </div>
       </div>
 
       {/* Configuration Panel for Selected Method */}
-      <div className="rounded-xl border border-border-default bg-surface-muted p-5 space-y-4">
+      <div className="rounded-xl border border-border-subtle bg-surface-page/70 p-5 space-y-4">
         {/* 1. Local Only Form */}
         {draftMethod === "none" && (
           <div className="space-y-4">
@@ -1161,7 +1161,7 @@ export function PanelExposureSection() {
               type="button"
               onClick={handleConfirmDisable}
               disabled={isUpdating}
-              className="px-4 py-2 rounded-lg bg-red-600 hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
+              className="px-4 py-2 rounded-lg bg-status-danger hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
             >
               {isUpdating ? "Disabling..." : "Confirm Disable"}
             </button>

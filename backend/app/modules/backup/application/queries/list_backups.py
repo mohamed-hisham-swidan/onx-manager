@@ -3,12 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
+
 from app.core.exceptions import ValidationError
 from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.backup.domain.aggregate import parse_backup_tier
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
+from app.modules.server.infrastructure.models import ServerModel
 from app.modules.shared.value_objects import ServerId
 
 
@@ -26,9 +29,13 @@ class BackupReadModel:
         completed_at: datetime | None = None,
         tier: str = "tier_1",
         pinned: bool = False,
+        server_name: str | None = None,
+        server_deleted: bool = False,
     ) -> None:
         self.backup_id = backup_id
         self.server_id = server_id
+        self.server_name = server_name
+        self.server_deleted = server_deleted
         self.backup_type = backup_type
         self.status = status
         self.size_bytes = size_bytes
@@ -40,12 +47,20 @@ class BackupReadModel:
         self.pinned = pinned
 
     @classmethod
-    def from_domain(cls, job: Any) -> BackupReadModel:
+    def from_domain(
+        cls,
+        job: Any,
+        *,
+        server_name: str | None = None,
+        server_deleted: bool = False,
+    ) -> BackupReadModel:
         raw_tier: Any = getattr(job, "tier", "tier_1")
         tier_val = raw_tier.value if hasattr(raw_tier, "value") else str(raw_tier)
         return cls(
             backup_id=str(job.backup_id),
             server_id=str(job.server_id),
+            server_name=server_name,
+            server_deleted=server_deleted,
             backup_type=job.backup_type.value,
             status=job.status.value,
             size_bytes=job.size_bytes,
@@ -75,4 +90,21 @@ class ListBackupsHandler(QueryHandler[ListBackupsQuery]):
         async with database.session_factory() as session:
             repo: BackupRepository = SQLBackupRepository(session)
             jobs = await repo.list_jobs(server_id, tier=resolved_tier)
-            return [BackupReadModel.from_domain(j) for j in jobs]
+            if not jobs:
+                return []
+
+            server_ids = sorted({str(j.server_id) for j in jobs})
+            stmt = select(ServerModel.id, ServerModel.name).where(
+                ServerModel.id.in_(server_ids)
+            )
+            rows = (await session.execute(stmt)).all()
+            server_names = {str(row[0]): row[1] for row in rows}
+
+            return [
+                BackupReadModel.from_domain(
+                    j,
+                    server_name=server_names.get(str(j.server_id)),
+                    server_deleted=str(j.server_id) not in server_names,
+                )
+                for j in jobs
+            ]

@@ -444,3 +444,40 @@ class TestBaselineAdoption:
 
         with pytest.raises(ValidationError, match="cannot be inside host-state directory"):
             await ensure_simple_baseline_lockfile(server_id)
+
+    @pytest.mark.asyncio
+    async def test_reconcile_addons_reflects_live_plugin_add_and_delete(
+        self, tmp_path: Path
+    ) -> None:
+        server_dir = tmp_path / "server_reconcile"
+        plugins_dir = server_dir / "plugins"
+        plugins_dir.mkdir(parents=True)
+        (server_dir / "server.jar").write_bytes(b"paper-jar")
+        old_jar = plugins_dir / "OldPlugin.jar"
+        old_jar.write_bytes(b"old-plugin-bytes")
+
+        server_id = "srv-reconcile-addons"
+        await _seed_test_server(server_id, server_dir)
+
+        first = await ensure_simple_baseline_lockfile(server_id)
+        assert first.status == "created"
+        assert first.files_count == 2
+
+        # Add a new JAR and delete the old JAR from plugins/
+        old_jar.unlink()
+        (plugins_dir / "NewPlugin.jar").write_bytes(b"new-plugin-bytes")
+
+        # Default call without reconcile_addons keeps already_present fast path
+        noop = await ensure_simple_baseline_lockfile(server_id)
+        assert noop.status == "already_present"
+        assert noop.files_count == 2
+
+        # Plan/rescan mode with reconcile_addons=True picks up live directory changes
+        reconciled = await ensure_simple_baseline_lockfile(server_id, reconcile_addons=True)
+        assert reconciled.status == "reconciled"
+        assert reconciled.files_count == 2
+        lf = LockfileService(ensure_host_state_layout()).read(server_id)
+        assert lf is not None
+        relpaths = [f.path for f in lf.files]
+        assert "plugins/NewPlugin.jar" in relpaths
+        assert "plugins/OldPlugin.jar" not in relpaths

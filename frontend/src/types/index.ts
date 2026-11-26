@@ -1,6 +1,8 @@
 export interface BackupResponse {
   backup_id: string;
   server_id: string;
+  server_name?: string | null;
+  server_deleted?: boolean;
   backup_type: string;
   status: string;
   size_bytes: number;
@@ -43,6 +45,28 @@ export interface VerifyBackupResponse {
   valid: boolean;
   checksum_valid: boolean;
   size_valid: boolean;
+  artifact_present?: boolean | null;
+  artifact_matches?: boolean | null;
+  artifact_error?: string | null;
+}
+
+export interface ScheduleResponse {
+  id: string;
+  name: string;
+  cron_expression: string;
+  task_name: string;
+  params: Record<string, unknown>;
+  enabled: boolean;
+  last_run_at: string | null;
+  created_at: string | null;
+}
+
+export interface CreateScheduleRequest {
+  name?: string;
+  cron_expression: string;
+  task_name?: string;
+  params?: Record<string, unknown>;
+  enabled?: boolean;
 }
 
 export type PluginSource = "manual" | "modrinth" | "detected";
@@ -135,6 +159,8 @@ export interface PluginFileResponse {
   primary: boolean;
 }
 
+export type MarketplaceSortOption = "relevance" | "downloads" | "follows" | "newest" | "updated";
+
 export interface PluginVersionResponse {
   version_id: string;
   project_id: string;
@@ -144,7 +170,10 @@ export interface PluginVersionResponse {
   loaders: string[];
   files: PluginFileResponse[];
   dependencies: string[];
+  required_dependencies?: string[];
+  changelog?: string | null;
   date_published: string;
+  version_type?: string;
 }
 
 export interface PluginVersionsResponse {
@@ -247,12 +276,48 @@ export interface HealthResponse {
   docker?: boolean;
 }
 
+export interface ServerHealthSummary {
+  server_id: string;
+  status: string;
+  trend: string;
+  contributing_factors: string[];
+  last_updated: string | null;
+}
+
+export interface HealthDashboardResponse {
+  total_servers: number;
+  healthy: number;
+  warning: number;
+  critical: number;
+  broken: number;
+  unknown: number;
+  pending: number;
+  servers: ServerHealthSummary[];
+}
+
 export interface CreateAlertRuleRequest {
   metric_name: string;
   condition?: string;
   threshold: number;
   severity?: string;
   cooldown_minutes?: number;
+}
+
+export interface SettingsDefaults {
+  app_name: string;
+  debug: boolean;
+  log_level: string;
+  rate_limit_per_minute: number;
+  idempotency_ttl_hours: number;
+  circuit_breaker_max_failures: number;
+  circuit_breaker_timeout_seconds: number;
+  event_bus_retry_attempts: number;
+  saga_timeout_seconds: number;
+  metrics_interval_seconds: number;
+  server_startup_timeout_seconds: number;
+  test_boot_timeout_seconds: number;
+  host_ram_reserve_mb: number;
+  host_cpu_reserve: number;
 }
 
 export interface SettingsResponse {
@@ -272,6 +337,7 @@ export interface SettingsResponse {
   host_ram_reserve_mb?: number;
   host_cpu_reserve?: number;
   requires_restart?: string[];
+  defaults?: Partial<SettingsDefaults>;
 }
 
 export interface HostResourceAllocation {
@@ -518,6 +584,18 @@ export interface TargetResponse {
   setup_instructions: string | null;
 }
 
+export interface ReachabilityProbeResult {
+  reachable: boolean;
+  target_address: string;
+  latency_ms?: number | null;
+  version_name?: string | null;
+  protocol_version?: number | null;
+  players_online?: number | null;
+  players_max?: number | null;
+  motd?: string | null;
+  error?: string | null;
+}
+
 export interface ServerExposureResponse {
   server_id: string;
   branch_name?: string;
@@ -545,6 +623,7 @@ export interface ServerExposureResponse {
   upnp_status?: string | null;
   detected_wan_ip?: string | null;
   targets: TargetResponse[];
+  reachability?: ReachabilityProbeResult | null;
 }
 
 export interface ServerExposureUpdateRequest {

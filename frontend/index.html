@@ -14,12 +14,10 @@
         try {
           var mode = localStorage.getItem('onx_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
           var skin = localStorage.getItem('onx_skin') || 'graphite';
-          var density = localStorage.getItem('onx_density') || 'comfortable';
           var corners = localStorage.getItem('onx_corner_style') || 'rounded';
           var doc = document.documentElement;
           doc.dataset.mode = mode;
           doc.dataset.skin = skin;
-          doc.dataset.density = density;
           doc.dataset.corners = corners;
           if (mode === 'dark') doc.classList.add('dark');
         } catch (e) {}

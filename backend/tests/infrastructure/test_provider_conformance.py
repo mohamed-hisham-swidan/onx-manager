@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import inspect
 import os
 from collections.abc import Generator
@@ -21,13 +22,6 @@ from app.modules.server.infrastructure.providers.base import (
     ServerRuntimeStatus,
     provider_factory,
 )
-from app.modules.server.infrastructure.providers.circuit_breaker_wrapper import (
-    CircuitBreakerProviderWrapper,
-)
-from app.modules.server.infrastructure.providers.cloud import (
-    CloudProvider,
-    CloudProviderStub,
-)
 from app.modules.server.infrastructure.providers.docker import DockerProvider
 from app.modules.server.infrastructure.providers.remote import SSHProvider
 
@@ -38,11 +32,6 @@ def create_mocked_provider(name: str) -> ServerProvider:
     """Create a provider instance suitable for mock contract testing."""
     if name == "docker":
         return DockerProvider()
-    elif name == "cloud":
-        return CloudProviderStub()
-    elif name == "circuit_breaker":
-        mock_inner = DockerProvider()
-        return CircuitBreakerProviderWrapper(wrapped=mock_inner)
     elif name == "ssh":
         return SSHProvider(host="127.0.0.1", port=22, username="test-user")
     raise ValueError(f"Unknown provider: {name}")
@@ -50,8 +39,6 @@ def create_mocked_provider(name: str) -> ServerProvider:
 
 ALL_PROVIDER_NAMES = [
     "docker",
-    "cloud",
-    "circuit_breaker",
     "ssh",
 ]
 
@@ -245,9 +232,6 @@ class TestProviderRuntimeExecutionContract:
                 launch_config=standard_launch_config,
             )
             assert isinstance(result, DeploymentResult)
-        except NotImplementedError:
-            # CloudProvider explicitly raises NotImplementedError for unprovisioned VMs
-            assert isinstance(provider, (CloudProvider, CloudProviderStub))
         except ProviderError:
             # Platform-specific runtime failure is acceptable; the contract under test is
             # that the full kwarg signature is accepted without TypeError.
@@ -259,13 +243,9 @@ class TestProviderRuntimeExecutionContract:
         provider: ServerProvider,
         standard_handle: ServerHandle,
     ) -> None:
-        """destroy() must complete cleanly or raise expected ProviderError/NotImplementedError."""
-        try:
+        """destroy() must complete cleanly or raise expected ProviderError."""
+        with contextlib.suppress(ProviderError):
             await provider.destroy(standard_handle)
-        except NotImplementedError:
-            assert isinstance(provider, (CloudProvider, CloudProviderStub))
-        except ProviderError:
-            pass  # Acceptable domain error under failure simulation
 
     @pytest.mark.asyncio
     async def test_status_returns_runtime_enum(
@@ -274,11 +254,8 @@ class TestProviderRuntimeExecutionContract:
         standard_handle: ServerHandle,
     ) -> None:
         """status() must return a ServerRuntimeStatus enum member."""
-        try:
-            st = await provider.status(standard_handle)
-            assert isinstance(st, ServerRuntimeStatus)
-        except NotImplementedError:
-            assert isinstance(provider, (CloudProvider, CloudProviderStub))
+        st = await provider.status(standard_handle)
+        assert isinstance(st, ServerRuntimeStatus)
 
     @pytest.mark.asyncio
     async def test_base_helper_methods_conformance(

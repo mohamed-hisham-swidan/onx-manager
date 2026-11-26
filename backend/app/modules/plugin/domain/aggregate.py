@@ -244,6 +244,8 @@ class Plugin(AggregateRoot):
                 plugin_id=str(plugin_id),
                 server_id=str(server_id),
                 version=str(version),
+                name=str(name),
+                filename=filename,
             ),
         )
         return plugin
@@ -266,7 +268,12 @@ class Plugin(AggregateRoot):
             return
         self._transition_to(PluginStatus.ENABLED)
         self._add_event(
-            PluginEnabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id))
+            PluginEnabledEvent(
+                plugin_id=str(self._plugin_id),
+                server_id=str(self._server_id),
+                name=self._name,
+                filename=self._filename,
+            )
         )
 
     def disable(self) -> None:
@@ -274,7 +281,12 @@ class Plugin(AggregateRoot):
             return
         self._transition_to(PluginStatus.DISABLED)
         self._add_event(
-            PluginDisabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id))
+            PluginDisabledEvent(
+                plugin_id=str(self._plugin_id),
+                server_id=str(self._server_id),
+                name=self._name,
+                filename=self._filename,
+            )
         )
 
     def mark_error(self) -> None:
@@ -291,6 +303,8 @@ class Plugin(AggregateRoot):
                 server_id=str(self._server_id),
                 old_version=str(old),
                 new_version=str(new_version),
+                name=self._name,
+                filename=self._filename,
             ),
         )
 
@@ -298,7 +312,12 @@ class Plugin(AggregateRoot):
         self._status = PluginStatus.UNINSTALLED
         self._updated_at = datetime.now(UTC)
         self._add_event(
-            PluginUninstalledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)),
+            PluginUninstalledEvent(
+                plugin_id=str(self._plugin_id),
+                server_id=str(self._server_id),
+                name=self._name,
+                filename=self._filename,
+            ),
         )
 
     def request_deletion(self) -> None:
@@ -312,7 +331,12 @@ class Plugin(AggregateRoot):
         self._pending_deletion_requested_at = datetime.now(UTC)
         self._updated_at = datetime.now(UTC)
         self._add_event(
-            PluginUninstalledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)),
+            PluginUninstalledEvent(
+                plugin_id=str(self._plugin_id),
+                server_id=str(self._server_id),
+                name=self._name,
+                filename=self._filename,
+            ),
         )
 
 
@@ -321,6 +345,26 @@ class DependencyStatus(Enum):
     MISSING = "missing"
     INCOMPATIBLE = "incompatible"
     CIRCULAR = "circular"
+
+
+_PLATFORM_RUNTIME_DEPS: frozenset[str] = frozenset(
+    {
+        "minecraft",
+        "java",
+        "fabricloader",
+        "fabric",
+        "forge",
+        "neoforge",
+        "quilt_loader",
+        "paper",
+        "purpur",
+        "spigot",
+        "bukkit",
+        "velocity",
+        "bungeecord",
+        "waterfall",
+    }
+)
 
 
 class PluginRegistry(AggregateRoot):
@@ -347,8 +391,16 @@ class PluginRegistry(AggregateRoot):
         return self._plugins.get(str(plugin_id))
 
     def get_by_name(self, name: str) -> Plugin | None:
+        target = (name or "").strip().lower()
+        if not target:
+            return None
         for plugin in self._plugins.values():
             if plugin.name == name:
+                return plugin
+        for plugin in self._plugins.values():
+            if (plugin.name or "").strip().lower() == target:
+                return plugin
+            if plugin.mod_id and plugin.mod_id.strip().lower() == target:
                 return plugin
         return None
 
@@ -357,20 +409,25 @@ class PluginRegistry(AggregateRoot):
         visited: set[str] = set()
 
         def resolve(name: str, chain: set[str]) -> DependencyStatus:
-            if name in chain:
+            norm = (name or "").strip().lower()
+            if not norm or norm in _PLATFORM_RUNTIME_DEPS:
+                return DependencyStatus.SATISFIED
+            if norm in chain:
                 return DependencyStatus.CIRCULAR
             dep = self.get_by_name(name)
             if dep is None:
                 return DependencyStatus.MISSING
-            if dep.status != PluginStatus.ENABLED:
+            if dep.status not in (PluginStatus.ENABLED, PluginStatus.INSTALLED):
                 return DependencyStatus.INCOMPATIBLE
             for sub_dep in dep.dependencies:
-                sub_result = resolve(sub_dep, chain | {name})
+                sub_result = resolve(sub_dep, chain | {norm})
                 if sub_result != DependencyStatus.SATISFIED:
                     return sub_result
             return DependencyStatus.SATISFIED
 
         for dep_name in plugin.dependencies:
+            if (dep_name or "").strip().lower() in _PLATFORM_RUNTIME_DEPS:
+                continue
             visited.clear()
             result[dep_name] = resolve(dep_name, set())
 

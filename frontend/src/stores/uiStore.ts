@@ -3,17 +3,14 @@ import { updateDynamicFavicon } from "@/tokens/dynamicFavicon";
 import {
   THEME_KEY,
   SKIN_KEY,
-  DENSITY_KEY,
   ACCENT_KEY,
   CORNER_STYLE_KEY,
   DEFAULT_THEME,
   DEFAULT_SKIN,
-  DEFAULT_DENSITY,
   DEFAULT_ACCENT,
   DEFAULT_CORNER_STYLE,
   type Theme,
   type Skin,
-  type Density,
   type AccentColor,
   type CornerStyle,
 } from "@/tokens/storageKeys";
@@ -21,16 +18,14 @@ import {
 export {
   THEME_KEY,
   SKIN_KEY,
-  DENSITY_KEY,
   ACCENT_KEY,
   CORNER_STYLE_KEY,
   DEFAULT_THEME,
   DEFAULT_SKIN,
-  DEFAULT_DENSITY,
   DEFAULT_ACCENT,
   DEFAULT_CORNER_STYLE,
 };
-export type { Theme, Skin, Density, AccentColor, CornerStyle };
+export type { Theme, Skin, AccentColor, CornerStyle };
 
 function loadTheme(): Theme {
   try {
@@ -58,17 +53,13 @@ function loadSkin(): Skin {
   return "graphite";
 }
 
-function loadDensity(): Density {
-  try {
-    const raw = localStorage.getItem(DENSITY_KEY);
-    if (raw === "comfortable" || raw === "compact") return raw;
-  } catch { /* ignore */ }
-  return "comfortable";
-}
-
 function loadAccent(): AccentColor {
   try {
     const raw = localStorage.getItem(ACCENT_KEY);
+    if (raw === "default") {
+      localStorage.setItem(ACCENT_KEY, DEFAULT_ACCENT);
+      return DEFAULT_ACCENT;
+    }
     if (
       raw === "theme" ||
       raw === "blue" ||
@@ -107,15 +98,10 @@ export function applySkin(skin: Skin) {
   }
 }
 
-export function applyDensity(density: Density) {
-  if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("data-density", density);
-  }
-}
-
 export function applyAccent(accent: AccentColor) {
   if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-accent", accent);
+    updateDynamicFavicon();
   }
 }
 
@@ -146,22 +132,23 @@ function loadShowFullVpsControls(): boolean {
 export interface UIState {
   theme: Theme;
   skin: Skin;
-  density: Density;
   accent: AccentColor;
   cornerStyle: CornerStyle;
   sidebarOpen: boolean;
+  sidebarSavedBeforeRightPanel: boolean | null;
+  changeVersionOpen: boolean;
   mobileSidebarOpen: boolean;
   showFullVpsControls: boolean;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   setSkin: (skin: Skin) => void;
-  setDensity: (density: Density) => void;
-  toggleDensity: () => void;
   setAccent: (accent: AccentColor) => void;
   setCornerStyle: (cornerStyle: CornerStyle) => void;
   toggleCornerStyle: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
+  setChangeVersionOpen: (open: boolean) => void;
+  syncRightPanelSidebarCollapse: (rightPanelOpen: boolean) => void;
   setMobileSidebarOpen: (open: boolean) => void;
   toggleMobileSidebar: () => void;
   setShowFullVpsControls: (show: boolean) => void;
@@ -171,24 +158,23 @@ export interface UIState {
 export const useUIStore = create<UIState>((set) => {
   const initialTheme = loadTheme();
   const initialSkin = loadSkin();
-  const initialDensity = loadDensity();
   const initialAccent = loadAccent();
   const initialCornerStyle = loadCornerStyle();
   const initialShowFullVpsControls = loadShowFullVpsControls();
 
   applyTheme(initialTheme);
   applySkin(initialSkin);
-  applyDensity(initialDensity);
   applyAccent(initialAccent);
   applyCornerStyle(initialCornerStyle);
 
   return {
     theme: initialTheme,
     skin: initialSkin,
-    density: initialDensity,
     accent: initialAccent,
     cornerStyle: initialCornerStyle,
     sidebarOpen: true,
+    sidebarSavedBeforeRightPanel: null,
+    changeVersionOpen: false,
     mobileSidebarOpen: false,
     showFullVpsControls: initialShowFullVpsControls,
 
@@ -212,20 +198,6 @@ export const useUIStore = create<UIState>((set) => {
       set({ skin });
     },
 
-    setDensity: (density) => {
-      saveStorage(DENSITY_KEY, density);
-      applyDensity(density);
-      set({ density });
-    },
-
-    toggleDensity: () =>
-      set((state) => {
-        const next = state.density === "comfortable" ? "compact" : "comfortable";
-        saveStorage(DENSITY_KEY, next);
-        applyDensity(next);
-        return { density: next };
-      }),
-
     setAccent: (accent) => {
       saveStorage(ACCENT_KEY, accent);
       applyAccent(accent);
@@ -246,9 +218,31 @@ export const useUIStore = create<UIState>((set) => {
         return { cornerStyle: next };
       }),
 
-    setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
+    setSidebarOpen: (sidebarOpen) => set({ sidebarOpen, sidebarSavedBeforeRightPanel: null }),
 
-    toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+    toggleSidebar: () =>
+      set((state) => ({
+        sidebarOpen: !state.sidebarOpen,
+        sidebarSavedBeforeRightPanel: null,
+      })),
+
+    setChangeVersionOpen: (changeVersionOpen) => set({ changeVersionOpen }),
+
+    syncRightPanelSidebarCollapse: (rightPanelOpen) =>
+      set((state) => {
+        if (rightPanelOpen) {
+          if (state.sidebarSavedBeforeRightPanel !== null) return state;
+          return {
+            sidebarSavedBeforeRightPanel: state.sidebarOpen,
+            sidebarOpen: false,
+          };
+        }
+        if (state.sidebarSavedBeforeRightPanel === null) return state;
+        return {
+          sidebarOpen: state.sidebarSavedBeforeRightPanel,
+          sidebarSavedBeforeRightPanel: null,
+        };
+      }),
 
     setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
 

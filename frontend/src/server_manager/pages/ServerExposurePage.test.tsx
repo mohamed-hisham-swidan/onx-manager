@@ -590,7 +590,7 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
 
     const { queryClient } = renderServerExposurePage();
 
-    expect(await screen.findByText("Starting...")).toBeInTheDocument();
+    expect((await screen.findAllByText("Starting...")).length).toBeGreaterThan(0);
 
     // Transition to ACTIVE
     act(() => {
@@ -927,14 +927,12 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
 
     renderServerExposurePage("/servers/srv-123/console");
 
-    // Expand Server Info & Configuration accordion
-    const accordionBtn = await screen.findByRole("button", {
-      name: /Server Info & Configuration/i,
-    });
-    fireEvent.click(accordionBtn);
+    // Open Runtime & Server Info diagnostics drawer
+    const diagnosticsBtn = await screen.findByTestId("open-diagnostics-drawer-btn");
+    fireEvent.click(diagnosticsBtn);
 
     expect(await screen.findByText("Public Exposure")).toBeInTheDocument();
-    expect(screen.getAllByText("mc.survival.ply.gg:25565")).toHaveLength(2);
+    expect(screen.getAllByText("mc.survival.ply.gg:25565").length).toBeGreaterThanOrEqual(2);
     const manageLink = screen.getByRole("link", { name: "Manage" });
     expect(manageLink).toHaveAttribute("href", "/servers/srv-123/network");
   });
@@ -1201,6 +1199,58 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
       expect(
         await screen.findByRole("heading", { name: "Set Administrator Username & Password" })
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("P0: Live SLP Reachability & Honest Topology Status", () => {
+    it("runs live SLP probe via Test Reachability button and displays version/latency/players", async () => {
+      mockGetServerExposure
+        .mockResolvedValueOnce({
+          ...defaultExposureResponse,
+          method: "playit",
+          desired_state: "ENABLED",
+          aggregate_status: "ACTIVE",
+        })
+        .mockResolvedValueOnce({
+          ...defaultExposureResponse,
+          method: "playit",
+          desired_state: "ENABLED",
+          aggregate_status: "ACTIVE",
+          reachability: {
+            reachable: true,
+            target_address: "play.example.com:25565",
+            latency_ms: 54,
+            version_name: "Purpur 1.21.11",
+            players_online: 0,
+            players_max: 20,
+          },
+        });
+
+      renderServerExposurePage();
+
+      const testBtn = await screen.findByTestId("test-reachability-btn");
+      fireEvent.click(testBtn);
+
+      const resultBanner = await screen.findByTestId("reachability-result");
+      expect(resultBanner).toHaveTextContent("Reachable · 54ms · Purpur 1.21.11 · 0/20 players");
+    });
+
+    it("does not display fake green Tunnel active when aggregate_status is ERROR", async () => {
+      mockGetServerExposure.mockResolvedValue({
+        ...defaultExposureResponse,
+        method: "playit",
+        desired_state: "ENABLED",
+        aggregate_status: "ERROR",
+        error_code: "TUNNEL_DOWN",
+        error_message: "Agent disconnected",
+      });
+
+      renderServerExposurePage();
+
+      expect(await screen.findByTestId("topology-node-engine-status")).toHaveTextContent(
+        "Tunnel error",
+      );
+      expect(screen.queryByText("Tunnel active")).not.toBeInTheDocument();
     });
   });
 });

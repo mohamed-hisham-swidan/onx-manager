@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
 
 from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 
@@ -13,8 +14,122 @@ LOADER_COMPATIBILITY: dict[str, tuple[str, ...]] = {
     "paper": ("paper", "spigot", "bukkit"),
     "spigot": ("spigot", "bukkit"),
     "bukkit": ("bukkit",),
-    "folia": ("folia", "paper", "spigot", "bukkit"),
+    "folia": ("folia",),
+    "waterfall": ("waterfall", "bungeecord"),
+    "bungeecord": ("bungeecord",),
+    "velocity": ("velocity",),
+    "minestom": ("minestom",),
+    "quilt": ("quilt", "fabric"),
+    "fabric": ("fabric",),
+    "forge": ("forge",),
+    "neoforge": ("neoforge",),
 }
+
+# Native loader tiers: Purpur and Paper share the native Paper-API tier (0) so
+# an ancient purpur-tagged release never starves a newer native Paper build,
+# while both strictly outrank Spigot (1) and Bukkit (2).
+_LOADER_TIERS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "purpur": (("purpur", "paper"), ("spigot",), ("bukkit",)),
+    "paper": (("paper",), ("spigot",), ("bukkit",)),
+    "spigot": (("spigot",), ("bukkit",)),
+    "bukkit": (("bukkit",),),
+    "folia": (("folia",),),
+    "waterfall": (("waterfall",), ("bungeecord",)),
+    "bungeecord": (("bungeecord",),),
+    "velocity": (("velocity",),),
+    "minestom": (("minestom",),),
+    "quilt": (("quilt", "fabric"),),
+    "fabric": (("fabric",),),
+    "forge": (("forge",),),
+    "neoforge": (("neoforge",),),
+}
+
+_VERSION_TYPE_RANK: dict[str, int] = {
+    "release": 2,
+    "beta": 1,
+    "alpha": 0,
+}
+
+_LOADER_PREFIX_RE = re.compile(
+    r"^(?:(?:purpur|paper|spigot|bukkit|folia|fabric|quilt|forge|neoforge|velocity|bungeecord|bungee|waterfall|minestom)[-_+ ]+)+",
+    re.IGNORECASE,
+)
+
+
+def loader_tiers_for_server(server_type: str) -> tuple[tuple[str, ...], ...]:
+    """Return ordered compatibility tiers (native tier first) for a server software type."""
+    st = (server_type or "").strip().lower()
+    if not st:
+        return ()
+    if st in _LOADER_TIERS:
+        return _LOADER_TIERS[st]
+    return ((st,),)
+
+
+def loader_tier_index(server_type: str, version_loaders: Sequence[str]) -> int:
+    """Return best (lowest) loader tier index for ``version_loaders`` on ``server_type``."""
+    normalized = {
+        str(loader).strip().lower()
+        for loader in (version_loaders or ())
+        if str(loader).strip()
+    }
+    if not normalized:
+        return 999
+    for idx, tier in enumerate(loader_tiers_for_server(server_type)):
+        if not normalized.isdisjoint(tier):
+            return idx
+    return 999
+
+
+def version_type_rank(version_type: str | None) -> int:
+    """Rank release (2) > beta (1) > alpha (0); empty/unknown defaults to release."""
+    vt = (version_type or "").strip().lower()
+    if not vt:
+        return 2
+    return _VERSION_TYPE_RANK.get(vt, 1)
+
+
+def is_mc26_incompatible_for_server(
+    server_version: str,
+    game_versions: Sequence[str],
+) -> bool:
+    """True when a version exclusively targets MC 26.x+ (Java 25) on a pre-26 server."""
+    server_major = _parse_mc(server_version)[0] if server_version else 0
+    non_empty = [gv.strip() for gv in (game_versions or ()) if str(gv).strip()]
+    return bool(
+        0 < server_major < 26
+        and non_empty
+        and all(_parse_mc(gv)[0] >= 26 for gv in non_empty)
+    )
+
+
+def compatible_loaders_for_server(server_type: str) -> tuple[str, ...]:
+    """Return ordered compatible loaders for a server software type."""
+    st = (server_type or "").strip().lower()
+    if not st:
+        return ()
+    return LOADER_COMPATIBILITY.get(st, (st,))
+
+
+def is_version_loader_compatible(
+    server_type: str,
+    version_loaders: Sequence[str],
+) -> bool:
+    """True when the version declares at least one loader supported by the server.
+
+    Empty loader metadata is tolerated for legacy/minimal test fixtures.
+    """
+    normalized_version_loaders = {
+        str(loader).strip().lower()
+        for loader in (version_loaders or ())
+        if str(loader).strip()
+    }
+    if not normalized_version_loaders:
+        return False
+    allowed = compatible_loaders_for_server(server_type)
+    if not allowed:
+        return True
+    return not normalized_version_loaders.isdisjoint(allowed)
 
 _EMPTY_DATE = "1970-01-01T00:00:00Z"
 
@@ -42,7 +157,7 @@ def _parse_mc(version: str) -> tuple[int, int, int]:
 
 def _mc_distance(a: str, b: str) -> int:
     pa, pb = _parse_mc(a), _parse_mc(b)
-    return (pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2 + (pa[2] - pb[2]) ** 2
+    return abs(pa[0] - pb[0]) * 10000 + abs(pa[1] - pb[1]) * 100 + abs(pa[2] - pb[2])
 
 
 def _game_version_matches(server_version: str, listed_version: str) -> bool:
@@ -91,19 +206,59 @@ def _published_at(version: PluginVersionInfo) -> str:
     return version.date_published or _EMPTY_DATE
 
 
-def _version_sort_key(version: PluginVersionInfo) -> tuple[int, Any, str, str]:
-    v_str = version.version_number or ""
-    try:
-        from packaging.version import parse as parse_version
+def _normalize_semver_tuple(version_number: str) -> tuple[int, ...]:
+    """Extract numeric version tokens after stripping common loader/v prefixes."""
+    raw = (version_number or "").strip()
+    cleaned = _LOADER_PREFIX_RE.sub("", raw)
+    cleaned = re.sub(r"^v(?=\d)", "", cleaned, flags=re.IGNORECASE)
+    # Strip build metadata like +1.21.11 or +mc1.21.4 before tokenizing
+    core = cleaned.split("+", 1)[0]
+    nums = [int(m) for m in re.findall(r"\d+", core)]
+    return tuple(nums[:6]) if nums else (0,)
 
-        return (1, parse_version(v_str), "", _published_at(version))
-    except Exception:
-        return (0, "", v_str, _published_at(version))
+
+def _is_prerelease_string(version_number: str) -> bool:
+    low = (version_number or "").strip().lower()
+    return bool(re.search(r"(?:^|[-._+])(alpha|beta|rc|dev|snapshot|pre|canary)(?:[-._+\d]|$)", low))
 
 
-def _best_in(group: list[PluginVersionInfo]) -> PluginVersionInfo:
-    """Pick the highest version; tie-break on published date."""
-    return max(group, key=_version_sort_key)
+def _effective_version_type_rank(version: PluginVersionInfo) -> int:
+    raw_vt = (getattr(version, "version_type", None) or "").strip().lower()
+    if raw_vt in _VERSION_TYPE_RANK:
+        base = _VERSION_TYPE_RANK[raw_vt]
+        if base == 2 and _is_prerelease_string(version.version_number):
+            return 1
+        return base
+    if _is_prerelease_string(version.version_number):
+        return 1
+    return 2
+
+
+def _version_sort_key(
+    version: PluginVersionInfo,
+    *,
+    server_type: str = "",
+) -> tuple[int, int, tuple[int, ...], str, int]:
+    """Rank higher = better: version_type > loader_tier > semver > date_published > exact_loader."""
+    vt_rank = _effective_version_type_rank(version)
+    tier_score = -loader_tier_index(server_type, version.loaders) if server_type else 0
+    exact_tiebreak = 0
+    if server_type:
+        st = server_type.strip().lower()
+        normalized = {str(ldr).strip().lower() for ldr in (version.loaders or ())}
+        exact_tiebreak = 1 if st in normalized else 0
+    return (
+        vt_rank,
+        tier_score,
+        _normalize_semver_tuple(version.version_number),
+        _published_at(version),
+        exact_tiebreak,
+    )
+
+
+def _best_in(group: list[PluginVersionInfo], server_type: str = "") -> PluginVersionInfo:
+    """Pick the highest-ranked version (release > beta > alpha, newest date, highest semver)."""
+    return max(group, key=lambda v: _version_sort_key(v, server_type=server_type))
 
 
 def select_best_version(
@@ -114,12 +269,16 @@ def select_best_version(
     """Select the best plugin version for a server.
 
     Preference order:
-    1. Exact game version + exact loader.
-    2. Exact game version on the nearest compatible parent loader
-       (purpur -> paper -> spigot -> bukkit) — substitution notice emitted.
-    3. Closest available game version (same major.minor preferred) on a
-       compatible loader — version-mismatch warning emitted (never blocks).
-    Always returns the full version list sorted newest-first for manual override.
+    1. Exact game version on the native loader tier (Purpur+Paper > Spigot > Bukkit;
+       Quilt+Fabric; Folia-only for Folia), preferring release > beta > alpha,
+       newest publication date, highest semver, and exact loader on ties.
+    2. Exact game version on the nearest compatible fallback loader tier —
+       substitution notice emitted.
+    3. Closest available game version (weighted major/minor/patch distance) on a
+       compatible loader, preserving loader-tier specificity and release preference —
+       version-mismatch warning emitted (never crosses MC 26.x / Java 25 boundary
+       onto older servers).
+    Always returns the full version list sorted best-first for manual override.
     """
     if not versions:
         return VersionSelection(
@@ -129,10 +288,18 @@ def select_best_version(
             notice_kind="no_versions",
         )
 
-    available = tuple(sorted(versions, key=_version_sort_key, reverse=True))
     server_type = (server_type or "").strip().lower()
     chain = LOADER_COMPATIBILITY.get(server_type, (server_type,))
+    tiers = loader_tiers_for_server(server_type)
     server_version = (minecraft_version or "").strip()
+
+    available = tuple(
+        sorted(
+            versions,
+            key=lambda v: _version_sort_key(v, server_type=server_type),
+            reverse=True,
+        )
+    )
 
     def loader_matches(version: PluginVersionInfo, loader: str) -> bool:
         return loader in [name.strip().lower() for name in version.loaders]
@@ -145,18 +312,26 @@ def select_best_version(
     ]
 
     if candidates:
-        for idx, loader in enumerate(chain):
-            group = [v for v in candidates if loader_matches(v, loader)]
+        for tier_idx, tier_loaders in enumerate(tiers):
+            group = [
+                v
+                for v in candidates
+                if any(loader_matches(v, ldr) for ldr in tier_loaders)
+            ]
             if not group:
                 continue
-            selected = _best_in(group)
+            selected = _best_in(group, server_type=server_type)
             notice = ""
             kind = ""
-            if idx > 0:
-                display = server_type or loader
+            if tier_idx > 0:
+                matched_ldr = next(
+                    (ldr for ldr in tier_loaders if loader_matches(selected, ldr)),
+                    tier_loaders[0],
+                )
+                display = server_type or matched_ldr
                 notice = (
                     f"No {display} build found for Minecraft {server_version} — "
-                    f"using the {loader} build, which {display} supports."
+                    f"using the {matched_ldr} build, which {display} supports."
                 )
                 kind = "loader_fallback"
             return VersionSelection(
@@ -164,15 +339,33 @@ def select_best_version(
             )
 
     # No compatible-loader match for the exact game version: pick the closest
-    # game version on a compatible loader. Never hard-block (J4).
-    compatible = [v for v in versions if any(loader_matches(v, loader) for loader in chain)]
+    # game version on a compatible loader, preserving loader-tier specificity.
+    # Never cross the MC 26.x / Java 25 boundary onto an older (Java <=21) server.
+    compatible = [
+        v
+        for v in versions
+        if v.game_versions
+        and any(gv.strip() for gv in v.game_versions)
+        and any(loader_matches(v, loader) for loader in chain)
+        and not is_mc26_incompatible_for_server(server_version, v.game_versions)
+    ]
     if compatible:
-        # Sort compatible descending by version first so `min` (which is stable)
-        # picks the highest version in case of a tie in distance
-        compatible_sorted = sorted(compatible, key=_version_sort_key, reverse=True)
+        compatible_sorted = sorted(
+            compatible,
+            key=lambda v: _version_sort_key(v, server_type=server_type),
+            reverse=True,
+        )
         selected = min(
             compatible_sorted,
-            key=lambda v: min(_mc_distance(server_version, gv) for gv in v.game_versions),
+            key=lambda v: (
+                min(
+                    _mc_distance(server_version, gv)
+                    for gv in v.game_versions
+                    if gv.strip()
+                ),
+                loader_tier_index(server_type, v.loaders),
+                -_effective_version_type_rank(v),
+            ),
         )
         return VersionSelection(
             selected=selected,

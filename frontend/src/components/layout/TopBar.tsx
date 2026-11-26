@@ -84,7 +84,7 @@ export function TopBar() {
               type="button"
               onClick={handleToggleOpsDrawer}
               aria-label="Background Operations"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1 text-xs font-semibold text-text-accent hover:bg-accent-primary/20 transition-colors cursor-pointer"
             >
               <span className="h-2 w-2 rounded-full bg-accent-primary animate-pulse" />
               <span>Running ({activeOpList.length})</span>

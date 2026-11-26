@@ -14,6 +14,7 @@ export interface ServerContext {
   serverType?: string;
   supportsMods?: boolean;
   supportsPlugins?: boolean;
+  canFiles?: boolean;
   mode?: ServerMode;
   branch?: string;
 }
@@ -160,12 +161,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                     icon="dashboard"
                     onNavigate={handleNavigate}
                   />
-                  <ServerNavLink
-                    to={withBranch(`/servers/${serverContext.serverId}/files`)}
-                    label="Files"
-                    icon="folder"
-                    onNavigate={handleNavigate}
-                  />
+                  {serverContext.canFiles !== false && (
+                    <ServerNavLink
+                      to={withBranch(`/servers/${serverContext.serverId}/files`)}
+                      label="Files"
+                      icon="folder"
+                      onNavigate={handleNavigate}
+                    />
+                  )}
                   <ServerNavLink
                     to={withBranch(`/servers/${serverContext.serverId}/settings`)}
                     label="Settings"
@@ -214,10 +217,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                     icon="activity"
                     onNavigate={handleNavigate}
                   />
+                  <ServerNavLink
+                    to={`/servers/${serverContext.serverId}/backups`}
+                    label="Backups"
+                    icon="backup"
+                    onNavigate={handleNavigate}
+                  />
                   {showVersioning && (
                     <ServerNavLink
                       to={withBranch(`/servers/${serverContext.serverId}/versioning`)}
-                      label="Versions & Testing"
+                      label="Versions & Sandboxes"
                       icon="backup"
                       onNavigate={handleNavigate}
                     />
@@ -246,7 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                   className={({ isActive }) =>
                     `group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-accent-primary/10 text-accent-primary font-semibold"
+                        ? "bg-accent-primary/10 text-text-accent font-semibold"
                         : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
                     }`
                   }
@@ -311,7 +320,7 @@ function ServerNavLink({
       className={({ isActive }) =>
         `group relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors ${
           isActive
-            ? "bg-accent-primary/10 text-accent-primary font-semibold"
+            ? "bg-accent-primary/10 text-text-accent font-semibold"
             : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
         }`
       }

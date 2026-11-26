@@ -1,39 +1,50 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { useBackupsList, useRestoreBackup, useVerifyBackup, useDeleteBackup } from "@/server_manager/hooks/useBackups";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import * as backupHooks from "@/server_manager/hooks/useBackups";
+import {
+  useBackupsList,
+  useDeleteBackup,
+  useRestoreBackup,
+  useVerifyBackup,
+} from "@/server_manager/hooks/useBackups";
 import { useServersList } from "@/server_manager/hooks/useServers";
-import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Modal } from "@/components/ui/Modal";
 import { TableSkeleton } from "@/components/Skeleton";
-import { CreateBackupDialog } from "@/server_manager/components/CreateBackupDialog";
 import { HashBadge } from "@/components/ui/HashBadge";
 import { toast } from "@/stores/toastStore";
-import { formatBytes, formatDateTime } from "@/server_manager/utils/format";
-import type { BackupResponse } from "@/types";
+import { formatBytes, formatDateTime, formatRelativeTime } from "@/server_manager/utils/format";
+import { BackupStatsStrip } from "@/server_manager/components/backups/BackupStatsStrip";
+import { CreateBackupModal } from "@/server_manager/components/backups/CreateBackupModal";
+import { BackupDetailsDrawer } from "@/server_manager/components/backups/BackupDetailsDrawer";
+import { SecretVaultBridgeModal } from "@/server_manager/components/backups/SecretVaultBridgeModal";
+import { BackupSchedulesTab } from "@/server_manager/components/backups/BackupSchedulesTab";
+import {
+  formatShortDateTime,
+  getScopeMeta,
+  getStatusMeta,
+  getTierMeta,
+  isBackupSchedule,
+  resolveBackupServer,
+  useBackupPermissions,
+} from "@/server_manager/components/backups/backupUtils";
+import type { BackupResponse, ScheduleResponse, VerifyBackupResponse } from "@/types";
 
-const STATUS_FILTERS = ["all", "completed", "failed", "failed_timeout", "pending", "running"];
-
-const TIER_FILTERS: Array<{ value: "all" | "tier_1" | "tier_2"; label: string }> = [
-  { value: "all", label: "All tiers" },
-  { value: "tier_1", label: "Tier 1: Snapshots" },
-  { value: "tier_2", label: "Tier 2: Archives" },
+const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "all", label: "All statuses" },
+  { value: "completed", label: "Completed" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "pending", label: "Pending" },
+  { value: "failed", label: "Failed" },
+  { value: "failed_timeout", label: "Timed Out" },
 ];
 
-const STATUS_STYLES: Record<string, string> = {
-  completed: "bg-status-success-bg text-status-success border border-status-success-border",
-  failed: "bg-status-danger-bg text-status-danger border border-status-danger-border",
-  failed_timeout: "bg-status-warning-bg text-status-warning border border-status-warning-border",
-  pending: "bg-status-warning-bg text-status-warning border border-status-warning-border",
-  running: "bg-status-info-bg text-status-info border border-status-info-border animate-pulse",
-};
-
-const TIER_BADGE_STYLES: Record<string, string> = {
-  tier_1: "rounded-full px-2.5 py-0.5 text-xs font-semibold border bg-surface-muted text-text-secondary border border-border-subtle",
-  tier_2: "rounded-full px-2.5 py-0.5 text-xs font-semibold border bg-surface-elevated text-text-primary border border-border-default",
-};
+const TIER_OPTIONS: Array<{ value: "all" | "tier_1" | "tier_2"; label: string }> = [
+  { value: "all", label: "All types" },
+  { value: "tier_1", label: "Quick Snapshot" },
+  { value: "tier_2", label: "Encrypted Archive" },
+];
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
@@ -41,51 +52,181 @@ function errorMessage(error: unknown): string {
 
 function restoreDescription(backup: BackupResponse): string {
   if (backup.tier === "tier_2") {
-    return "Restoring will decrypt and unpack this Tier-2 portable archive into staging, verify SHA-256 checksums, and restore server data. Ensure the server is stopped before restoring.";
+    return "Replaces current server files with this verified backup.";
   }
-  return "Restoring will replace current server files with this Tier-1 operational snapshot through the crash-safe triad swap. Ensure the server is stopped before restoring.";
+  return "Replaces current server files with this verified backup.";
+}
+
+function useSafeSchedulesCount(scopedServerId?: string): number {
+  const fn = (backupHooks as Record<string, unknown>).useSchedulesList;
+  const hook =
+    typeof fn === "function"
+      ? (fn as () => { data?: ScheduleResponse[] })
+      : () => ({ data: undefined });
+  const schedules = hook()?.data ?? [];
+  return schedules.filter(
+    (s) =>
+      isBackupSchedule(s) &&
+      s.enabled &&
+      (!scopedServerId || String(s.params?.server_id ?? "") === scopedServerId),
+  ).length;
 }
 
 export function BackupListPage() {
-  const [searchParams] = useSearchParams();
-  const { data: backups, isLoading, error } = useBackupsList();
-  const { data: servers } = useServersList();
+  const navigate = useNavigate();
+  const { serverId: routeServerId } = useParams<{ serverId: string }>();
+  const isServerScoped = Boolean(routeServerId);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === "schedules" ? "schedules" : "list";
+  const deepLinkedServerId = searchParams.get("server_id") ?? searchParams.get("server");
+
+  const backupsQuery = useBackupsList();
+  const serversQuery = useServersList();
+  const rawBackups = backupsQuery.data;
+  const backups = useMemo(
+    () =>
+      rawBackups && routeServerId
+        ? rawBackups.filter((b) => b.server_id === routeServerId)
+        : rawBackups,
+    [rawBackups, routeServerId],
+  );
+  const servers = serversQuery.data;
+  const serversResolved = servers !== undefined;
+
   const restoreBackup = useRestoreBackup();
   const verifyBackup = useVerifyBackup();
   const deleteBackup = useDeleteBackup();
+  const { canCreate, canRestore, canDelete, canManageSchedules } = useBackupPermissions();
+
   const [showCreate, setShowCreate] = useState(false);
-  const deepLinkedServerId = searchParams.get("server_id") ?? searchParams.get("server");
-  const [serverFilter, setServerFilter] = useState(deepLinkedServerId ?? "all");
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const serverFilter = routeServerId ?? deepLinkedServerId ?? "all";
+  const scopedFilterServerId =
+    serverFilter !== "all" && serverFilter !== "deleted" ? serverFilter : undefined;
+  const activeSchedulesCount = useSafeSchedulesCount(scopedFilterServerId);
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<BackupResponse | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupResponse | null>(null);
-  const [verifyResult, setVerifyResult] = useState<Record<string, string>>({});
-  const [vaultOpen, setVaultOpen] = useState(false);
+  const [drawerBackup, setDrawerBackup] = useState<BackupResponse | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, VerifyBackupResponse>>({});
 
+  const serverList = useMemo(() => servers ?? [], [servers]);
   const serverMap = useMemo(
-    () => new Map(servers?.map((s) => [s.server_id, s.name]) ?? []),
-    [servers],
+    () => new Map(serverList.map((s) => [s.server_id, s.name])),
+    [serverList],
+  );
+  const serverObjMap = useMemo(
+    () => new Map(serverList.map((s) => [s.server_id, s])),
+    [serverList],
   );
 
+  const hasDeletedServerBackups = useMemo(() => {
+    if (!backups || !serversResolved) return false;
+    return backups.some(
+      (b) => b.server_deleted || (!serverMap.has(b.server_id) && !b.server_name),
+    );
+  }, [backups, serversResolved, serverMap]);
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+      (!isServerScoped && serverFilter !== "all") ||
+      statusFilter !== "all" ||
+      tierFilter !== "all",
+  );
+
+  const serverScopedBackups = useMemo(() => {
+    if (!backups) return backups;
+    if (serverFilter === "all") return backups;
+    if (serverFilter === "deleted") {
+      return backups.filter(
+        (b) => resolveBackupServer(b, serverMap, serversResolved).deleted,
+      );
+    }
+    return backups.filter((b) => b.server_id === serverFilter);
+  }, [backups, serverFilter, serverMap, serversResolved]);
+
   const filtered = useMemo(() => {
-    return (backups ?? []).filter((b) => {
-      if (serverFilter !== "all" && b.server_id !== serverFilter) return false;
-      if (statusFilter !== "all" && b.status !== statusFilter) return false;
-      if (tierFilter !== "all" && b.tier !== tierFilter) return false;
+    const q = searchQuery.trim().toLowerCase();
+    return (serverScopedBackups ?? []).filter((b) => {
+      const resolved = resolveBackupServer(b, serverMap, serversResolved);
+
+      if (statusFilter !== "all") {
+        if (statusFilter === "in_progress") {
+          if (b.status !== "in_progress" && b.status !== "running") return false;
+        } else if (b.status !== statusFilter) {
+          return false;
+        }
+      }
+
+      if (tierFilter !== "all" && b.tier !== tierFilter) {
+        return false;
+      }
+
+      if (q) {
+        const haystack = [
+          resolved.name,
+          b.backup_id,
+          b.backup_type,
+          b.error_message,
+          getTierMeta(b.tier).label,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+
       return true;
     });
-  }, [backups, serverFilter, statusFilter, tierFilter]);
+  }, [serverScopedBackups, statusFilter, tierFilter, searchQuery, serverMap, serversResolved]);
 
-  const stats = useMemo(() => {
-    const total = backups?.length ?? 0;
-    const totalBytes = (backups ?? []).reduce((sum, b) => sum + (b.size_bytes || 0), 0);
-    const lastCompleted = (backups ?? [])
-      .filter((b) => b.status === "completed" && b.completed_at)
-      .sort((a, b) => (b.completed_at ?? "").localeCompare(a.completed_at ?? ""))[0];
-    const failed = (backups ?? []).filter((b) => b.status === "failed").length;
-    return { total, totalBytes, lastCompleted, failed };
-  }, [backups]);
+  function handleTabChange(nextTab: "list" | "schedules") {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (nextTab === "list") {
+          next.delete("tab");
+        } else {
+          next.set("tab", nextTab);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function handleServerFilterChange(nextServer: string) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("server");
+        if (nextServer === "all") {
+          next.delete("server_id");
+        } else {
+          next.set("server_id", nextServer);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function clearAllFilters() {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setTierFilter("all");
+    if (!isServerScoped) {
+      handleServerFilterChange("all");
+    }
+  }
+
+  function handleFilterFailed() {
+    const hasPlainFailed = (serverScopedBackups ?? []).some((b) => b.status === "failed");
+    setStatusFilter(hasPlainFailed ? "failed" : "failed_timeout");
+  }
 
   function handleConfirmRestore() {
     if (!restoreTarget) return;
@@ -93,7 +234,11 @@ export function BackupListPage() {
       onSuccess: (result) => {
         const deferred = Boolean((result as Record<string, unknown> | null)?.deferred);
         if (deferred) {
-          toast("info", "Restore Scheduled", "Server is active. Restore will execute once the server is stopped.");
+          toast(
+            "info",
+            "Restore Scheduled",
+            "Server is active. Restore will execute once the server is stopped.",
+          );
         } else {
           toast("success", "Restore Started", "Restoring server data from backup.");
         }
@@ -104,179 +249,287 @@ export function BackupListPage() {
   }
 
   async function handleVerify(backup: BackupResponse) {
+    setVerifyingId(backup.backup_id);
     try {
       const result = await verifyBackup.mutateAsync(backup.backup_id);
-      const label = result.valid ? "Valid" : "Invalid";
-      setVerifyResult((prev) => ({ ...prev, [backup.backup_id]: label }));
-      toast(result.valid ? "success" : "error", result.valid ? "Backup is valid" : "Backup is invalid");
-    } catch {
-      setVerifyResult((prev) => ({ ...prev, [backup.backup_id]: "Error" }));
-      toast("error", "Verification failed", "Could not verify this backup.");
+      setVerifyResults((prev) => ({ ...prev, [backup.backup_id]: result }));
+      toast(
+        result.valid ? "success" : "error",
+        result.valid ? "Backup verified" : "Backup integrity failed",
+        result.artifact_error ?? undefined,
+      );
+    } catch (err) {
+      toast("error", "Verification failed", errorMessage(err));
+    } finally {
+      setVerifyingId(null);
     }
   }
 
   function handleConfirmDelete() {
     if (!deleteTarget) return;
     deleteBackup.mutate(deleteTarget.backup_id, {
-      onSuccess: () => toast("success", "Backup deleted", "The backup was removed."),
+      onSuccess: () => {
+        toast("success", "Backup deleted", "The backup was removed.");
+        if (drawerBackup?.backup_id === deleteTarget.backup_id) {
+          setDrawerBackup(null);
+        }
+      },
       onError: (err) => toast("error", "Delete failed", errorMessage(err)),
       onSettled: () => setDeleteTarget(null),
     });
   }
 
+  const restoreTargetServer = restoreTarget
+    ? serverObjMap.get(restoreTarget.server_id)
+    : undefined;
+  const restoreTargetRunning =
+    restoreTargetServer?.status === "running" || restoreTargetServer?.status === "starting";
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Backups"
-        description="Protect, restore, and verify your Minecraft world snapshots"
-        icon="backup"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setVaultOpen(true)}
-              aria-label="Class-C Secret Vault"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-3.5 py-2 text-sm font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
-            >
-              <Icon name="lock" size={16} />
-              <span>Secret Vault</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-sm font-bold text-accent-contrast-text hover:bg-accent-hover shadow-2xs transition-colors cursor-pointer"
-            >
-              <Icon name="plus" size={16} />
-              <span>New Backup</span>
-            </button>
-          </div>
-        }
-      />
-
-      {showCreate && (
-        <div className="mb-6">
-          <CreateBackupDialog
-            onDone={() => setShowCreate(false)}
-            defaultServerId={serverFilter !== "all" ? serverFilter : undefined}
-          />
+    <div
+      className={
+        isServerScoped
+          ? "space-y-6"
+          : "mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+      }
+    >
+      {/* Header Row */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+            Backups
+          </h1>
+          <p className="mt-1 text-sm text-text-muted">
+            Snapshots, encrypted archives, and automated backup schedules.
+          </p>
         </div>
-      )}
 
-      {isLoading ? (
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                scopedFilterServerId &&
+                serverObjMap.get(scopedFilterServerId)?.mode === "advanced"
+              ) {
+                navigate(`/servers/${scopedFilterServerId}/versioning?openVault=true`);
+                return;
+              }
+              setVaultOpen(true);
+            }}
+            aria-label="Secret Vault"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer shadow-2xs"
+          >
+            <Icon name="lock" size={14} />
+            <span>Secret Vault</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            disabled={!canCreate}
+            title={!canCreate ? "You do not have permission to create backups" : undefined}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors cursor-pointer"
+          >
+            <Icon name="plus" size={14} />
+            <span>New Backup</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Underline Tab Bar */}
+      <div
+        role="tablist"
+        aria-label="Backups sections"
+        className="flex items-center gap-6 border-b border-border-subtle"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "list"}
+          onClick={() => handleTabChange("list")}
+          className={`relative pb-3 text-sm font-medium transition-colors cursor-pointer inline-flex items-center gap-2 ${
+            activeTab === "list"
+              ? "text-text-primary font-semibold"
+              : "text-text-muted hover:text-text-primary"
+          }`}
+        >
+          <span>Backups</span>
+          {serverScopedBackups && (
+            <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-mono tabular-nums text-text-secondary">
+              {serverScopedBackups.length}
+            </span>
+          )}
+          {activeTab === "list" && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-accent-primary"
+            />
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "schedules"}
+          onClick={() => handleTabChange("schedules")}
+          className={`relative pb-3 text-sm font-medium transition-colors cursor-pointer inline-flex items-center gap-2 ${
+            activeTab === "schedules"
+              ? "text-text-primary font-semibold"
+              : "text-text-muted hover:text-text-primary"
+          }`}
+        >
+          <span>Schedules</span>
+          <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-mono tabular-nums text-text-secondary">
+            {activeSchedulesCount}
+          </span>
+          {activeTab === "schedules" && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-accent-primary"
+            />
+          )}
+        </button>
+      </div>
+
+      {activeTab === "schedules" ? (
+        <BackupSchedulesTab
+          servers={serverList}
+          serverMap={serverMap}
+          canManageSchedules={canManageSchedules}
+          scopedServerId={scopedFilterServerId}
+        />
+      ) : backupsQuery.isLoading ? (
         <TableSkeleton rows={6} cols={6} />
-      ) : error ? (
-        <ErrorState message={error instanceof Error ? error.message : "Failed to load backups"} />
+      ) : backupsQuery.error ? (
+        <ErrorState
+          message={
+            backupsQuery.error instanceof Error
+              ? backupsQuery.error.message
+              : "Failed to load backups"
+          }
+          onRetry={() => {
+            backupsQuery.refetch?.();
+            serversQuery.refetch?.();
+          }}
+        />
       ) : backups && backups.length === 0 ? (
         <EmptyState
           icon="backup"
-          title="No backups found"
-          description="Create your first backup to protect your server data."
+          title="No backups yet"
+          description="Create your first quick snapshot or encrypted archive to protect your worlds."
           action={
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
-            >
-              <Icon name="plus" size={16} />
-              New Backup
-            </button>
+            canCreate ? (
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
+              >
+                <Icon name="plus" size={14} />
+                <span>New Backup</span>
+              </button>
+            ) : undefined
           }
         />
       ) : (
         <>
-          {/* Slim Stat Strip */}
-          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 bg-surface-card border border-border-subtle rounded-xl divide-y sm:divide-y-0 sm:divide-x divide-border-subtle shadow-2xs">
-            <div className="p-3.5 flex flex-col justify-center">
-              <span className="text-xs font-medium text-text-muted">Total backups</span>
-              <span className="mt-0.5 text-lg font-bold tabular-nums text-text-primary">{stats.total}</span>
-            </div>
-
-            <div className="p-3.5 flex flex-col justify-center">
-              <span className="text-xs font-medium text-text-muted">Total size</span>
-              <span className="mt-0.5 text-lg font-bold tabular-nums text-text-primary">{formatBytes(stats.totalBytes)}</span>
-            </div>
-
-            <div className="p-3.5 flex flex-col justify-center">
-              <span className="text-xs font-medium text-text-muted">Last successful backup</span>
-              <div className="mt-0.5 flex items-baseline gap-1.5 truncate">
-                <span className="text-sm font-bold text-text-primary truncate">
-                  {stats.lastCompleted ? serverMap.get(stats.lastCompleted.server_id) ?? "Server" : "None"}
-                </span>
-                {stats.lastCompleted?.completed_at && (
-                  <span className="text-xs text-text-muted truncate">
-                    {formatDateTime(stats.lastCompleted.completed_at)}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="p-3.5 flex flex-col justify-center">
-              <span className="text-xs font-medium text-text-muted">Storage engines</span>
-              <div
-                className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-status-success cursor-help"
-                title="Dual-Engine Storage: Tier-1 Reflink / Tier-2 AEAD"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
-                <span>Dual-Engine Storage: Tier-1 Reflink / Tier-2 AEAD</span>
-              </div>
-            </div>
-          </div>
+          <BackupStatsStrip
+            backups={serverScopedBackups ?? []}
+            serverMap={serverMap}
+            serversResolved={serversResolved}
+            onFilterFailed={handleFilterFailed}
+          />
 
           {/* Filter Toolbar */}
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div>
-              <label className="sr-only" htmlFor="backup-server-filter">
-                Filter by server
-              </label>
-              <select
-                id="backup-server-filter"
-                value={serverFilter}
-                onChange={(e) => setServerFilter(e.target.value)}
-                className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
-              >
-                <option value="all">All servers</option>
-                {servers?.map((s) => (
-                  <option key={s.server_id} value={s.server_id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1">
+              {/* Search Input */}
+              <div className="relative min-w-[200px] max-w-xs flex-1">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">
+                  <Icon name="search" size={14} />
+                </span>
+                <input
+                  type="text"
+                  aria-label="Search backups"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search server, ID, scope, error..."
+                  className="w-full rounded-lg border border-border-default bg-surface-card pl-8 pr-8 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted hover:text-text-primary cursor-pointer"
+                  >
+                    <Icon name="x" size={13} />
+                  </button>
+                )}
+              </div>
 
-            <div>
-              <label className="sr-only" htmlFor="backup-status-filter">
-                Filter by status
-              </label>
+              {!isServerScoped && (
+                <select
+                  id="backup-server-filter"
+                  aria-label="Filter by server"
+                  value={serverFilter}
+                  onChange={(e) => handleServerFilterChange(e.target.value)}
+                  className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
+                >
+                  <option value="all">All servers</option>
+                  {serverList.map((s) => (
+                    <option key={s.server_id} value={s.server_id}>
+                      {s.name}
+                    </option>
+                  ))}
+                  {hasDeletedServerBackups && (
+                    <option value="deleted">Deleted servers</option>
+                  )}
+                </select>
+              )}
+
               <select
                 id="backup-status-filter"
+                aria-label="Filter by status"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
               >
-                {STATUS_FILTERS.map((s) => (
-                  <option key={s} value={s}>
-                    {s === "all" ? "All statuses" : s === "failed_timeout" ? "Failed (Timeout)" : s.charAt(0).toUpperCase() + s.slice(1)}
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                id="backup-tier-filter"
+                aria-label="Filter by type"
+                value={tierFilter}
+                onChange={(e) => setTierFilter(e.target.value)}
+                className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
+              >
+                {TIER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
             </div>
 
-            <div>
-              <label className="sr-only" htmlFor="backup-tier-filter">
-                Filter by tier
-              </label>
-              <select
-                id="backup-tier-filter"
-                value={tierFilter}
-                onChange={(e) => setTierFilter(e.target.value)}
-                className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
-              >
-                {TIER_FILTERS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-3 text-xs text-text-muted">
+              <span className="tabular-nums">
+                Showing {filtered.length} of {(serverScopedBackups ?? []).length}
+              </span>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="rounded-md px-2 py-1 font-medium text-text-accent hover:bg-surface-hover transition-colors cursor-pointer"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           </div>
 
@@ -284,121 +537,396 @@ export function BackupListPage() {
             <EmptyState
               icon="search"
               title="No matching backups"
-              description="No backups match your current filters."
+              description="No backups match your current search or filter selection."
+              action={
+                hasActiveFilters ? (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="rounded-lg border border-border-default bg-surface-card px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
+                  >
+                    Clear filters
+                  </button>
+                ) : undefined
+              }
             />
           ) : (
-            <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-2xs">
-              <table className="w-full text-sm text-text-primary border-collapse">
-                <thead>
-                  <tr className="border-b border-border-subtle bg-surface-muted/40 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                    <th className="px-4 py-3 text-left">Server</th>
-                    <th className="hidden px-4 py-3 text-left sm:table-cell">Tier & Type</th>
-                    <th className="px-4 py-3 text-left">Status</th>
-                    <th className="hidden px-4 py-3 text-left sm:table-cell">Size</th>
-                    <th className="hidden px-4 py-3 text-left md:table-cell">Created</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {filtered.map((b) => (
-                    <tr
+            <>
+              {/* Desktop Table */}
+              <div className="hidden md:block overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-2xs">
+                <table className="w-full text-sm text-text-primary border-collapse">
+                  <thead>
+                    <tr className="border-b border-border-subtle bg-surface-muted/40 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                      <th className="px-4 py-3 text-left">Server</th>
+                      <th className="px-4 py-3 text-left">Backup</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Size</th>
+                      <th className="px-4 py-3 text-left">Created</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-subtle">
+                    {filtered.map((b) => {
+                      const server = resolveBackupServer(b, serverMap, serversResolved);
+                      const tierMeta = getTierMeta(b.tier);
+                      const scopeMeta = getScopeMeta(b.backup_type);
+                      const statusMeta = getStatusMeta(b.status);
+                      const verification = verifyResults[b.backup_id];
+                      const isRowVerifying = verifyingId === b.backup_id;
+
+                      return (
+                        <tr
+                          key={b.backup_id}
+                          onClick={() => setDrawerBackup(b)}
+                          className="transition-colors hover:bg-surface-hover/50 cursor-pointer"
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-1 items-start">
+                              {server.deleted ? (
+                                <span className="inline-flex items-center rounded-md bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-muted">
+                                  Deleted Server
+                                </span>
+                              ) : (
+                                <span className="font-semibold text-text-primary">
+                                  {server.name}
+                                </span>
+                              )}
+                              <HashBadge hash={b.backup_id} />
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-full px-2.5 py-0.5 text-xs font-medium border ${
+                                  b.tier === "tier_2"
+                                    ? "bg-surface-elevated text-text-primary border-border-default"
+                                    : "bg-surface-muted text-text-secondary border-border-subtle"
+                                }`}
+                                title={tierMeta.subtitle}
+                              >
+                                {tierMeta.label}
+                              </span>
+                              <span className="text-xs font-medium text-text-secondary">
+                                {scopeMeta.shortLabel}
+                              </span>
+                              {b.pinned && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-text-muted"
+                                  title="Pinned backup — exempt from automated retention pruning"
+                                >
+                                  <Icon name="lock" size={10} />
+                                  <span>Pinned</span>
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <div className="space-y-1">
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusMeta.badgeClass}`}
+                              >
+                                <span
+                                  className={`mr-1.5 h-1.5 w-1.5 rounded-full bg-current ${
+                                    statusMeta.pulse ? "animate-pulse" : "opacity-80"
+                                  }`}
+                                  aria-hidden="true"
+                                />
+                                {statusMeta.label}
+                              </span>
+                              {b.error_message && (
+                                <div className="flex items-center gap-1.5 text-xs text-text-muted max-w-[220px]">
+                                  <span className="truncate">{b.error_message}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3 font-mono text-xs tabular-nums text-text-secondary">
+                            {formatBytes(b.size_bytes)}
+                          </td>
+
+                          <td
+                            className="px-4 py-3"
+                            title={formatDateTime(b.created_at)}
+                          >
+                            <div className="text-xs font-medium text-text-primary">
+                              {formatRelativeTime(b.created_at) || "just now"}
+                            </div>
+                            <div className="text-[11px] text-text-muted">
+                              {formatShortDateTime(b.created_at)}
+                            </div>
+                          </td>
+
+                          <td
+                            className="px-4 py-3"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-end gap-1.5">
+                              {b.status === "completed" && canRestore && (
+                                <button
+                                  type="button"
+                                  onClick={() => setRestoreTarget(b)}
+                                  disabled={restoreBackup.isPending}
+                                  aria-label={`Restore ${b.backup_id}`}
+                                  title="Restore Backup"
+                                  className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2.5 py-1 text-xs font-semibold text-status-warning transition-colors hover:opacity-90 disabled:opacity-40 cursor-pointer"
+                                >
+                                  <Icon name="restart" size={13} />
+                                  <span>Restore</span>
+                                </button>
+                              )}
+
+                              {b.status === "completed" && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    verification
+                                      ? setDrawerBackup(b)
+                                      : handleVerify(b)
+                                  }
+                                  disabled={isRowVerifying}
+                                  aria-label={`Verify ${b.backup_id}`}
+                                  title={
+                                    verification
+                                      ? verification.valid
+                                        ? "Verified — click to inspect details"
+                                        : verification.artifact_error ?? "Invalid — click to inspect details"
+                                      : "Verify integrity"
+                                  }
+                                  className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 cursor-pointer ${
+                                    verification
+                                      ? verification.valid
+                                        ? "border-status-success-border bg-status-success-bg text-status-success"
+                                        : "border-status-danger-border bg-status-danger-bg text-status-danger"
+                                      : "border-border-default bg-surface-elevated text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                                  }`}
+                                >
+                                  {isRowVerifying ? (
+                                    <span
+                                      className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+                                      aria-hidden="true"
+                                    />
+                                  ) : (
+                                    <Icon
+                                      name={verification && !verification.valid ? "alert" : "check"}
+                                      size={13}
+                                    />
+                                  )}
+                                  <span>
+                                    {isRowVerifying
+                                      ? "Verifying..."
+                                      : verification
+                                      ? verification.valid
+                                        ? "Verified"
+                                        : "Invalid"
+                                      : "Verify"}
+                                  </span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setDrawerBackup(b)}
+                                aria-label={`Details ${b.backup_id}`}
+                                title="Inspect backup details"
+                                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary cursor-pointer"
+                              >
+                                <Icon name="info" size={15} />
+                              </button>
+
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteTarget(b)}
+                                  disabled={b.pinned || deleteBackup.isPending}
+                                  aria-label="Delete backup"
+                                  title={
+                                    b.pinned
+                                      ? "Pinned for upgrade rollback. Confirm the upgrade or release pins to unlock deletion."
+                                      : "Delete backup"
+                                  }
+                                  className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  <Icon name="trash" size={15} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Card List */}
+              <div className="md:hidden space-y-3">
+                {filtered.map((b) => {
+                  const server = resolveBackupServer(b, serverMap, serversResolved);
+                  const tierMeta = getTierMeta(b.tier);
+                  const scopeMeta = getScopeMeta(b.backup_type);
+                  const statusMeta = getStatusMeta(b.status);
+                  const verification = verifyResults[b.backup_id];
+                  const isRowVerifying = verifyingId === b.backup_id;
+
+                  return (
+                    <div
                       key={b.backup_id}
-                      className="transition-colors hover:bg-surface-hover/50"
+                      onClick={() => setDrawerBackup(b)}
+                      className="rounded-xl border border-border-subtle bg-surface-card p-4 space-y-3 shadow-2xs cursor-pointer"
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-text-primary">
-                            {serverMap.get(b.server_id) ?? b.server_id}
-                          </span>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 space-y-1">
+                          {server.deleted ? (
+                            <span className="inline-flex items-center rounded-md bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-muted">
+                              Deleted Server
+                            </span>
+                          ) : (
+                            <div className="font-semibold text-sm text-text-primary truncate">
+                              {server.name}
+                            </div>
+                          )}
                           <HashBadge hash={b.backup_id} />
                         </div>
-                      </td>
-                      <td className="hidden px-4 py-3 sm:table-cell">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={TIER_BADGE_STYLES[b.tier] ?? TIER_BADGE_STYLES.tier_1}
-                            title={`Tier: ${b.tier === "tier_1" ? "Tier-1 Snapshot" : "Tier-2 Archive"}`}
-                          >
-                            {b.tier === "tier_1" ? "Tier-1 Snapshot" : "Tier-2 Archive"}
-                          </span>
-                          {b.pinned && (
-                            <span
-                              className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border bg-surface-elevated text-text-muted border border-border-subtle"
-                              title="Pinned backup — exempt from automated retention pruning"
-                            >
-                              <Icon name="lock" size={10} className="mr-1.5" />
-                              Pinned
-                            </span>
-                          )}
-                          <span className="ml-2 text-text-secondary font-mono text-xs capitalize">
-                            {b.backup_type}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            STATUS_STYLES[b.status] ?? "bg-surface-elevated text-text-muted"
-                          }`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${statusMeta.badgeClass}`}
                         >
-                          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current opacity-80" aria-hidden="true" />
-                          {b.status}
+                          <span
+                            className={`mr-1.5 h-1.5 w-1.5 rounded-full bg-current ${
+                              statusMeta.pulse ? "animate-pulse" : "opacity-80"
+                            }`}
+                            aria-hidden="true"
+                          />
+                          {statusMeta.label}
                         </span>
-                      </td>
-                      <td className="hidden px-4 py-3 font-mono text-xs text-text-secondary sm:table-cell">
-                        {formatBytes(b.size_bytes)}
-                      </td>
-                      <td className="hidden px-4 py-3 text-xs text-text-muted md:table-cell">
-                        {formatDateTime(b.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {b.status === "completed" && (
-                            <button
-                              type="button"
-                              onClick={() => setRestoreTarget(b)}
-                              disabled={restoreBackup.isPending}
-                              aria-label={`Restore ${b.backup_id}`}
-                              title="Restore Backup"
-                              className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2.5 py-1 text-xs font-semibold text-status-warning transition-colors hover:bg-status-warning/20 disabled:opacity-40 cursor-pointer"
-                            >
-                              <Icon name="restart" size={13} />
-                              <span className="hidden sm:inline">Restore</span>
-                            </button>
-                          )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                        <span className="rounded-full border border-border-subtle bg-surface-muted px-2 py-0.5 font-medium text-text-primary">
+                          {tierMeta.label}
+                        </span>
+                        <span>{scopeMeta.shortLabel}</span>
+                        {b.pinned && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-surface-elevated px-2 py-0.5 text-[11px] text-text-muted">
+                            <Icon name="lock" size={10} />
+                            <span>Pinned</span>
+                          </span>
+                        )}
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">{formatBytes(b.size_bytes)}</span>
+                        <span>·</span>
+                        <span>{formatRelativeTime(b.created_at) || "just now"}</span>
+                      </div>
+
+                      {b.error_message && (
+                        <p className="rounded-lg border border-status-danger-border bg-status-danger-bg/40 px-2.5 py-1.5 font-mono text-[11px] text-status-danger line-clamp-2">
+                          {b.error_message}
+                        </p>
+                      )}
+
+                      <div
+                        className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-border-subtle"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {b.status === "completed" && canRestore && (
                           <button
                             type="button"
-                            onClick={() => handleVerify(b)}
-                            disabled={verifyBackup.isPending}
-                            aria-label={`Verify ${b.backup_id}`}
-                            title={verifyResult[b.backup_id] ?? "Verify integrity"}
-                            className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
+                            onClick={() => setRestoreTarget(b)}
+                            disabled={restoreBackup.isPending}
+                            className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2.5 py-1 text-xs font-semibold text-status-warning disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                           >
-                            <Icon name="check" size={13} />
-                            <span className="hidden sm:inline">{verifyResult[b.backup_id] ?? "Verify"}</span>
+                            <Icon name="restart" size={12} />
+                            <span>Restore</span>
                           </button>
+                        )}
+                        {b.status === "completed" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              verification ? setDrawerBackup(b) : handleVerify(b)
+                            }
+                            disabled={isRowVerifying}
+                            className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary cursor-pointer"
+                          >
+                            <Icon name="check" size={12} />
+                            <span>
+                              {isRowVerifying
+                                ? "Verifying..."
+                                : verification
+                                ? verification.valid
+                                  ? "Verified"
+                                  : "Invalid"
+                                : "Verify"}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setDrawerBackup(b)}
+                          className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-2.5 py-1 text-xs font-medium text-text-secondary cursor-pointer"
+                        >
+                          <Icon name="info" size={12} />
+                          <span>Details</span>
+                        </button>
+                        {canDelete && (
                           <button
                             type="button"
                             onClick={() => setDeleteTarget(b)}
-                            disabled={deleteBackup.isPending}
-                            aria-label="Delete backup"
-                            title="Delete backup"
-                            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 cursor-pointer"
+                            disabled={b.pinned || deleteBackup.isPending}
+                            title={
+                              b.pinned
+                                ? "Pinned for upgrade rollback. Confirm the upgrade or release pins to unlock deletion."
+                                : "Delete backup"
+                            }
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-status-danger hover:bg-status-danger-bg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                           >
-                            <Icon name="trash" size={15} />
+                            <Icon name="trash" size={12} />
+                            <span>Delete</span>
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </>
       )}
 
-      {/* Shared Delete Confirmation Dialog */}
+      {/* Create Backup Modal */}
+      <CreateBackupModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        defaultServerId={serverFilter !== "all" ? serverFilter : undefined}
+      />
+
+      {/* Slide-Over Details Drawer */}
+      <BackupDetailsDrawer
+        backup={drawerBackup}
+        serverMap={serverMap}
+        serversResolved={serversResolved}
+        verification={drawerBackup ? verifyResults[drawerBackup.backup_id] : null}
+        isVerifying={Boolean(drawerBackup && verifyingId === drawerBackup.backup_id)}
+        canRestore={canRestore}
+        canDelete={canDelete}
+        onClose={() => setDrawerBackup(null)}
+        onVerify={handleVerify}
+        onRestore={(b) => setRestoreTarget(b)}
+        onDelete={(b) => setDeleteTarget(b)}
+      />
+
+      {/* Secret Vault Bridge Modal */}
+      <SecretVaultBridgeModal
+        open={vaultOpen}
+        onClose={() => setVaultOpen(false)}
+        servers={serverList}
+        scopedServerId={scopedFilterServerId}
+      />
+
+      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Delete backup?"
@@ -410,11 +938,12 @@ export function BackupListPage() {
         confirmLabel="Delete"
         cancelLabel="Cancel"
         variant="danger"
+        isPending={deleteBackup.isPending}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
 
-      {/* Shared Restore Confirmation Dialog */}
+      {/* Restore Confirmation Dialog */}
       <ConfirmDialog
         open={restoreTarget !== null}
         title="Restore backup?"
@@ -422,16 +951,19 @@ export function BackupListPage() {
         confirmLabel="Restore"
         cancelLabel="Cancel"
         variant="danger"
+        isPending={restoreBackup.isPending}
         onConfirm={handleConfirmRestore}
         onCancel={() => setRestoreTarget(null)}
-      />
-
-    <Modal open={vaultOpen} onClose={() => setVaultOpen(false)} title="Class-C Secret Vault">
-      <div className="space-y-2 text-sm text-text-muted">
-        <p>Class-C Secret Vault applies to Advanced-mode servers.</p>
-        <p>Select an Advanced server to manage Class-C snapshots, dynamic Class-C files, and secrets.</p>
-      </div>
-    </Modal>
+      >
+        {restoreTargetRunning && (
+          <div className="rounded-lg border border-status-warning-border bg-status-warning-bg/50 p-3 text-xs text-status-warning flex items-start gap-2">
+            <Icon name="alert" size={14} className="shrink-0 mt-0.5" />
+            <span>
+              This server is currently running. Restoring now will queue the restore to apply automatically on next startup.
+            </span>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

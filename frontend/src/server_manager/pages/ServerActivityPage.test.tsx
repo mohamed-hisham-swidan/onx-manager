@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ServerActivityPage } from "./ServerActivityPage";
+import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 
 const mockApi = {
   getServerActivity: vi.fn(),
@@ -71,7 +72,7 @@ describe("ServerActivityPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Change History & Activity Log")).toBeInTheDocument();
+      expect(screen.getByText("Change History")).toBeInTheDocument();
     });
 
     expect(screen.getByText("Server started successfully")).toBeInTheDocument();
@@ -84,7 +85,7 @@ describe("ServerActivityPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Change History & Activity Log")).toBeInTheDocument();
+      expect(screen.getByText("Change History")).toBeInTheDocument();
     });
 
     // Click on "Crashes" category
@@ -180,7 +181,7 @@ describe("ServerActivityPage", () => {
     expect(screen.getByText("feat-trial")).toBeInTheDocument();
   });
 
-  it("forwards the selected branch filter to getServerActivity", async () => {
+  it("forwards the selected branch filter to getServerActivity in advanced mode", async () => {
     mockApi.getServerBranches.mockResolvedValue([
       {
         id: "b-main",
@@ -198,7 +199,22 @@ describe("ServerActivityPage", () => {
       },
     ]);
 
-    renderPage();
+    render(
+      <MemoryRouter initialEntries={["/servers/srv-act-1/activity"]}>
+        <ServerBranchContext.Provider
+          value={{
+            branch: "main",
+            setBranch: vi.fn(),
+            gitBacked: true,
+            serverMode: "advanced",
+          }}
+        >
+          <Routes>
+            <Route path="/servers/:serverId/activity" element={<ServerActivityPage />} />
+          </Routes>
+        </ServerBranchContext.Provider>
+      </MemoryRouter>,
+    );
 
     const branchSelect = await screen.findByLabelText("Filter by branch");
     expect(screen.getByText("Server started successfully")).toBeInTheDocument();
@@ -211,5 +227,34 @@ describe("ServerActivityPage", () => {
         expect.objectContaining({ branch: "feat-trial" }),
       );
     });
+  });
+
+  it("formats relative time accurately for events >1 hour ago (2h ago, not 0h ago)", async () => {
+    const twoHoursAgo = Math.floor(Date.now() / 1000) - 2 * 3600 - 120;
+    mockApi.getServerActivity.mockResolvedValue({
+      items: [
+        {
+          ...mockLogs[0],
+          id: "act-2h",
+          timestamp: twoHoursAgo,
+          summary: "Event from two hours ago",
+        },
+      ],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Event from two hours ago")).toBeInTheDocument();
+    expect(screen.getByText("2h ago")).toBeInTheDocument();
+    expect(screen.queryByText("0h ago")).not.toBeInTheDocument();
+  });
+
+  it("does not fetch server branches in simple mode", async () => {
+    renderPage();
+    expect(await screen.findByText("Server started successfully")).toBeInTheDocument();
+    expect(mockApi.getServerBranches).not.toHaveBeenCalled();
   });
 });

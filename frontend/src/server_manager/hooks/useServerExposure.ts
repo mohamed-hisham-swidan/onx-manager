@@ -13,9 +13,27 @@ import type {
 } from "@/types";
 import { SERVICE_METADATA } from "@/types";
 
-export function useServerExposure(serverId: string, branch?: string) {
+export interface UseServerExposureOptions {
+  /** Whether to also poll host agent status & registered ports (defaults true; disable on Console to avoid 403/extra polls). */
+  includeAgentAndPorts?: boolean;
+  /** Whether exposure queries are enabled (defaults true). */
+  enabled?: boolean;
+  /** Whether playit.gg is currently selected or claim flow is active in UI (polls agent even while saved method is still "none"). */
+  isPlayitSelected?: boolean;
+}
+
+export function useServerExposure(
+  serverId: string,
+  branch?: string,
+  options?: UseServerExposureOptions,
+) {
   const api = createAuthenticatedApi();
   const queryClient = useQueryClient();
+  const includeAgentAndPorts = options?.includeAgentAndPorts ?? true;
+  const isQueryEnabled =
+    Boolean(serverId) &&
+    (options?.enabled ?? true) &&
+    typeof api?.getServerExposure === "function";
 
   // 1. Server Exposure Query with Adaptive Polling (Spec §5.1)
   const serverExposureQuery = useQuery<ServerExposureResponse>({
@@ -24,7 +42,7 @@ export function useServerExposure(serverId: string, branch?: string) {
       try {
         return await api.getServerExposure(serverId, branch);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) {
+        if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
           return {
             server_id: serverId,
             branch_name: branch || "main",
@@ -41,7 +59,7 @@ export function useServerExposure(serverId: string, branch?: string) {
         throw err;
       }
     },
-    enabled: Boolean(serverId),
+    enabled: isQueryEnabled,
     staleTime: 5_000,
     refetchInterval: (query) => {
       const status = query.state.data?.aggregate_status;
@@ -63,18 +81,19 @@ export function useServerExposure(serverId: string, branch?: string) {
 
   // 2. Host Agent Status Query (Spec §5.1)
   const isPlayitActive =
-    serverExposureQuery.data?.method === "playit" &&
-    serverExposureQuery.data?.desired_state === "ENABLED";
+    (serverExposureQuery.data?.method === "playit" &&
+      serverExposureQuery.data?.desired_state === "ENABLED") ||
+    Boolean(options?.isPlayitSelected);
 
   const agentStatusQuery = useQuery<AgentStatusResponse>({
     queryKey: queryKeys.exposure.agent(),
     queryFn: () => api.getAgentStatus(),
-    enabled: Boolean(serverId),
+    enabled: isQueryEnabled && includeAgentAndPorts,
     staleTime: 5_000,
     refetchInterval: (query) => {
-      if (!isPlayitActive) return false;
       const claimActive = query.state.data?.claim_active;
       const claimed = query.state.data?.claimed;
+      if (!isPlayitActive && !claimActive) return false;
       if (claimActive || !claimed) return 2_500; // Poll fast while waiting for claim authorization
       return 10_000;
     },
@@ -84,7 +103,7 @@ export function useServerExposure(serverId: string, branch?: string) {
   const portsQuery = useQuery<RegisteredPortResponse[]>({
     queryKey: queryKeys.exposure.ports(serverId),
     queryFn: () => api.listServerPorts(serverId),
-    enabled: Boolean(serverId),
+    enabled: isQueryEnabled && includeAgentAndPorts,
     staleTime: 10_000,
   });
 
@@ -182,6 +201,7 @@ export function useServerExposure(serverId: string, branch?: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId, branch) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.ports(serverId) });
       toast("success", "Target Removed", "Companion target removed successfully.");
     },
     onError: (err: Error) => {

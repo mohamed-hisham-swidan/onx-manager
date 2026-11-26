@@ -601,7 +601,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         cloudflare_mode=cf_mode,
                         subdomain_prefix=sub_prefix,
                         base_domain=base_dom,
-                        srv_record_enabled=False,
+                        srv_record_enabled=bool(command.srv_record_enabled),
                         ephemeral=(cf_mode == "quick"),
                     )
                     await self._enable_server_cloudflare_tcp(
@@ -701,47 +701,14 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             exposure.server_id, branch_name=exposure.branch_name
         )
 
-        # Case 0: Ephemeral Cloudflare Quick Tunnel (branch preview)
+        # Case 0: Block Cloudflare Quick Tunnel (trycloudflare.com) on raw TCP Minecraft servers
         if getattr(command, "cloudflare_mode", None) == "quick":
-            target_port = exposure.targets[0].local_port
-            if not CloudflaredSupervisor.is_installed():
-                for target in exposure.targets:
-                    target.mark_error(
-                        code="CLOUDFLARED_NOT_FOUND",
-                        message="cloudflared binary is not installed on this host.",
-                    )
-                return
-
-            exposure.set_branch_routing(
-                cloudflare_mode="quick",
-                subdomain_prefix=None,
-                base_domain=None,
-                srv_record_enabled=False,
-                ephemeral=True,
+            raise ValidationError(
+                "Cloudflare Quick Tunnels (trycloudflare.com) only support HTTP/Web "
+                "services and cannot proxy raw TCP Minecraft servers. Use Playit.gg "
+                "or a Named Cloudflare TCP Tunnel instead.",
+                field="cloudflare_mode",
             )
-            for target in exposure.targets:
-                target.mark_starting()
-
-            async def _run_branch_quick(p=target_port, sup=supervisor, cb=on_status):
-                async def _on_quick_url(url: str) -> None:
-                    async with UnitOfWork() as uow:
-                        r = SQLServerExposureRepository(uow.session)
-                        exp = await r.get(exposure.server_id, branch_name=exposure.branch_name)
-                        if exp is not None:
-                            for t in exp.targets:
-                                t.mark_active(url)
-                            _fold_aggregate(exp)
-                            await r.save(exp)
-                            await uow.commit()
-
-                await sup.start_quick(
-                    f"http://127.0.0.1:{p}",
-                    on_status=cb,
-                    on_url=_on_quick_url,
-                )
-
-            post_commit.append(_run_branch_quick)
-            return
 
         # Case 1: Token provided
         if token:
@@ -1437,22 +1404,40 @@ class DeleteServerPortHandler(CommandHandler[DeleteServerPortCommand]):
         post_commit: list[Callable[[], Awaitable[None]]] = []
         async with UnitOfWork(self._event_bus) as uow:
             ports_repo = SQLServerRegisteredPortRepository(uow.session)
-            port_model = await ports_repo.get(command.port_id)
-            if port_model is None or port_model.server_id != command.server_id:
-                raise NotFoundError(
-                    f"Registered port {command.port_id} not found on server {command.server_id}"
-                )
-
-            st = port_model.service_type
-            await ports_repo.delete(command.port_id)
-
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            port_model = await ports_repo.get(command.port_id)
             exposure = await repo.get(command.server_id)
-            if exposure:
-                target_to_remove = next(
-                    (t for t in exposure.targets if t.service_type.value == st), None
-                )
-                if target_to_remove:
+
+            target_to_remove = None
+            if port_model is not None and port_model.server_id == command.server_id:
+                st = port_model.service_type
+                await ports_repo.delete(command.port_id)
+                if exposure:
+                    target_to_remove = next(
+                        (t for t in exposure.targets if t.service_type.value == st), None
+                    )
+            else:
+                # Also allow deleting a companion exposure target directly by target_id
+                if exposure:
+                    target_to_remove = next(
+                        (t for t in exposure.targets if t.id == command.port_id), None
+                    )
+                if target_to_remove is None:
+                    raise NotFoundError(
+                        f"Registered port or target {command.port_id} "
+                        f"not found on server {command.server_id}"
+                    )
+                if target_to_remove.service_type == ServiceType.JAVA:
+                    raise ValidationError(
+                        "Cannot delete the primary Java game target.",
+                        field="target_id",
+                    )
+                all_ports = await ports_repo.list_by_server(command.server_id)
+                for p in all_ports:
+                    if p.service_type == target_to_remove.service_type.value:
+                        await ports_repo.delete(p.id)
+
+            if exposure and target_to_remove:
                     if (
                         exposure.desired_state == DesiredState.ENABLED
                         and exposure.method == ExposureMethod.PORT_FORWARD
@@ -1637,11 +1622,21 @@ class ResetAgentHandler(CommandHandler[ResetAgentCommand]):
         post_commit: list[Callable[[], Awaitable[Any]]] = []
         async with UnitOfWork(self._event_bus) as uow:
             repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            exp_repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
             agent = await repo.get()
             agent.reset()
             await repo.save(agent)
             for event in agent.collect_events():
                 uow.add_event(event)
+            for exp in await exp_repo.list_playit_enabled():
+                for target in exp.targets:
+                    target._transition_to(ExposureStatus.CLAIM_REQUIRED)
+                    target.set_error(
+                        "CLAIM_REQUIRED",
+                        "playit.gg host agent was reset; claim required to restore tunnels",
+                    )
+                _fold_aggregate(exp)
+                await exp_repo.save(exp)
             await uow.commit()
 
         post_commit.append(get_playit_supervisor().stop)
@@ -2711,6 +2706,7 @@ async def _handle_playit_claimed_secret(secret: str) -> None:
         await supervisor.restart(
             secret=secret_bytes,
             on_status=_persist_playit_status,
+            on_reconcile=_reconcile_playit_tunnels,
         )
     except Exception as exc:
         logger.exception("Failed to handle playit claimed secret: %s", exc)
@@ -3085,11 +3081,16 @@ def _panel_payload(
     }
 
 
-def _target_payload(target: ServerExposureTarget) -> dict:
+def _target_payload(
+    target: ServerExposureTarget,
+    *,
+    method: ExposureMethod | None = None,
+) -> dict:
     dashboard_url = None
     setup_instructions = None
     if (
-        target.status in (ExposureStatus.STARTING, ExposureStatus.ACTIVE)
+        method == ExposureMethod.PLAYIT
+        and target.status in (ExposureStatus.STARTING, ExposureStatus.ACTIVE)
         and not target.public_address
     ):
         dashboard_url = "https://playit.gg/manage"
@@ -3160,13 +3161,20 @@ def _exposure_payload(
         fqdn = f"{exposure.subdomain_prefix}.{exposure.base_domain}"
         srv_hint = f"_minecraft._tcp.{fqdn} 300 IN SRV 0 5 {ext_port} {fqdn}"
 
+    reported_method = (
+        "none"
+        if exposure.desired_state == DesiredState.DISABLED
+        and exposure.method == ExposureMethod.PORT_FORWARD
+        else exposure.method.value
+    )
+
     return {
         "server_id": exposure.server_id,
         "branch_name": exposure.branch_name,
         "branch_runtime_status": ctx.get("branch_runtime_status"),
         "allocated_game_port": allocated_port,
         "allocated_port_set": ctx.get("allocated_port_set"),
-        "method": exposure.method.value,
+        "method": reported_method,
         "desired_state": exposure.desired_state.value,
         "aggregate_status": exposure.aggregate_status.value,
         "error_code": error_code,
@@ -3181,5 +3189,5 @@ def _exposure_payload(
         "ephemeral": exposure.ephemeral,
         "upnp_status": upnp_status,
         "detected_wan_ip": detected_wan_ip,
-        "targets": [_target_payload(t) for t in exposure.targets],
+        "targets": [_target_payload(t, method=exposure.method) for t in exposure.targets],
     }

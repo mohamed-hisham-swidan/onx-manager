@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useState, useMemo, useRef } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import {
@@ -7,8 +7,11 @@ import {
   useEnablePlugin,
   useDisablePlugin,
   useUninstallPlugin,
+  useUploadPluginOrMod,
 } from "@/server_manager/hooks/usePlugins";
+import { useFleetPermissions } from "@/server_manager/components/servers/serversUtils";
 import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
+import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -112,7 +115,7 @@ export function parsePluginMetadata(plugin: PluginResponse): ParsedPluginMetadat
       : "Unnamed Plugin";
   }
 
-  const author = plugin.author?.trim() || "Local .jar / Modrinth";
+  const author = plugin.author?.trim() || "";
 
   // Derive loaders
   const loaders: string[] = [];
@@ -131,9 +134,6 @@ export function parsePluginMetadata(plugin: PluginResponse): ParsedPluginMetadat
   }
   if (searchStr.includes("bukkit") && !loaders.some((l) => l.toLowerCase() === "bukkit")) {
     loaders.push("Bukkit");
-  }
-  if (loaders.length === 0) {
-    loaders.push("Paper", "Purpur", "Bukkit");
   }
 
   return {
@@ -187,13 +187,23 @@ export function PluginListPage() {
     return "grid";
   });
 
+  const pluginServers = useMemo(
+    () => (servers ?? []).filter((s) => getServerCapabilities(s.server_type).supportsPlugins),
+    [servers],
+  );
+
   const effectiveServerId = routeServerId
     ? routeServerId
     : touched
       ? selectedServerId
-      : lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
+      : lastUsedServerId && pluginServers.some((s) => s.server_id === lastUsedServerId)
         ? lastUsedServerId
         : selectedServerId;
+
+  const activeServer = servers?.find((s) => s.server_id === effectiveServerId);
+  const activeServerType = activeServer?.server_type;
+  const capabilities = getServerCapabilities(activeServerType);
+  const isNonPluginServer = Boolean(activeServerType) && !capabilities.supportsPlugins;
 
   const branchCtx = useServerBranchContext();
   const gitBacked = Boolean(branchCtx?.gitBacked);
@@ -242,11 +252,33 @@ export function PluginListPage() {
     onError: (err) => toast("error", "Commit failed", errorMessage(err)),
   });
 
-  const { data: plugins, isLoading, error } = usePluginsList(effectiveServerId, activeBranch);
+  const { data: plugins, isLoading, error } = usePluginsList(
+    isNonPluginServer ? "" : effectiveServerId,
+    activeBranch,
+  );
   const enablePlugin = useEnablePlugin(effectiveServerId, activeBranch);
   const disablePlugin = useDisablePlugin(effectiveServerId, activeBranch);
   const uninstallPlugin = useUninstallPlugin(effectiveServerId, activeBranch);
-  const hasUncommitted = Boolean(isWorkingBranch && plugins?.some((p) => p.is_committed === false));
+  const uploadPlugin = useUploadPluginOrMod(effectiveServerId, activeBranch);
+  const permissions = useFleetPermissions();
+  const canManagePlugins = Boolean(effectiveServerId && permissions.canManagePlugins(effectiveServerId));
+  const canDropUploadJar = Boolean(
+    effectiveServerId && canManagePlugins && !isMainProtected && !isNonPluginServer,
+  );
+  const jarInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isBlockedDragOver, setIsBlockedDragOver] = useState(false);
+  const [uploadBatchState, setUploadBatchState] = useState<{
+    current: number;
+    total: number;
+    fileName: string;
+  } | null>(null);
+  const hasUncommitted = Boolean(
+    isWorkingBranch &&
+      (plugins?.some((p) => p.is_committed === false) ||
+        Boolean((plugins as { __hasUncommitted?: boolean } | undefined)?.__hasUncommitted)),
+  );
 
   const filteredPlugins = useMemo(() => {
     if (!plugins) return [];
@@ -275,6 +307,13 @@ export function PluginListPage() {
   }
 
   function handleInstall() {
+    if (!canManagePlugins || isMainProtected) return;
+    if (routeServerId) {
+      const branchQuery =
+        isWorkingBranch && activeBranch ? `?branch=${encodeURIComponent(activeBranch)}` : "";
+      navigate(`/servers/${encodeURIComponent(effectiveServerId)}/plugins/marketplace${branchQuery}`);
+      return;
+    }
     const branchSuffix = isWorkingBranch && activeBranch ? `&branch=${encodeURIComponent(activeBranch)}` : "";
     navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}${branchSuffix}`);
   }
@@ -293,8 +332,135 @@ export function PluginListPage() {
     });
   }
 
+  async function handleJarFiles(files: File[]) {
+    if (!effectiveServerId || files.length === 0) return;
+    if (isMainProtected) {
+      toast("error", "Branch protected", "Switch to a working branch before uploading plugins.");
+      return;
+    }
+    if (!canManagePlugins) return;
+
+    const jarFiles: File[] = [];
+    for (const file of files) {
+      if (file.name.toLowerCase().endsWith(".jar")) {
+        jarFiles.push(file);
+      } else {
+        toast(
+          "error",
+          "Invalid file type",
+          `"${file.name}" is not a .jar file. Drop valid Minecraft plugin .jar files here.`,
+        );
+      }
+    }
+    if (jarFiles.length === 0) return;
+
+    try {
+      for (let i = 0; i < jarFiles.length; i++) {
+        const file = jarFiles[i];
+        setUploadBatchState({ current: i + 1, total: jarFiles.length, fileName: file.name });
+        try {
+          const res = await uploadPlugin.mutateAsync(file);
+          const installedName = typeof res?.name === "string" && res.name ? res.name : file.name;
+          toast(
+            "success",
+            "Plugin uploaded",
+            isWorkingBranch && activeBranch
+              ? `Validated & staged "${installedName}" on branch "${activeBranch}".`
+              : `Validated & installed "${installedName}".`,
+          );
+        } catch (err) {
+          toast("error", `Failed to upload ${file.name}`, errorMessage(err));
+        }
+      }
+    } finally {
+      setUploadBatchState(null);
+    }
+  }
+
+  function handleDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    if (!effectiveServerId || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (canDropUploadJar) {
+      setIsDraggingOver(true);
+    } else if (isMainProtected && canManagePlugins) {
+      setIsBlockedDragOver(true);
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!effectiveServerId || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = canDropUploadJar ? "copy" : "none";
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDraggingOver(false);
+      setIsBlockedDragOver(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    if (!effectiveServerId || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingOver(false);
+    setIsBlockedDragOver(false);
+    if (!canDropUploadJar) return;
+    const dropped = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+    if (dropped.length > 0) {
+      void handleJarFiles(dropped);
+    }
+  }
+
   return (
-    <div className="space-y-6">
+    <div
+      data-testid="plugins-dropzone"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="relative space-y-6"
+    >
+      <input
+        type="file"
+        accept=".jar"
+        multiple
+        ref={jarInputRef}
+        aria-label="Upload plugin JAR"
+        className="hidden"
+        onChange={(e) => {
+          const selected = e.target.files ? Array.from(e.target.files) : [];
+          if (selected.length > 0) void handleJarFiles(selected);
+          e.target.value = "";
+        }}
+      />
+
+      {isDraggingOver && canDropUploadJar && (
+        <div
+          data-testid="plugins-jar-drop-overlay"
+          className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-accent-primary bg-surface-card/95 p-8 text-center backdrop-blur-xs"
+        >
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-accent-primary/15 text-accent-primary">
+            <Icon name="upload" size={24} />
+          </div>
+          <p className="text-sm font-semibold text-text-primary">
+            Drop .jar plugin file(s) to validate &amp; install
+            {isWorkingBranch && activeBranch ? ` on branch "${activeBranch}"` : ""}
+          </p>
+          <p className="mt-1 text-xs text-text-muted">
+            Validates plugin.yml, paper-plugin.yml, bungee.yml, or velocity-plugin.json before installing
+          </p>
+        </div>
+      )}
+
       <PageHeader
         title="Plugins"
         description={
@@ -306,27 +472,69 @@ export function PluginListPage() {
         actions={
           effectiveServerId ? (
             <div className="flex flex-wrap items-center gap-2">
-              {gitBacked && activeBranch && (
-                <span
-                  data-testid="plugins-branch-badge"
-                  className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2.5 py-1 font-mono text-xs font-semibold text-accent-primary"
+              {!isNonPluginServer && canManagePlugins && (
+                <button
+                  type="button"
+                  data-testid="plugins-upload-jar-btn"
+                  disabled={isMainProtected || uploadBatchState !== null}
+                  onClick={() => jarInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3.5 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
                 >
-                  Branch: {activeBranch}
-                </span>
+                  <Icon name="upload" size={16} />
+                  <span>Upload .jar</span>
+                </button>
               )}
-              <button
-                type="button"
-                disabled={isMainProtected}
-                onClick={handleInstall}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-              >
-                <Icon name="plus" size={16} />
-                Install Plugin
-              </button>
+              {!isNonPluginServer && (
+                <button
+                  type="button"
+                  disabled={isMainProtected || !canManagePlugins}
+                  onClick={handleInstall}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                >
+                  <Icon name="plus" size={16} />
+                  Install Plugin
+                </button>
+              )}
             </div>
           ) : undefined
         }
       />
+
+      {isBlockedDragOver && isMainProtected && effectiveServerId && (
+        <div
+          data-testid="plugins-drop-main-blocked-notice"
+          className="flex items-center gap-2 rounded-xl border border-status-warning-border bg-status-warning-bg px-4 py-2.5 text-xs font-medium text-status-warning"
+        >
+          <Icon name="lock" size={14} />
+          <span>
+            Uploading plugins is disabled on protected branch &ldquo;main&rdquo;. Switch to or create a working branch first.
+          </span>
+        </div>
+      )}
+
+      {uploadBatchState && (
+        <div
+          data-testid="plugins-upload-progress"
+          className="flex flex-col gap-1.5 rounded-xl border border-border-subtle bg-surface-muted px-4 py-2.5 text-xs"
+        >
+          <div className="flex items-center justify-between gap-2 text-text-secondary">
+            <span className="truncate font-medium">
+              Validating &amp; uploading {uploadBatchState.current} of {uploadBatchState.total}: {uploadBatchState.fileName}
+            </span>
+            <span className="font-mono tabular-nums text-text-muted shrink-0">
+              {Math.round((uploadBatchState.current / uploadBatchState.total) * 100)}%
+            </span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-card">
+            <div
+              className="h-full rounded-full bg-accent-primary transition-all duration-200"
+              style={{
+                width: `${Math.min(100, Math.round((uploadBatchState.current / uploadBatchState.total) * 100))}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {isMainProtected && effectiveServerId && (
         <div
@@ -380,10 +588,10 @@ export function PluginListPage() {
         >
           <div>
             <p className="font-semibold text-status-info">
-              Uncommitted lockfile changes on &ldquo;{activeBranch}&rdquo;
+              Uncommitted changes on &ldquo;{activeBranch}&rdquo;
             </p>
             <p className="text-text-secondary">
-              Save &amp; commit your updated <code className="font-mono">onx-jars.lock.json</code> before starting a branch container or merging.
+              Save &amp; commit your changes before testing or merging this branch.
             </p>
           </div>
           <button
@@ -411,7 +619,7 @@ export function PluginListPage() {
             className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
           >
             <option value="">Select a server...</option>
-            {servers?.map((s) => (
+            {pluginServers.map((s) => (
               <option key={s.server_id} value={s.server_id}>
                 {s.name}
               </option>
@@ -420,7 +628,7 @@ export function PluginListPage() {
         </div>
       )}
 
-      {effectiveServerId && (
+      {effectiveServerId && !isNonPluginServer && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
           {/* Segmented Tabs */}
           <div className="flex items-center gap-1 rounded-lg border border-border-subtle bg-surface-page p-1">
@@ -435,14 +643,6 @@ export function PluginListPage() {
                   {plugins.length}
                 </span>
               )}
-            </button>
-            <button
-              type="button"
-              onClick={handleInstall}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary cursor-pointer"
-            >
-              <Icon name="globe" size={14} />
-              <span>Browse Marketplace</span>
             </button>
           </div>
 
@@ -490,6 +690,39 @@ export function PluginListPage() {
           title="Select a server"
           description="Choose a server above to view its plugins."
         />
+      ) : isNonPluginServer ? (
+        <div
+          data-testid="non-plugin-server-guard"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-info-border bg-status-info-bg px-4 py-4 text-sm text-text-primary"
+        >
+          <div className="flex items-center gap-2.5">
+            <Icon name="info" size={18} className="shrink-0 text-status-info" />
+            <span>
+              {capabilities.supportsMods ? (
+                <>
+                  This server runs <span className="font-semibold">{activeServerType}</span>, which
+                  supports mods instead of Bukkit/Paper plugins.
+                </>
+              ) : (
+                <>
+                  This server runs <span className="font-semibold">{activeServerType}</span>, which
+                  does not support plugins or mods.
+                </>
+              )}
+            </span>
+          </div>
+          {capabilities.supportsMods && (
+            <Link
+              to={`/servers/${encodeURIComponent(effectiveServerId)}/mods${
+                isWorkingBranch && activeBranch ? `?branch=${encodeURIComponent(activeBranch)}` : ""
+              }`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors"
+            >
+              <Icon name="plugin" size={14} />
+              Manage Mods
+            </Link>
+          )}
+        </div>
       ) : isLoading ? (
         <TableSkeleton rows={4} cols={4} />
       ) : error ? (
@@ -539,55 +772,31 @@ export function PluginListPage() {
                               {meta.title}
                             </h3>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <SourceBadge plugin={p} />
-                              {isWorkingBranch && (
+                              {meta.version && meta.version !== "unknown" && (
+                                <span
+                                  className="font-mono text-xs text-text-muted"
+                                  title={isWorkingBranch && p.checksum ? `sha256:${p.checksum}` : undefined}
+                                >
+                                  v{meta.version}
+                                </span>
+                              )}
+                              {p.author && (
+                                <span className="text-xs text-text-muted">by {p.author}</span>
+                              )}
+                              {isWorkingBranch && p.is_committed === false && (
                                 <span
                                   data-testid={`plugin-commit-badge-${p.plugin_id}`}
-                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border ${
-                                    p.is_committed === false
-                                      ? "bg-status-warning-bg text-status-warning border-status-warning-border"
-                                      : "bg-status-success-bg text-status-success border-status-success-border"
-                                  }`}
+                                  className="inline-flex items-center rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-[10px] font-medium text-status-warning"
                                 >
-                                  {p.is_committed === false ? "Uncommitted" : "Committed"}
+                                  Uncommitted
                                 </span>
                               )}
-                              {isWorkingBranch && p.checksum && (
-                                <span className="font-mono text-[10px] text-text-muted" title={p.checksum}>
-                                  sha256:{p.checksum.slice(0, 8)}
-                                </span>
-                              )}
-                              {meta.version && meta.version !== "unknown" && (
-                                <span className="inline-flex items-center gap-0.5 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 font-mono text-[11px] font-medium text-text-muted">
-                                  <span className="text-text-muted">v</span>
-                                  <span>{meta.version}</span>
-                                </span>
-                              )}
-                              <span className="text-xs text-text-muted">
-                                {p.author ? (
-                                  `by ${p.author}`
-                                ) : (
-                                  <span className="inline-flex items-center rounded border border-border-subtle bg-surface-elevated px-1.5 py-0.5 text-[10px] text-text-muted font-medium">
-                                    Local .jar / Modrinth
-                                  </span>
-                                )}
-                              </span>
                             </div>
                           </div>
                         </div>
 
                         {/* Interactive Enable / Disable Toggle Switch */}
                         <div className="flex items-center gap-2 shrink-0">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
-                              isEnabled
-                                ? "bg-status-success-bg text-status-success border-status-success/30"
-                                : "bg-surface-page text-text-muted border-border-default"
-                            }`}
-                          >
-                            <span className="me-1 h-1.5 w-1.5 rounded-full bg-current opacity-70" aria-hidden="true" />
-                            {p.status}
-                          </span>
                           <button
                             type="button"
                             role="switch"
@@ -615,7 +824,12 @@ export function PluginListPage() {
                                 });
                               }
                             }}
-                            disabled={isMainProtected || disablePlugin.isPending || enablePlugin.isPending}
+                            disabled={
+                              isMainProtected ||
+                              !canManagePlugins ||
+                              disablePlugin.isPending ||
+                              enablePlugin.isPending
+                            }
                             aria-label={toggleLabel}
                             title={toggleLabel}
                             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 disabled:opacity-40 ${
@@ -647,36 +861,22 @@ export function PluginListPage() {
                           {filename}
                         </div>
                       )}
-
-                      {/* Loader tags */}
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                        {meta.loaders.map((ldr) => (
-                          <span
-                            key={ldr}
-                            className="inline-flex items-center rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
-                          >
-                            {ldr}
-                          </span>
-                        ))}
-                      </div>
                     </div>
 
                     {/* Action Footer */}
                     <div className="mt-3.5 flex items-center justify-between border-t border-border-subtle pt-3">
                       <div className="flex items-center gap-1.5">
-                        {(p as { has_update?: boolean }).has_update && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-md bg-accent-primary/10 px-2.5 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
-                            title={`Update ${p.name}`}
-                            aria-label={`Update ${p.name}`}
-                          >
-                            <Icon name="download" size={13} />
-                            Update
-                          </button>
-                        )}
                         <button
                           type="button"
+                          onClick={() => {
+                            const branchSuffix =
+                              isWorkingBranch && activeBranch
+                                ? `&branch=${encodeURIComponent(activeBranch)}`
+                                : "";
+                            navigate(
+                              `/servers/${encodeURIComponent(effectiveServerId)}/files?path=plugins${branchSuffix}`,
+                            );
+                          }}
                           className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
                           title={`Configure ${meta.title}`}
                         >
@@ -688,7 +888,7 @@ export function PluginListPage() {
                       <button
                         type="button"
                         onClick={() => setUninstallTarget(p)}
-                        disabled={isMainProtected || uninstallPlugin.isPending}
+                        disabled={isMainProtected || !canManagePlugins || uninstallPlugin.isPending}
                         aria-label={uninstallLabel}
                         title={uninstallLabel}
                         className="inline-flex items-center gap-1 rounded-md border border-status-danger/20 bg-status-danger-bg px-2.5 py-1 text-xs font-medium text-status-danger hover:bg-status-danger/20 transition-colors disabled:opacity-40 cursor-pointer"
@@ -755,15 +955,9 @@ export function PluginListPage() {
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-text-primary">{meta.title}</p>
                               <SourceBadge plugin={p} />
-                              {isWorkingBranch && (
-                                <span
-                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border ${
-                                    p.is_committed === false
-                                      ? "bg-status-warning-bg text-status-warning border-status-warning-border"
-                                      : "bg-status-success-bg text-status-success border-status-success-border"
-                                  }`}
-                                >
-                                  {p.is_committed === false ? "Uncommitted" : "Committed"}
+                              {isWorkingBranch && p.is_committed === false && (
+                                <span className="inline-flex items-center rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-[10px] font-medium text-status-warning">
+                                  Uncommitted
                                 </span>
                               )}
                             </div>
@@ -791,11 +985,7 @@ export function PluginListPage() {
                         )}
                       </td>
                       <td className="hidden px-4 py-3 text-text-muted md:table-cell">
-                        {p.author || (
-                          <span className="inline-flex items-center rounded border border-border-subtle bg-surface-elevated px-1.5 py-0.5 text-[10px] text-text-muted font-medium">
-                            Local .jar / Modrinth
-                          </span>
-                        )}
+                        {p.author || "—"}
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -811,19 +1001,17 @@ export function PluginListPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1.5">
-                          {(p as { has_update?: boolean }).has_update && (
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1 rounded-lg bg-accent-primary/10 px-2 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
-                              title={`Update ${p.name}`}
-                              aria-label={`Update ${p.name}`}
-                            >
-                              <Icon name="download" size={13} />
-                              Update
-                            </button>
-                          )}
                           <button
                             type="button"
+                            onClick={() => {
+                              const branchSuffix =
+                                isWorkingBranch && activeBranch
+                                  ? `&branch=${encodeURIComponent(activeBranch)}`
+                                  : "";
+                              navigate(
+                                `/servers/${encodeURIComponent(effectiveServerId)}/files?path=plugins${branchSuffix}`,
+                              );
+                            }}
                             className="inline-flex items-center gap-1 rounded-lg border border-border-subtle bg-surface-elevated px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
                             title={`Configure ${meta.title}`}
                           >
@@ -844,7 +1032,9 @@ export function PluginListPage() {
                                   onError: (err) => toast("error", "Disable failed", errorMessage(err)),
                                 })
                               }
-                              disabled={isMainProtected || disablePlugin.isPending}
+                              disabled={
+                                isMainProtected || !canManagePlugins || disablePlugin.isPending
+                              }
                               aria-label={toggleLabel}
                               title={toggleLabel}
                               className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -865,7 +1055,9 @@ export function PluginListPage() {
                                   onError: (err) => toast("error", "Enable failed", errorMessage(err)),
                                 })
                               }
-                              disabled={isMainProtected || enablePlugin.isPending}
+                              disabled={
+                                isMainProtected || !canManagePlugins || enablePlugin.isPending
+                              }
                               aria-label={toggleLabel}
                               title={toggleLabel}
                               className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -876,7 +1068,9 @@ export function PluginListPage() {
                           <button
                             type="button"
                             onClick={() => setUninstallTarget(p)}
-                            disabled={isMainProtected || uninstallPlugin.isPending}
+                            disabled={
+                              isMainProtected || !canManagePlugins || uninstallPlugin.isPending
+                            }
                             aria-label={uninstallLabel}
                             title={uninstallLabel}
                             className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -909,14 +1103,17 @@ export function PluginListPage() {
           title="No plugins installed"
           description="Install a plugin from the marketplace, or drop a .jar file directly into the server's plugins/ folder — it will appear here automatically."
           action={
-            <button
-              type="button"
-              onClick={handleInstall}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
-            >
-              <Icon name="plus" size={16} />
-              Install Plugin
-            </button>
+            canManagePlugins ? (
+              <button
+                type="button"
+                disabled={isMainProtected}
+                onClick={handleInstall}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              >
+                <Icon name="plus" size={16} />
+                Install Plugin
+              </button>
+            ) : undefined
           }
         />
       )}

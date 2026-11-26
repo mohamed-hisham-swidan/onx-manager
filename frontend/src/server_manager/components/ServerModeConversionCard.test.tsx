@@ -99,9 +99,10 @@ describe("ServerModeConversionCard", () => {
     mockConvertToSimple.mockResolvedValue({ new_server_id: "srv-2", name: "Production SMP (Simple)" });
   });
 
-  it("renders Simple mode state and enables conversion when stopped", () => {
+  it("renders Simple mode state without redundant View Server Backups button and enables conversion when stopped", () => {
     renderCard({ mode: "simple", status: "stopped" });
     expect(screen.getByText("Mode: Simple")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Server Backups" })).not.toBeInTheDocument();
     const btn = screen.getByRole("button", { name: /Convert to Advanced/ });
     expect(btn).not.toBeDisabled();
   });
@@ -124,7 +125,7 @@ describe("ServerModeConversionCard", () => {
     expect(screen.getByText(/Conversion complete/i)).toBeInTheDocument();
     expect(screen.getByText("abc123")).toBeInTheDocument();
     expect(screen.getByText("bkp-1")).toBeInTheDocument();
-    expect(screen.getByText(/CAS objects ingested: 3/)).toBeInTheDocument();
+    expect(screen.getByText(/shared-storage objects indexed: 3/)).toBeInTheDocument();
   });
 
   it("renders Advanced mode state with untouched source explanation", () => {
@@ -152,17 +153,10 @@ describe("ServerModeConversionCard", () => {
     expect(screen.getByRole("button", { name: "Go to New Server Settings" })).toBeInTheDocument();
   });
 
-  it("View Server Backups navigates to /backups?server_id=srv-1", () => {
+  it("keeps header free of redundant backups link in Advanced mode too", () => {
     renderCardWithLocation({ mode: "advanced" });
     expect(screen.getByTestId("location-display")).toHaveTextContent("/servers/srv-1/settings");
-    const backupsBtn = screen.getByRole("button", { name: "View Server Backups" });
-    fireEvent.click(backupsBtn);
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/backups?server_id=srv-1");
-  });
-
-  it("View Server Backups is present in Simple mode too", () => {
-    renderCardWithLocation({ mode: "simple", status: "stopped" });
-    expect(screen.getByRole("button", { name: "View Server Backups" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Server Backups" })).not.toBeInTheDocument();
   });
 
   it("blocks Advanced -> Simple conversion when name is empty", async () => {
@@ -195,7 +189,7 @@ describe("ServerModeConversionCard", () => {
     renderCard({ mode: "simple", status: "stopped" });
     await user.click(screen.getByRole("button", { name: /Convert to Advanced/ }));
     await user.click(screen.getByRole("button", { name: "Convert" }));
-    expect(screen.getByText(/Class-B secret file detected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Secret file detected in config folder/i)).toBeInTheDocument();
   });
 
   it("maps CAS_UNSUPPORTED_PLATFORM to friendly copy", async () => {

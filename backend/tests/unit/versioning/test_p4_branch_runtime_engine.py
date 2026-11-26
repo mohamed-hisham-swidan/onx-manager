@@ -588,3 +588,113 @@ async def test_simple_mode_and_nondocker_fail_closed(tmp_path):
     )
     with pytest.raises(ServerModeVersioningDisabledError):
         await svc.start_branch_runtime(req2)
+
+
+@_POSIX_ONLY
+@pytest.mark.asyncio
+async def test_stale_dead_active_runtime_reaped_and_live_limit_names_branch(
+    tmp_path, monkeypatch
+):
+    """Dead Docker containers in server_runtimes are auto-reaped; live ones name the branch."""
+    from app.core.exceptions import BranchConcurrencyLimitError
+    from app.modules.versioning.infrastructure.models import ServerBranchModel, ServerRuntimeModel
+
+    layout, server_root, engine, factory, lockfile = await _setup(tmp_path, monkeypatch)
+    gbs = GitBranchService(layout)
+    gbs.create_branch("srv-1", server_root, "upgrade-1.21.4")
+
+    # Seed a stale "running" runtime row whose Docker container is dead/missing
+    async with factory() as s:
+        s.add(
+            ServerBranchModel(
+                id="br-stale",
+                server_id="srv-1",
+                name="dev",
+                runtime_status="running",
+                active_runtime_id="rt-stale-zombie",
+            )
+        )
+        s.add(
+            ServerRuntimeModel(
+                id="rt-stale-zombie",
+                server_id="srv-1",
+                commit_id="a" * 40,
+                branch_name="dev",
+                container_id="onx-br-dead-zombie",
+                status="running",
+            )
+        )
+        await s.commit()
+
+    # 1) When Docker reports the zombie container is NOT running (rc=1 / missing),
+    #    reconciliation reaps it and starting the new branch succeeds!
+    async def _dead_zombie_runner(args: list[str]) -> tuple[int, str]:
+        if (
+            args[:3] == ["inspect", "-f", "{{.State.Running}}"]
+            and args[3] == "onx-br-dead-zombie"
+        ):
+            return 1, "Error: No such object: onx-br-dead-zombie"
+        if args and args[0] == "create":
+            return 0, "cid-new-upgrade"
+        return 0, ""
+
+    p1, p2 = _big_headroom()
+    with p1, p2:
+        svc_reap = BranchRuntimeService(
+            layout,
+            session_factory=factory,
+            engine=engine,
+            docker_runner=_dead_zombie_runner,
+        )
+        started = await svc_reap.start_branch_runtime(
+            BranchStartRequest(
+                server_id="srv-1",
+                server_root=server_root,
+                branch_name="upgrade-1.21.4",
+                server_type="paper",
+                minecraft_version="1.21.4",
+                lockfile=lockfile,
+                max_concurrent_branch_runs=1,
+                check_os_ports=False,
+            )
+        )
+        assert started.branch_name == "upgrade-1.21.4"
+
+        async with factory() as s:
+            zombie = await s.get(ServerRuntimeModel, "rt-stale-zombie")
+            assert zombie is not None
+            assert zombie.status == "stopped"
+            stale_br = await s.get(ServerBranchModel, "br-stale")
+            assert stale_br is not None
+            assert stale_br.runtime_status == "stopped"
+            assert stale_br.active_runtime_id is None
+
+        # 2) Now upgrade-1.21.4 IS genuinely running in Docker -> starting 'dev' must fail
+        #    with a human-readable message naming 'upgrade-1.21.4' (not raw server UUID!).
+        async def _live_upgrade_runner(args: list[str]) -> tuple[int, str]:
+            if args[:3] == ["inspect", "-f", "{{.State.Running}}"]:
+                return 0, "true"
+            return 0, ""
+
+        svc_live = BranchRuntimeService(
+            layout,
+            session_factory=factory,
+            engine=engine,
+            docker_runner=_live_upgrade_runner,
+        )
+        with pytest.raises(BranchConcurrencyLimitError) as exc_info:
+            await svc_live.start_branch_runtime(
+                BranchStartRequest(
+                    server_id="srv-1",
+                    server_root=server_root,
+                    branch_name="dev",
+                    server_type="paper",
+                    minecraft_version="1.21.4",
+                    lockfile=lockfile,
+                    max_concurrent_branch_runs=1,
+                    check_os_ports=False,
+                )
+            )
+        msg = str(exc_info.value)
+        assert "upgrade-1.21.4" in msg
+        assert "srv-1" not in msg

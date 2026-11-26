@@ -1581,6 +1581,19 @@ class LogManager:
     """Manages log file I/O for service logs."""
 
     @staticmethod
+    def clear(path: Path) -> None:
+        """Truncate a panel log file and remove any rotated siblings on startup."""
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.is_file():
+                path.write_text("", encoding="utf-8")
+            for rotated in path.parent.glob(f"{path.name}.*"):
+                if rotated.is_file():
+                    rotated.unlink(missing_ok=True)
+        except OSError as err:
+            log_warn(f"Failed to clear old log file {path}: {err}")
+
+    @staticmethod
     def tail(path: Path, n: int = 50) -> list[str]:
         if not path.is_file():
             return []
@@ -3947,6 +3960,8 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
     last_attempt_pid: int | None = None
     last_attempt_spawn_time: float | None = None
 
+    LogManager.clear(BACKEND_LOG)
+
     for attempt in range(1, MAX_PORT_ATTEMPTS + 1):
         tried.add(port)
         timeout = cfg.startup_timeout if attempt == 1 else min(15, cfg.startup_timeout)
@@ -4189,6 +4204,7 @@ def start_frontend(cfg: LauncherConfig) -> bool:
         PortManager.kill_on_port(cfg.frontend_port)
 
     backend_port = cfg.active_backend_port or cfg.backend_port
+    LogManager.clear(FRONTEND_LOG)
     log_step("Frontend", f"Starting in new terminal (proxy -> {backend_port})...")
     pid = TerminalOpener.open_frontend(backend_port)
     if pid is None:

@@ -78,6 +78,40 @@ _DEFAULTS: dict[str, Any] = {
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
+UI_SETTING_KEYS: tuple[str, ...] = (
+    "app_name",
+    "debug",
+    "log_level",
+    "rate_limit_per_minute",
+    "idempotency_ttl_hours",
+    "circuit_breaker_max_failures",
+    "circuit_breaker_timeout_seconds",
+    "event_bus_retry_attempts",
+    "saga_timeout_seconds",
+    "metrics_interval_seconds",
+    "server_startup_timeout_seconds",
+    "test_boot_timeout_seconds",
+    "host_ram_reserve_mb",
+    "host_cpu_reserve",
+)
+
+_INT_BOUNDS: dict[str, tuple[int, int]] = {
+    "rate_limit_per_minute": (10, 10000),
+    "idempotency_ttl_hours": (1, 720),
+    "circuit_breaker_max_failures": (1, 100),
+    "circuit_breaker_timeout_seconds": (1, 3600),
+    "event_bus_retry_attempts": (0, 10),
+    "saga_timeout_seconds": (10, 3600),
+    "server_startup_timeout_seconds": (30, 1800),
+    "test_boot_timeout_seconds": (30, 1800),
+    "host_ram_reserve_mb": (0, 1048576),
+}
+
+
+def get_ui_setting_defaults() -> dict[str, Any]:
+    """Return canonical factory defaults for all UI-managed settings keys."""
+    return {key: _DEFAULTS[key] for key in UI_SETTING_KEYS}
+
 
 @dataclass
 class LiveSettings:
@@ -142,16 +176,17 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
 
 
 def _coerce(field: str, value: Any) -> Any:
-    """Coerce a raw YAML value to the expected Python type for the field."""
+    """Coerce and bound-clamp a raw YAML/API value to the expected type for the field."""
     default = _DEFAULTS[field]
     target_type = type(default)
     if target_type is bool:
         if isinstance(value, bool):
             return value
         return str(value).lower() in ("true", "1", "yes")
-    if field in ("server_startup_timeout_seconds", "test_boot_timeout_seconds"):
+    if field in _INT_BOUNDS:
+        lo, hi = _INT_BOUNDS[field]
         try:
-            return max(30, min(1800, int(value)))
+            return max(lo, min(hi, int(value)))
         except (TypeError, ValueError):
             return default
     if field == "metrics_interval_seconds":
@@ -164,16 +199,17 @@ def _coerce(field: str, value: Any) -> Any:
             return round(max(1.0, min(300.0, float(value))), 1)
         except (TypeError, ValueError):
             return default
-    if field == "host_ram_reserve_mb":
-        try:
-            return max(0, min(1048576, int(value)))
-        except (TypeError, ValueError):
-            return default
     if field == "host_cpu_reserve":
         try:
             return round(max(0.0, min(256.0, float(value))), 2)
         except (TypeError, ValueError):
             return default
+    if field == "log_level":
+        normalized = str(value).strip().upper()
+        return normalized if normalized in _VALID_LOG_LEVELS else default
+    if field == "app_name":
+        cleaned = str(value).strip()[:64]
+        return cleaned if cleaned else default
     try:
         return target_type(value)
     except (TypeError, ValueError):

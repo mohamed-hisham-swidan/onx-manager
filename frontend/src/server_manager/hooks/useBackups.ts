@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
-import type { CreateBackupRequest } from "@/types";
+import type { CreateBackupRequest, CreateScheduleRequest } from "@/types";
 
 function useApi() {
   return createAuthenticatedApi();
@@ -12,6 +12,17 @@ export function useBackupsList(serverId?: string, tier?: string) {
   return useQuery({
     queryKey: queryKeys.backups.list(serverId, tier),
     queryFn: () => api.listBackups(serverId, tier),
+    refetchInterval: (query) => {
+      const items = query.state.data;
+      if (!Array.isArray(items)) return false;
+      const hasActive = items.some(
+        (b) =>
+          b.status === "pending" ||
+          b.status === "in_progress" ||
+          b.status === "running",
+      );
+      return hasActive ? 3000 : false;
+    },
   });
 }
 
@@ -49,5 +60,31 @@ export function useDeleteBackup() {
   return useMutation({
     mutationFn: (backupId: string) => api.deleteBackup(backupId),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.backups.all }),
+  });
+}
+
+export function useSchedulesList() {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.schedules.list(),
+    queryFn: () => api.listSchedules(),
+  });
+}
+
+export function useCreateSchedule() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateScheduleRequest) => api.createSchedule(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.schedules.all }),
+  });
+}
+
+export function useDeleteSchedule() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) => api.deleteSchedule(scheduleId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.schedules.all }),
   });
 }

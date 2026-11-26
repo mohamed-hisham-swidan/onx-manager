@@ -120,11 +120,16 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
             uptime = supervisor.uptime
         elif (
             server.runtime
-            and server.runtime.start_time
             and server.status
             and server.status.value in ("running", "starting")
         ):
-            uptime = max(0.0, time.time() - server.runtime.start_time)
+            started_at = server.runtime.start_time or server.runtime.running_start_time
+            if started_at:
+                uptime = max(0.0, time.time() - started_at)
+            elif server.runtime.uptime_seconds and server.runtime.uptime_seconds > 0:
+                uptime = float(server.runtime.uptime_seconds)
+            else:
+                uptime = 0.0
         else:
             uptime = 0.0
 

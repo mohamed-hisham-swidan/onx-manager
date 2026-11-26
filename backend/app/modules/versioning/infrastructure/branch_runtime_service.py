@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import shutil
 import uuid
 from collections.abc import Callable, Mapping
@@ -105,6 +106,8 @@ def build_branch_docker_create_args(*args: Any, **kwargs: Any) -> list[str]:
     port_set = kwargs.get("port_set")
     memory_max_mb = kwargs.get("memory_max_mb", kwargs.get("memory_max", 4096))
     cpu_cores = kwargs.get("cpu_cores", kwargs.get("cpus", 2))
+    cpu_affinity = str(kwargs.get("cpu_affinity", "") or "")
+    jvm_flags = kwargs.get("jvm_flags")
     export_root = kwargs.get("export_root", kwargs.get("export_path"))
     host_mount = kwargs.get("host_mount", kwargs.get("host_mount_path"))
     uid = kwargs.get("uid")
@@ -153,9 +156,18 @@ def build_branch_docker_create_args(*args: Any, **kwargs: Any) -> list[str]:
                 "nogui",
             ]
         else:
+            parsed_jvm_flags = (
+                list(jvm_flags)
+                if isinstance(jvm_flags, (list, tuple))
+                else (
+                    shlex.split(str(jvm_flags))
+                    if isinstance(jvm_flags, str) and jvm_flags.strip()
+                    else None
+                )
+            )
             cmd = build_docker_server_cmd(
                 startup_jar=startup_jar,
-                jvm_flags=None,
+                jvm_flags=parsed_jvm_flags,
                 memory_min_mb=int(memory_min_mb),
                 memory_max_mb=int(memory_max_mb),
                 cpu_cores=int(cpu_cores),
@@ -198,6 +210,11 @@ def build_branch_docker_create_args(*args: Any, **kwargs: Any) -> list[str]:
             str(cpu_cores),
         ]
     )
+    if cpu_affinity:
+        from app.modules.server.domain.value_objects import CpuAllocation
+
+        CpuAllocation.validate(int(cpu_cores or 0), cpu_affinity)
+        out.extend(["--cpuset-cpus", cpu_affinity])
 
     if export_root is not None:
         out.extend(data_mount_args(export_root, mount_source=host_mount))
@@ -373,7 +390,9 @@ class BranchStartRequest:
     include_query: bool = False
     plugin_port_names: tuple[str, ...] = ()
     requested_memory_mb: int | None = None
+    requested_memory_min_mb: int | None = None
     requested_cpu_cores: int | None = None
+    cpu_affinity: str = ""
     max_concurrent_branch_runs: int | None = None
     jvm_args: str = ""
     startup_jar: str = "server.jar"
@@ -574,6 +593,111 @@ class BranchRuntimeService:
             return None
         return self.session_factory()
 
+    async def _reconcile_stale_active_runtimes(
+        self,
+        server_id: str,
+        server_root: str | os.PathLike[str],
+    ) -> int:
+        """Reap dead/missing Docker branch runtimes before admission checks."""
+        if self.session_factory is None or self.docker_runner is None:
+            return 0
+
+        from sqlalchemy import select as _select
+
+        active_statuses = ("starting", "running", "stopping")
+        async with self.session_factory() as session:
+            res = await session.execute(
+                _select(ServerRuntimeModel).where(
+                    ServerRuntimeModel.server_id == server_id,
+                    ServerRuntimeModel.status.in_(active_statuses),
+                    ServerRuntimeModel.branch_name.is_not(None),
+                    ServerRuntimeModel.branch_name != "main",
+                )
+            )
+            candidates = list(res.scalars().all())
+
+        if not candidates:
+            return 0
+
+        import datetime as _dt
+
+        now = _dt.datetime.now(_dt.UTC)
+        stale_rows: list[tuple[ServerRuntimeModel, bool]] = []
+        for rt in candidates:
+            target = str(
+                getattr(rt, "container_id", None)
+                or (
+                    build_branch_container_name(server_id, rt.branch_name, rt.id)
+                    if rt.branch_name
+                    else ""
+                )
+            ).strip()
+            if not getattr(rt, "container_id", None) and rt.status == "starting":
+                started_at = getattr(rt, "started_at", None) or getattr(rt, "created_at", None)
+                if started_at is not None:
+                    if started_at.tzinfo is None:
+                        started_at = started_at.replace(tzinfo=_dt.UTC)
+                    if (now - started_at).total_seconds() < 120.0:
+                        # In-flight export/create — do not reap live starting runtime.
+                        continue
+            if not target:
+                stale_rows.append((rt, True))
+                continue
+            try:
+                rc, out = await self.docker_runner(
+                    ["inspect", "-f", "{{.State.Running}}", target]
+                )
+            except Exception:
+                # If Docker itself is unreachable, do not assume the container is dead.
+                continue
+            is_running = rc == 0 and str(out).strip().lower() == "true"
+            if not is_running:
+                stale_rows.append((rt, rc != 0))
+
+        if not stale_rows:
+            return 0
+
+        reaped = 0
+        async with self.session_factory() as session:
+            for stale_rt, _container_missing in stale_rows:
+                db_rt = await session.get(ServerRuntimeModel, stale_rt.id)
+                if db_rt is None or db_rt.status not in active_statuses:
+                    continue
+                db_rt.status = "stopped"
+                db_rt.stopped_at = now
+                reaped += 1
+
+                if db_rt.branch_name:
+                    br_res = await session.execute(
+                        _select(ServerBranchModel).where(
+                            ServerBranchModel.server_id == server_id,
+                            ServerBranchModel.name == db_rt.branch_name,
+                        )
+                    )
+                    br_row = br_res.scalars().first()
+                    if br_row is not None and (
+                        br_row.active_runtime_id == db_rt.id
+                        or br_row.runtime_status in active_statuses
+                    ):
+                        br_row.runtime_status = "stopped"
+                        br_row.active_runtime_id = None
+            await session.commit()
+
+        for stale_rt, _container_missing in stale_rows:
+            if stale_rt.port_set_json:
+                with contextlib.suppress(Exception):
+                    raw_ps = stale_rt.port_set_json
+                    parsed = json.loads(raw_ps) if isinstance(raw_ps, str) else raw_ps
+                    if isinstance(parsed, dict):
+                        release_port_set(HostPortSet.from_dict(parsed))
+            if stale_rt.branch_name:
+                with contextlib.suppress(Exception):
+                    self.branch_service.unlock_worktree(
+                        server_id, server_root, stale_rt.branch_name
+                    )
+
+        return reaped
+
     async def start_branch_runtime(self, request: BranchStartRequest) -> BranchStartResult:
         if os.name != "posix":
             raise ServerModeVersioningDisabledError()
@@ -597,6 +721,45 @@ class BranchRuntimeService:
         if git_branch is None:
             raise NotFoundError(f"Branch '{request.branch_name}' not found")
         commit_sha = request.commit_sha or git_branch.sha
+
+        rt_overrides: dict[str, Any] = {}
+        if git_branch.worktree_path and git_branch.worktree_path.is_dir():
+            from app.modules.server.application.branch_settings import (
+                load_branch_runtime_overrides,
+            )
+
+            rt_overrides = load_branch_runtime_overrides(git_branch.worktree_path)
+
+        effective_req_memory_max = (
+            request.requested_memory_mb
+            if request.requested_memory_mb is not None
+            else rt_overrides.get("max_memory_mb")
+        )
+        effective_req_memory_min = (
+            rt_overrides.get("min_memory_mb")
+            if rt_overrides.get("min_memory_mb") is not None
+            else request.requested_memory_min_mb
+        )
+        effective_req_cpu_cores = (
+            request.requested_cpu_cores
+            if request.requested_cpu_cores is not None
+            else rt_overrides.get("cpu_cores")
+        )
+        effective_cpu_affinity = (
+            rt_overrides.get("cpu_affinity")
+            if "cpu_affinity" in rt_overrides
+            else request.cpu_affinity
+        )
+        effective_jvm_args = (
+            rt_overrides.get("java_args")
+            if "java_args" in rt_overrides
+            else request.jvm_args
+        )
+        effective_jvm_flags = (
+            shlex.split(effective_jvm_args)
+            if isinstance(effective_jvm_args, str) and effective_jvm_args.strip()
+            else None
+        )
 
         lockfile = request.lockfile
         if lockfile is None:
@@ -692,8 +855,13 @@ class BranchRuntimeService:
                     existing_stopped_rt = rt_res.scalars().first()
 
         if existing_stopped_rt is not None:
-            existing_export = Path(getattr(existing_stopped_rt, "export_path", None) or "")
-            if request.data_template_id is None and existing_export.is_dir():
+            raw_export = str(getattr(existing_stopped_rt, "export_path", None) or "").strip()
+            existing_export = Path(raw_export) if raw_export else None
+            if (
+                request.data_template_id is None
+                and existing_export is not None
+                and existing_export.is_dir()
+            ):
                 return await self._resume_stopped_runtime(
                     request=request,
                     runtime=existing_stopped_rt,
@@ -701,6 +869,7 @@ class BranchRuntimeService:
                     export_root=existing_export,
                     lockfile=lockfile,
                     secrets=secrets,
+                    rt_overrides=rt_overrides,
                 )
             # New data_template_id or missing export dir -> destroy stale stopped container.
             with contextlib.suppress(Exception):
@@ -733,6 +902,12 @@ class BranchRuntimeService:
         if os.name == "posix":
             check_not_symlink_or_reparse(parent)
 
+        # Reconcile any dead/missing Docker branch runtimes before admission checks
+        # so zombie DB rows never permanently block new branch tests.
+        await self._reconcile_stale_active_runtimes(
+            request.server_id, request.server_root
+        )
+
         port_set = request.port_set
         allocate = port_set is None
 
@@ -742,8 +917,8 @@ class BranchRuntimeService:
             commit_sha=commit_sha,
             server_type=request.server_type,
             runtime_id=runtime_id,
-            requested_memory_mb=request.requested_memory_mb,
-            requested_cpu_cores=request.requested_cpu_cores,
+            requested_memory_mb=effective_req_memory_max,
+            requested_cpu_cores=effective_req_cpu_cores,
             max_concurrent_branch_runs=request.max_concurrent_branch_runs,
             port_set=request.port_set,
             allocate_ports=allocate,
@@ -757,7 +932,11 @@ class BranchRuntimeService:
         )
         port_set = decision.port_set
         memory_max_mb = decision.memory_max_mb
-        memory_min_mb = decision.memory_min_mb
+        memory_min_mb = (
+            min(int(effective_req_memory_min), memory_max_mb)
+            if effective_req_memory_min is not None
+            else decision.memory_min_mb
+        )
         cpu_cores = decision.cpu_cores
 
         container_name = build_branch_container_name(
@@ -794,7 +973,7 @@ class BranchRuntimeService:
                     destination=export_root,
                     lockfile=lockfile,
                     panel_properties=port_set.to_panel_properties(rcon_password),
-                    jvm_args=request.jvm_args,
+                    jvm_args=effective_jvm_args,
                     secrets=secrets,
                     data_template_dir=template_dir,
                     class_c_overlay_dir=overlay_dir,
@@ -816,7 +995,8 @@ class BranchRuntimeService:
 
             image = request.image
             if not image:
-                image = resolve_docker_image(minecraft_version=request.minecraft_version)
+                effective_mc = getattr(lockfile, "mc", None) or request.minecraft_version
+                image = resolve_docker_image(minecraft_version=effective_mc)
             image = validate_docker_image(image)
 
             uid, gid = resolve_non_root_user(request.uid, request.gid)
@@ -843,6 +1023,7 @@ class BranchRuntimeService:
             if cmd is None:
                 cmd = build_docker_server_cmd(
                     startup_jar=request.startup_jar,
+                    jvm_flags=effective_jvm_flags,
                     memory_min_mb=memory_min_mb,
                     memory_max_mb=memory_max_mb,
                     cpu_cores=cpu_cores,
@@ -855,8 +1036,11 @@ class BranchRuntimeService:
                 image=image,
                 network="bridge",
                 port_set=port_set,
+                memory_min_mb=memory_min_mb,
                 memory_max_mb=memory_max_mb,
                 cpu_cores=cpu_cores,
+                cpu_affinity=effective_cpu_affinity,
+                jvm_flags=effective_jvm_flags,
                 export_root=export_root,
                 host_mount=host_mount,
                 uid=uid,
@@ -984,6 +1168,7 @@ class BranchRuntimeService:
         export_root: Path,
         lockfile: Any,
         secrets: Mapping[str, str],
+        rt_overrides: dict[str, Any] | None = None,
     ) -> BranchStartResult:
         """Start an existing stopped branch container, syncing worktree Class-A/B updates."""
         if self.session_factory is not None:
@@ -1035,21 +1220,133 @@ class BranchRuntimeService:
 
             rcon_password = self._resolve_rcon_password(runtime) or generate_rcon_password()
 
-            # Start existing container; if absent in Docker, recreate with export_root.
-            rc, out = await self.docker_runner(["start", container_name])
+            # Check if the previously assigned port_set now collides with any DB,
+            # live Docker container, or host OS socket binding.
+            port_conflict = False
+            if self.session_factory is not None:
+                from app.core.exceptions import DuplicatePortSetError
+                from app.modules.versioning.infrastructure.port_allocator import (
+                    allocate_port_set,
+                    validate_port_set_atomic,
+                )
+
+                async with self.session_factory() as session:
+                    from sqlalchemy import select as _select
+
+                    own_br = (
+                        await session.execute(
+                            _select(ServerBranchModel).where(
+                                ServerBranchModel.server_id == request.server_id,
+                                ServerBranchModel.name == request.branch_name,
+                            )
+                        )
+                    ).scalars().first()
+                    try:
+                        await validate_port_set_atomic(
+                            session,
+                            port_set,
+                            exclude_branch_id=own_br.id if own_br is not None else None,
+                            exclude_runtime_id=runtime_id,
+                            check_os_ports=request.check_os_ports,
+                        )
+                    except DuplicatePortSetError:
+                        port_conflict = True
+                        release_port_set(port_set)
+                        port_set = await allocate_port_set(
+                            session,
+                            include_query=port_set.query_port is not None,
+                            plugin_port_names=tuple(port_set.plugin_ports.keys()),
+                            check_os_ports=request.check_os_ports,
+                        )
+
+            # Start existing container; if absent in Docker or ports collided,
+            # cleanly remove the stale container and recreate with free ports.
             container_id = str(getattr(runtime, "container_id", None) or "").strip()
-            if rc != 0:
+            rc = 1
+            out = ""
+            if not port_conflict:
+                rc, out = await self.docker_runner(["start", container_name])
+                if rc != 0 and (
+                    "port is already allocated" in out.lower()
+                    or "address already in use" in out.lower()
+                ):
+                    port_conflict = True
+                    if self.session_factory is not None:
+                        from app.modules.versioning.infrastructure.port_allocator import (
+                            allocate_port_set,
+                        )
+
+                        release_port_set(port_set)
+                        async with self.session_factory() as session:
+                            port_set = await allocate_port_set(
+                                session,
+                                include_query=port_set.query_port is not None,
+                                plugin_port_names=tuple(port_set.plugin_ports.keys()),
+                                check_os_ports=request.check_os_ports,
+                            )
+
+            if port_conflict or rc != 0:
+                # Remove any stale stopped container holding the old name/port bindings
+                with contextlib.suppress(Exception):
+                    await self.docker_runner(["rm", "-f", container_name])
+                if port_conflict and export_root.is_dir():
+                    from app.modules.server.application.services.jar_service import (
+                        update_server_properties_key,
+                    )
+
+                    props_path = export_root / "server.properties"
+                    if props_path.is_file():
+                        for prop_k, prop_v in port_set.to_panel_properties(rcon_password).items():
+                            with contextlib.suppress(Exception):
+                                update_server_properties_key(str(props_path), prop_k, prop_v)
+
+                effective_mc = getattr(lockfile, "mc", None) or request.minecraft_version
                 image = request.image or resolve_docker_image(
-                    minecraft_version=request.minecraft_version
+                    minecraft_version=effective_mc
                 )
                 image = validate_docker_image(image)
                 uid, gid = resolve_non_root_user(request.uid, request.gid)
                 host_mount = resolve_host_mount_path(str(export_root))
-                memory_max_mb = int(request.requested_memory_mb or 4096)
-                memory_min_mb = min(1024, memory_max_mb)
-                cpu_cores = int(request.requested_cpu_cores or 2)
+                overrides = rt_overrides or {}
+                eff_max_mem = (
+                    request.requested_memory_mb
+                    if request.requested_memory_mb is not None
+                    else overrides.get("max_memory_mb")
+                )
+                eff_min_mem = (
+                    overrides.get("min_memory_mb")
+                    if overrides.get("min_memory_mb") is not None
+                    else request.requested_memory_min_mb
+                )
+                eff_cores = (
+                    request.requested_cpu_cores
+                    if request.requested_cpu_cores is not None
+                    else overrides.get("cpu_cores")
+                )
+                eff_aff = (
+                    overrides.get("cpu_affinity")
+                    if "cpu_affinity" in overrides
+                    else request.cpu_affinity
+                )
+                eff_jvm_str = (
+                    overrides.get("java_args")
+                    if "java_args" in overrides
+                    else request.jvm_args
+                )
+                eff_jvm_flags = (
+                    shlex.split(eff_jvm_str)
+                    if isinstance(eff_jvm_str, str) and eff_jvm_str.strip()
+                    else None
+                )
+                memory_max_mb = int(eff_max_mem or 4096)
+                memory_min_mb = min(
+                    int(eff_min_mem) if eff_min_mem is not None else 1024,
+                    memory_max_mb,
+                )
+                cpu_cores = int(eff_cores if eff_cores is not None else 2)
                 cmd = build_docker_server_cmd(
                     startup_jar=request.startup_jar,
+                    jvm_flags=eff_jvm_flags,
                     memory_min_mb=memory_min_mb,
                     memory_max_mb=memory_max_mb,
                     cpu_cores=cpu_cores,
@@ -1061,8 +1358,11 @@ class BranchRuntimeService:
                     image=image,
                     network="bridge",
                     port_set=port_set,
+                    memory_min_mb=memory_min_mb,
                     memory_max_mb=memory_max_mb,
                     cpu_cores=cpu_cores,
+                    cpu_affinity=eff_aff,
+                    jvm_flags=eff_jvm_flags,
                     export_root=export_root,
                     host_mount=host_mount,
                     uid=uid,
@@ -1074,7 +1374,6 @@ class BranchRuntimeService:
                     cmd=cmd,
                     host_ip=request.host_ip,
                     lockfile=lockfile,
-                    secrets=secrets,
                 )
                 rc_c, out_c = await self.docker_runner(create_args)
                 if rc_c != 0:
@@ -1092,6 +1391,8 @@ class BranchRuntimeService:
                     if rt is not None:
                         rt.status = "running"
                         rt.commit_id = commit_sha
+                        rt.port = port_set.game_port
+                        rt.port_set_json = port_set.to_dict()
                         if container_id:
                             rt.container_id = container_id
                         rt.stopped_at = None

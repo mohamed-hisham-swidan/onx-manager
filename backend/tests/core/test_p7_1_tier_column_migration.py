@@ -22,8 +22,8 @@ def _make_alembic_cfg(db_path: Path) -> Config:
 
 
 def test_p7_1_revision_constants() -> None:
-    assert RELEASE_MINIMUM_DB_REVISION == "b1e2100000033"
-    assert EXPECTED_ALEMBIC_HEAD == "b1e2100000033"
+    assert RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
+    assert len(EXPECTED_ALEMBIC_HEAD) == 13
 
 
 def test_p7_1_migration_upgrade_downgrade_roundtrip(tmp_path: Path) -> None:

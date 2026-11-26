@@ -578,19 +578,16 @@ class CloudflaredSupervisor:
             if self._server_id
             else f"{IDENTITY.temp_prefix_new}cloudflared-"
         )
-        fd, path = tempfile.mkstemp(prefix=prefix, suffix=".token")
+        # Never chmod /tmp itself — store tokens inside a dedicated 0700 subdir.
+        token_dir = Path(tempfile.gettempdir()) / f"{IDENTITY.temp_prefix_new}cf-tokens"
+        token_dir.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            token_dir.chmod(0o700)
+        fd, path = tempfile.mkstemp(prefix=prefix, suffix=".token", dir=str(token_dir))
         os.close(fd)
         token_file = Path(path)
         token_file.chmod(0o600)
         token_file.write_bytes(token)
-        # Least-privilege: remove group/other perms on the parent dir if we own it.
-        try:
-            parent = token_file.parent
-            current = parent.stat().st_mode
-            if current & 0o077:
-                parent.chmod(current & ~0o077)
-        except OSError:
-            pass
         return token_file
 
     async def _delete_token_file(self) -> None:

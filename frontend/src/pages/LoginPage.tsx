@@ -1,5 +1,5 @@
 import { useState, useMemo, type FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { createApiClient } from "@/services/api";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -14,6 +14,20 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromState = (
+    location.state as {
+      from?: string | { pathname?: string; search?: string; hash?: string };
+    } | null
+  )?.from;
+  const redirectTarget =
+    typeof fromState === "string"
+      ? fromState.startsWith("/")
+        ? fromState
+        : "/"
+      : fromState && typeof fromState.pathname === "string"
+        ? `${fromState.pathname}${fromState.search ?? ""}${fromState.hash ?? ""}`
+        : "/";
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -28,7 +42,7 @@ export function LoginPage() {
     try {
       const res = await api.login({ username: username.trim(), password });
       login(res.access_token, res.refresh_token, res.expires_in);
-      navigate("/");
+      navigate(redirectTarget);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);

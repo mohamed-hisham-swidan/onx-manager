@@ -103,6 +103,22 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
 
     all_servers = await repo.list()
 
+    # Heal stale deployment_port and remove stale RCON files for non-active servers
+    from app.modules.server.infrastructure.providers.docker import _remove_persisted_rcon_port
+
+    for srv in all_servers:
+        if srv.status not in (
+            ServerStatus.RUNNING,
+            ServerStatus.STARTING,
+            ServerStatus.STOPPING,
+        ):
+            desired_port = srv.properties.port.value
+            if srv.runtime and srv.runtime.port != desired_port:
+                srv.runtime.port = desired_port
+                await repo.save(srv)
+            if srv.deployment and srv.deployment.root_path:
+                _remove_persisted_rcon_port(srv.deployment.server_directory())
+
     stale_servers = [s for s in all_servers if s.status in STALE_STATUSES]
     if not stale_servers:
         logger.info("No stale runtime states found during reconciliation")

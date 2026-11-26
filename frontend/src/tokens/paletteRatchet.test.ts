@@ -43,12 +43,7 @@ const SRC_ROOT = path.resolve(process.cwd().endsWith("frontend") ? "src" : "fron
 
 // Explicit allowlist mapping relative paths to allowed bounds and justifications.
 const ALLOWLIST: Record<string, AllowlistEntry> = {
-  // Syntax highlighting & loader badges
-  "components/CodeEditor.tsx": {
-    maxHex: 0,
-    maxPalette: 55,
-    reason: "CodeEditor syntax highlighting token classes and gutter line numbers",
-  },
+  // Loader badges
   "components/ui/LoaderBadge.tsx": {
     maxHex: 0,
     maxPalette: 60,
@@ -73,17 +68,7 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
     maxPalette: 1,
     reason: "Preserved bg-red-600 for PanelExposureSection.test.tsx and ServerExposurePage.test.tsx button.bg-red-600 selector",
   },
-  "server_manager/components/ServerConsole.tsx": {
-    maxHex: 0,
-    maxPalette: 4,
-    reason: "Preserved 4 log severity classes (text-rose-400, text-amber-400, text-sky-300, text-gray-300) asserted in ServerConsole.test.tsx",
-  },
   "server_manager/components/versioning/CommitTimeline.tsx": {
-    maxHex: 0,
-    maxPalette: 1,
-    reason: "Preserved dark:bg-gray-800 for ServerVersioningPage.test.tsx assertions",
-  },
-  "server_manager/components/versioning/TestRunList.tsx": {
     maxHex: 0,
     maxPalette: 1,
     reason: "Preserved dark:bg-gray-800 for ServerVersioningPage.test.tsx assertions",

@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import re
+import shlex
 import time
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,7 @@ from app.core.allowlist import CLASS_D_PANEL_KEYS, open_safe_path_fd
 from app.core.event_bus import EventBus
 from app.core.exceptions import (
     BranchRuntimeActiveError,
+    InvalidValueError,
     MergeConflictError,
     NotFoundError,
     ValidationError,
@@ -40,7 +43,12 @@ from app.modules.server.application.read_models import is_secret_property_key
 from app.modules.server.application.services.jar_service import update_server_properties_key
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.events import ServerConfigChangedEvent
-from app.modules.server.domain.value_objects import ServerMode
+from app.modules.server.domain.value_objects import (
+    CpuAllocation,
+    JavaArguments,
+    MemoryAllocation,
+    ServerMode,
+)
 from app.modules.versioning.domain.events import (
     SettingsBranchAutoMergedOnRestartEvent,
     SettingsBranchCreatedEvent,
@@ -69,6 +77,65 @@ _PROP_KEY_MAP = {
     "simulation_distance": "simulation-distance",
 }
 _RUNTIME_SETTINGS_RELPATH = "config/onx-runtime.json"
+_logger = logging.getLogger(__name__)
+
+
+def load_branch_runtime_overrides(worktree: Path) -> dict[str, Any]:
+    """Load and validate ``config/onx-runtime.json`` overrides from a branch worktree."""
+    if not worktree.is_dir():
+        return {}
+    check_not_symlink_or_reparse(worktree)
+    rt_text = _read_worktree_text(worktree, _RUNTIME_SETTINGS_RELPATH)
+    if not rt_text:
+        return {}
+    try:
+        raw_doc = json.loads(rt_text)
+    except Exception as exc:
+        _logger.warning("Ignoring invalid %s in %s: %s", _RUNTIME_SETTINGS_RELPATH, worktree, exc)
+        return {}
+    if not isinstance(raw_doc, dict):
+        return {}
+
+    overrides: dict[str, Any] = {}
+    raw_min = raw_doc.get("min_memory_mb")
+    raw_max = raw_doc.get("max_memory_mb")
+    if raw_min is not None or raw_max is not None:
+        try:
+            eff_min = int(raw_min) if raw_min is not None else 128
+            eff_max = int(raw_max) if raw_max is not None else max(eff_min, 128)
+            MemoryAllocation(min_mb=eff_min, max_mb=eff_max)
+            if raw_min is not None:
+                overrides["min_memory_mb"] = eff_min
+            if raw_max is not None:
+                overrides["max_memory_mb"] = eff_max
+        except (TypeError, ValueError) as exc:
+            _logger.warning("Ignoring invalid memory override in %s: %s", worktree, exc)
+
+    raw_cores = raw_doc.get("cpu_cores")
+    raw_affinity = raw_doc.get("cpu_affinity")
+    if raw_cores is not None or raw_affinity is not None:
+        try:
+            eff_cores = int(raw_cores) if raw_cores is not None else 0
+            eff_affinity = str(raw_affinity) if raw_affinity is not None else ""
+            CpuAllocation(cores=eff_cores, affinity=eff_affinity)
+            if raw_cores is not None:
+                overrides["cpu_cores"] = eff_cores
+            if raw_affinity is not None:
+                overrides["cpu_affinity"] = eff_affinity
+        except (TypeError, ValueError) as exc:
+            _logger.warning("Ignoring invalid CPU override in %s: %s", worktree, exc)
+
+    raw_java_args = raw_doc.get("java_args")
+    if isinstance(raw_java_args, str):
+        try:
+            tokens = shlex.split(raw_java_args) if raw_java_args.strip() else []
+            validated_args = JavaArguments(tokens)
+            overrides["java_args"] = str(validated_args)
+            overrides["java_args_list"] = validated_args.as_list()
+        except (InvalidValueError, ValueError) as exc:
+            _logger.warning("Ignoring invalid java_args override in %s: %s", worktree, exc)
+
+    return overrides
 
 
 def _parse_properties_text(text: str) -> dict[str, str]:
@@ -157,7 +224,7 @@ async def read_branch_settings_overlay(
             "pending_settings_branch": None,
         }
 
-    server_root = Path(server.deployment.root_path)
+    server_root = Path(os.path.abspath(server.deployment.root_path))
     branch_svc = GitBranchService(eff_layout)
     git_info = branch_svc.get_branch(str(server.id), server_root, effective_branch)
     if git_info is None:
@@ -268,7 +335,7 @@ async def save_branch_scoped_settings(
     eff_layout = layout or resolve_host_state_layout()
     if server.deployment is None or not server.deployment.root_path:
         raise ValidationError("Server root path not configured", field="root_path")
-    server_root = Path(server.deployment.root_path)
+    server_root = Path(os.path.abspath(server.deployment.root_path))
     effective_branch = (branch_name or MAIN_BRANCH).strip() or MAIN_BRANCH
     branch_svc = GitBranchService(eff_layout)
 
@@ -276,6 +343,46 @@ async def save_branch_scoped_settings(
     req_git = branch_svc.get_branch(str(server.id), server_root, effective_branch)
     if req_git is None:
         raise NotFoundError(f"Branch '{effective_branch}' not found on server '{server.id}'")
+
+    # Validate runtime overrides via domain value objects BEFORE creating/mutating any branch.
+    has_runtime_updates = any(
+        val is not None
+        for val in (min_memory_mb, max_memory_mb, cpu_cores, cpu_affinity, java_args)
+    )
+    if min_memory_mb is not None or max_memory_mb is not None:
+        eff_min = int(min_memory_mb) if min_memory_mb is not None else server.memory.min_mb
+        eff_max = int(max_memory_mb) if max_memory_mb is not None else server.memory.max_mb
+        try:
+            MemoryAllocation(min_mb=eff_min, max_mb=eff_max)
+        except ValueError as exc:
+            raise ValidationError(str(exc), field="memory") from exc
+    if cpu_cores is not None or cpu_affinity is not None:
+        eff_cores = int(cpu_cores) if cpu_cores is not None else server.cpu.cores
+        eff_affinity = str(cpu_affinity) if cpu_affinity is not None else server.cpu.affinity
+        try:
+            CpuAllocation(cores=eff_cores, affinity=eff_affinity)
+        except ValueError as exc:
+            raise ValidationError(str(exc), field="cpu") from exc
+    validated_java_args: JavaArguments | None = None
+    if java_args is not None:
+        validated_java_args = JavaArguments(java_args)
+
+    # Filter out protected Class-D / secret properties upfront and skip empty main branches.
+    sanitized_props: dict[str, str] = {}
+    if properties:
+        for k, v in properties.items():
+            file_key = _PROP_KEY_MAP.get(k, k.replace("_", "-"))
+            if file_key in CLASS_D_PANEL_KEYS or is_secret_property_key(file_key):
+                continue
+            sanitized_props[file_key] = str(v).lower() if isinstance(v, bool) else str(v)
+
+    if not sanitized_props and not has_runtime_updates:
+        return {
+            "target_branch": effective_branch,
+            "commit_id": req_git.sha,
+            "pending_settings_branch": None,
+            "events": [],
+        }
 
     events_to_emit: list[Any] = []
     if effective_branch == MAIN_BRANCH:
@@ -287,6 +394,45 @@ async def save_branch_scoped_settings(
             if target_branch is not None
             else None
         )
+        # If no pending branch exists yet, avoid creating one if nothing differs from main worktree.
+        if (target_branch is None or target_git is None or target_git.worktree_path is None) and (
+            req_git.worktree_path is not None and req_git.worktree_path.is_dir()
+        ):
+            main_wt = req_git.worktree_path
+            main_props_raw = _read_worktree_text(main_wt, "server.properties") or ""
+            main_props = _parse_properties_text(main_props_raw)
+            props_differ = any(main_props.get(fk) != fv for fk, fv in sanitized_props.items())
+            main_rt_text = _read_worktree_text(main_wt, _RUNTIME_SETTINGS_RELPATH)
+            main_rt: dict[str, Any] = {}
+            if main_rt_text:
+                with contextlib.suppress(Exception):
+                    parsed_rt = json.loads(main_rt_text)
+                    if isinstance(parsed_rt, dict):
+                        main_rt = parsed_rt
+            rt_differs = (
+                (
+                    min_memory_mb is not None
+                    and main_rt.get("min_memory_mb") != int(min_memory_mb)
+                )
+                or (
+                    max_memory_mb is not None
+                    and main_rt.get("max_memory_mb") != int(max_memory_mb)
+                )
+                or (cpu_cores is not None and main_rt.get("cpu_cores") != int(cpu_cores))
+                or (cpu_affinity is not None and main_rt.get("cpu_affinity") != str(cpu_affinity))
+                or (
+                    validated_java_args is not None
+                    and main_rt.get("java_args") != " ".join(validated_java_args.as_list())
+                )
+            )
+            if not props_differ and not rt_differs:
+                return {
+                    "target_branch": MAIN_BRANCH,
+                    "commit_id": req_git.sha,
+                    "pending_settings_branch": _pending_branch_payload(pending_row),
+                    "events": [],
+                }
+
         if target_branch is None or target_git is None or target_git.worktree_path is None:
             import uuid
 
@@ -333,18 +479,14 @@ async def save_branch_scoped_settings(
     check_not_symlink_or_reparse(worktree)
 
     changed_keys: list[str] = []
-    if properties:
+    if sanitized_props:
         existing_props_text = _read_worktree_text(worktree, "server.properties") or ""
         current_props = _parse_properties_text(existing_props_text)
         # Strip any pre-existing Class-D panel keys as required by D-3/Allowlist
         for dk in list(current_props.keys()):
             if dk in CLASS_D_PANEL_KEYS or is_secret_property_key(dk):
                 current_props.pop(dk, None)
-        for k, v in properties.items():
-            file_key = _PROP_KEY_MAP.get(k, k.replace("_", "-"))
-            if file_key in CLASS_D_PANEL_KEYS or is_secret_property_key(file_key):
-                continue
-            str_val = str(v).lower() if isinstance(v, bool) else str(v)
+        for file_key, str_val in sanitized_props.items():
             current_props[file_key] = str_val
             changed_keys.append(file_key)
 
@@ -353,10 +495,7 @@ async def save_branch_scoped_settings(
         )
         atomic_write_private(worktree / "server.properties", normalized_bytes)
 
-    if any(
-        val is not None
-        for val in (min_memory_mb, max_memory_mb, cpu_cores, cpu_affinity, java_args)
-    ):
+    if has_runtime_updates:
         existing_rt_text = _read_worktree_text(worktree, _RUNTIME_SETTINGS_RELPATH)
         rt_doc: dict[str, Any] = {}
         if existing_rt_text:
@@ -376,9 +515,22 @@ async def save_branch_scoped_settings(
         if cpu_affinity is not None:
             rt_doc["cpu_affinity"] = str(cpu_affinity)
             changed_keys.append("cpu_affinity")
-        if java_args is not None:
-            rt_doc["java_args"] = " ".join(java_args)
+        if validated_java_args is not None:
+            rt_doc["java_args"] = " ".join(validated_java_args.as_list())
             changed_keys.append("java_args")
+        # Re-validate merged min/max memory & CPU consistency on disk document
+        merged_min = int(rt_doc.get("min_memory_mb", server.memory.min_mb))
+        merged_max = int(rt_doc.get("max_memory_mb", server.memory.max_mb))
+        try:
+            MemoryAllocation(min_mb=merged_min, max_mb=merged_max)
+        except ValueError as exc:
+            raise ValidationError(str(exc), field="memory") from exc
+        merged_cores = int(rt_doc.get("cpu_cores", server.cpu.cores))
+        merged_aff = str(rt_doc.get("cpu_affinity", server.cpu.affinity))
+        try:
+            CpuAllocation(cores=merged_cores, affinity=merged_aff)
+        except ValueError as exc:
+            raise ValidationError(str(exc), field="cpu") from exc
         (worktree / "config").mkdir(parents=True, exist_ok=True)
         atomic_write_private(
             worktree / _RUNTIME_SETTINGS_RELPATH,
@@ -484,7 +636,7 @@ async def discard_pending_settings_branch(
             _cleanup_settings_branch_dir(
                 GitBranchService(eff_layout),
                 str(server.id),
-                Path(server.deployment.root_path),
+                Path(os.path.abspath(server.deployment.root_path)),
                 pending_row.name,
             )
     await session.delete(pending_row)
@@ -535,7 +687,7 @@ async def auto_merge_pending_settings_on_restart(
         if not pending_rows:
             return applied
 
-        server_root = Path(server.deployment.root_path)
+        server_root = Path(os.path.abspath(server.deployment.root_path))
         # Pre-merge Class-C safety snapshot per P3 contract
         with contextlib.suppress(Exception):
             ClassCSnapshotService(eff_layout).create_snapshot(server_id, server_root)

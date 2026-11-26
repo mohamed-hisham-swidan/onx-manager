@@ -87,6 +87,18 @@ class TargetResponse(BaseResponse):
     setup_instructions: str | None = None
 
 
+class ReachabilityProbeResult(BaseModel):
+    reachable: bool
+    target_address: str
+    latency_ms: int | None = None
+    version_name: str | None = None
+    protocol_version: int | None = None
+    players_online: int | None = None
+    players_max: int | None = None
+    motd: str | None = None
+    error: str | None = None
+
+
 class ServerExposureResponse(BaseResponse):
     server_id: str
     branch_name: str = "main"
@@ -109,6 +121,7 @@ class ServerExposureResponse(BaseResponse):
     upnp_status: str | None = None
     detected_wan_ip: str | None = None
     targets: list[TargetResponse] = []
+    reachability: ReachabilityProbeResult | None = None
 
 
 class ServerExposureUpdateRequest(BaseModel):

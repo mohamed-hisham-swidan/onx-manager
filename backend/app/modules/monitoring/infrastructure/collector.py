@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -255,33 +256,36 @@ def _collect_process_metrics(
     return ram_mb, cpu
 
 
+_TPS_CMD_CACHE: dict[str, str] = {}
+
+
 async def _collect_rcon_metrics(
     client: PersistentRCONClient,
 ) -> tuple[float | None, int]:
     tps: float | None = None
     players = 0
+    cache_key = f"{getattr(client, 'host', '')}:{getattr(client, 'port', '')}"
     try:
-        # Try NeoForge / Forge built-in TPS command first
-        for cmd in ("neoforge tps", "forge tps"):
+        # Order: Paper/Spigot 'tps' FIRST (avoids 1.20.3+ 'tick query' shadowing it),
+        # then NeoForge/Forge, then 'tick query'. Cache working command per endpoint.
+        ordered_cmds = [
+            ("tps", parse_tps),
+            ("neoforge tps", _parse_forge_tps),
+            ("forge tps", _parse_forge_tps),
+            ("tick query", _parse_tick_query),
+        ]
+        cached_cmd = _TPS_CMD_CACHE.get(cache_key) if cache_key != ":" else None
+        if cached_cmd:
+            ordered_cmds.sort(key=lambda pair: 0 if pair[0] == cached_cmd else 1)
+
+        for cmd, parser in ordered_cmds:
             resp = await client.send_command(cmd)
-            parsed = _parse_forge_tps(resp)
+            parsed = parser(resp)
             if parsed is not None:
                 tps = parsed
+                if cache_key != ":":
+                    _TPS_CMD_CACHE[cache_key] = cmd
                 break
-
-        # Fall back to Minecraft 1.20.3+ built-in 'tick query' (Vanilla, Fabric, NeoForge)
-        if tps is None:
-            tick_resp = await client.send_command("tick query")
-            parsed = _parse_tick_query(tick_resp)
-            if parsed is not None:
-                tps = parsed
-
-        # Fall back to Paper / Spigot 'tps' command
-        if tps is None:
-            tps_response = await client.send_command("tps")
-            parsed = parse_tps(tps_response)
-            if parsed is not None:
-                tps = parsed
 
         list_response = await client.send_command("list")
         players = parse_player_count(list_response)
@@ -291,13 +295,11 @@ async def _collect_rcon_metrics(
 
 
 def _parse_tick_query(response: str) -> float | None:
-    """Parse output from vanilla/Fabric/NeoForge '/tick query' command (1.20.3+).
+    """Parse real TPS from Minecraft 1.20.3+ '/tick query' output.
 
-    Examples:
-    - "Target tick rate: 20.0 per second."
-    - "The target tick rate is 20.0 per second. The average tick time is 0.1ms (target 50.0ms), "
-      "with 20.0 ticks per second (100% of target)."
-    - "The average tick time is 12.3ms, with 19.8 ticks per second"
+    NEVER parses 'Target tick rate: 20.0 per second' (which is the static target,
+    not actual TPS). Parses explicit 'with X ticks per second' or derives real
+    TPS from reported MSPT: min(20.0, 1000.0 / mspt).
     """
     import re
 
@@ -308,19 +310,17 @@ def _parse_tick_query(response: str) -> float | None:
         except ValueError:
             pass
 
-    match = re.search(
-        r"Target tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE
+    mspt_match = re.search(
+        r"(?:average\s+(?:time\s+per\s+tick|tick\s+time)\s*(?:is|:)?\s*)([\d.]+)\s*ms",
+        response,
+        re.IGNORECASE,
     )
-    if match:
+    if mspt_match:
         try:
-            return _clamp_tps(float(match.group(1)))
-        except ValueError:
-            pass
-
-    match = re.search(r"tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE)
-    if match:
-        try:
-            return _clamp_tps(float(match.group(1)))
+            mspt = float(mspt_match.group(1))
+            if mspt > 0:
+                return _clamp_tps(min(20.0, 1000.0 / mspt))
+            return 20.0
         except ValueError:
             pass
 
@@ -358,6 +358,9 @@ def _parse_forge_tps(response: str) -> float | None:
     return None
 
 
+_CONTAINER_STATS_STALE_SECONDS = 60.0
+
+
 class MetricsCollector:
     def __init__(
         self,
@@ -371,6 +374,7 @@ class MetricsCollector:
         self._proc_cache: dict[int, tuple[float, Any]] = {}
         self._rcon_clients: dict[str, PersistentRCONClient] = {}
         self._docker_stats_cache: dict[str, ContainerStats] = {}
+        self._last_valid_container_stats: dict[str, tuple[float, ContainerStats]] = {}
 
     async def close(self) -> None:
         for client in self._rcon_clients.values():
@@ -380,6 +384,16 @@ class MetricsCollector:
 
     def set_known_servers(self, server_ids: list[str]) -> None:
         self._known_servers = list(server_ids)
+
+    async def evict_server(self, server_id: str) -> None:
+        """Evict a deleted/removed server from in-memory polling and cached clients."""
+        self._known_servers = [sid for sid in self._known_servers if sid != server_id]
+        self._docker_stats_cache.pop(f"onx-{server_id}", None)
+        self._last_valid_container_stats.pop(server_id, None)
+        client = self._rcon_clients.pop(server_id, None)
+        if client is not None:
+            with contextlib.suppress(Exception):
+                await client.close()
 
     async def fetch_docker_stats(self) -> dict[str, ContainerStats]:
         proc: asyncio.subprocess.Process | None = None
@@ -456,8 +470,9 @@ class MetricsCollector:
             block_read_mb = 0.0
             block_write_mb = 0.0
 
-            container_name = None
-            pid = None
+            container_name: str | None = None
+            pid: int | None = None
+            server_status: str | None = None
             rcon_host = "127.0.0.1"
             raw_props_path: str | None = None
             server_name: str | None = None
@@ -468,9 +483,16 @@ class MetricsCollector:
                     if server is not None:
                         if isinstance(getattr(server, "name", None), str) and server.name:
                             server_name = server.name
+                        raw_status = getattr(getattr(server, "status", None), "value", None)
+                        if isinstance(raw_status, str):
+                            server_status = raw_status
                         if server.runtime is not None:
-                            pid = server.runtime.pid
-                            container_name = server.runtime.external_id
+                            raw_pid = server.runtime.pid
+                            if isinstance(raw_pid, int) and not isinstance(raw_pid, bool):
+                                pid = raw_pid
+                            raw_ext_id = server.runtime.external_id
+                            if isinstance(raw_ext_id, str) and raw_ext_id.strip():
+                                container_name = raw_ext_id.strip()
                             raw_host = (
                                 server.runtime.host
                                 if isinstance(getattr(server.runtime, "host", None), str)
@@ -491,8 +513,11 @@ class MetricsCollector:
                 server_id, raw_props_path, server_name=server_name
             )
 
-            # Check docker stats first for CPU/RAM/Net/Block
+            # Check docker stats first for CPU/RAM/Net/Block.
+            # When `docker stats` times out for a running container, never emit
+            # synthetic 0.0 MB / 0.0% samples into history or WebSocket.
             cstats = None
+            stats_collection_failed = False
             if container_name and container_name in self._docker_stats_cache:
                 cstats = self._docker_stats_cache[container_name]
 
@@ -503,8 +528,46 @@ class MetricsCollector:
                 net_tx_mb = cstats.net_tx_mb
                 block_read_mb = cstats.block_read_mb
                 block_write_mb = cstats.block_write_mb
+                self._last_valid_container_stats[server_id] = (time.monotonic(), cstats)
             elif pid is not None:
                 ram_used_mb, cpu_percent = _collect_process_metrics(pid, self._proc_cache)
+                if (
+                    container_name
+                    and ram_used_mb == 0.0
+                    and cpu_percent == 0.0
+                    and server_status not in ("stopped", "crashed")
+                ):
+                    cached = self._last_valid_container_stats.get(server_id)
+                    if (
+                        cached is not None
+                        and (time.monotonic() - cached[0]) <= _CONTAINER_STATS_STALE_SECONDS
+                    ):
+                        prev = cached[1]
+                        ram_used_mb = prev.ram_used_mb
+                        cpu_percent = prev.cpu_percent
+                        net_rx_mb = prev.net_rx_mb
+                        net_tx_mb = prev.net_tx_mb
+                        block_read_mb = prev.block_read_mb
+                        block_write_mb = prev.block_write_mb
+                    else:
+                        stats_collection_failed = True
+            elif container_name and server_status not in ("stopped", "crashed"):
+                cached = self._last_valid_container_stats.get(server_id)
+                if (
+                    cached is not None
+                    and (time.monotonic() - cached[0]) <= _CONTAINER_STATS_STALE_SECONDS
+                ):
+                    prev = cached[1]
+                    ram_used_mb = prev.ram_used_mb
+                    cpu_percent = prev.cpu_percent
+                    net_rx_mb = prev.net_rx_mb
+                    net_tx_mb = prev.net_tx_mb
+                    block_read_mb = prev.block_read_mb
+                    block_write_mb = prev.block_write_mb
+                else:
+                    stats_collection_failed = True
+            elif server_status in ("stopped", "crashed"):
+                self._last_valid_container_stats.pop(server_id, None)
 
             rcon_port = 25575
             rcon_password = ""
@@ -516,6 +579,30 @@ class MetricsCollector:
                     except (ValueError, TypeError):
                         rcon_port = 25575
                     rcon_password = props.get("rcon.password", "")
+
+            if (
+                rcon_password
+                and server is not None
+                and getattr(server.runtime, "provider", None) == "docker"
+                and isinstance(container_name, str)
+                and container_name
+            ):
+                with contextlib.suppress(Exception):
+                    from app.modules.server.domain.value_objects import build_server_handle
+                    from app.modules.server.infrastructure.providers import provider_factory
+
+                    docker_prov = provider_factory.get("docker")
+                    if hasattr(docker_prov, "resolve_rcon_endpoint"):
+                        srv_dir = (
+                            server.deployment.server_directory()
+                            if server.deployment and server.deployment.root_path
+                            else None
+                        )
+                        ep = await docker_prov.resolve_rcon_endpoint(
+                            build_server_handle(server, "docker", server_dir=srv_dir)
+                        )
+                        if ep is not None:
+                            rcon_host, rcon_port, rcon_password = ep
 
             if rcon_password:
                 client = self._rcon_clients.get(server_id)
@@ -559,6 +646,13 @@ class MetricsCollector:
                 block_write_mb=block_write_mb,
             )
 
+            if stats_collection_failed:
+                logger.debug(
+                    "Skipping metrics persistence/broadcast for %s: container stats unavailable",
+                    server_id,
+                )
+                return metric
+
             for attempt in range(3):
                 try:
                     async with database.session_factory() as session:
@@ -594,6 +688,10 @@ class MetricsCollector:
         return metric
 
     async def collect_all(self, test_ids: list[str] | None = None) -> dict[str, ServerMetrics]:
+        if not self._known_servers and not test_ids:
+            self._docker_stats_cache = {}
+            return {}
+
         # Batch refresh docker stats for all containers in one command
         self._docker_stats_cache = await self.fetch_docker_stats()
 

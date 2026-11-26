@@ -136,7 +136,7 @@ class Operation:
         failed_step_id: str | None = None,
         at: datetime | None = None,
     ) -> None:
-        now = at or _utcnow()
+        now = _normalize_dt(at) or _utcnow()
         if self.is_terminal:
             raise OperationTerminalConflictError(self.id, self.status.value, action="fail")
         self.status = OperationStatus.FAILED
@@ -145,15 +145,24 @@ class Operation:
         self.finished_at = now
         if failed_step_id:
             self.current_step_id = failed_step_id
+        for step in self.steps:
+            if step.status == StepStatus.IN_PROGRESS:
+                step.fail(
+                    at=now,
+                    context={"error": error_message} if error_message else None,
+                )
 
     def time_out(self, at: datetime | None = None) -> None:
-        now = at or _utcnow()
+        now = _normalize_dt(at) or _utcnow()
         if self.is_terminal:
             raise OperationTerminalConflictError(self.id, self.status.value, action="timeout")
         self.status = OperationStatus.TIMED_OUT
         self.failure_code = "OPERATION_TIMEOUT"
         self.error_message = f"Operation exceeded timeout of {self.timeout_seconds} seconds"
         self.finished_at = now
+        for step in self.steps:
+            if step.status == StepStatus.IN_PROGRESS:
+                step.fail(at=now, context={"error": self.error_message})
 
     def complete(self, at: datetime | None = None) -> None:
         now = at or _utcnow()

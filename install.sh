@@ -645,6 +645,7 @@ log_ok "Installed CLI command: ${ONX_BIN}"
 # 7. Mode-specific integration (systemd for VPS vs .desktop app icon for Local)
 if [ "$MODE" = "vps" ]; then
     if [ "$(uname -s)" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
+        ONX_SERVICE_USER="${SUDO_USER:-$(id -un)}"
         UNIT_CONTENT="[Unit]
 Description=ONX Manager Server Panel
 After=network.target docker.service
@@ -652,6 +653,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=${ONX_SERVICE_USER}
 WorkingDirectory=${BACKEND_DIR}
 EnvironmentFile=${ENV_FILE}
 ExecStart=${VENV_DIR}/bin/uvicorn app.main:app --host ${BIND_HOST} --port ${PORT} --workers 1

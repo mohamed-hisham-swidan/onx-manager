@@ -9,6 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from app.api.deps import get_optional_event_bus
+from app.core.event_bus import EventBus
 from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.saga import SagaOrchestrator, SagaStep
@@ -91,14 +93,22 @@ def artifact_path(backup_id: BackupJobId) -> str:
 
 
 class BackupSaga:
-    def __init__(self, saga_orchestrator: SagaOrchestrator) -> None:
+    def __init__(
+        self,
+        saga_orchestrator: SagaOrchestrator,
+        event_bus: EventBus | None = None,
+    ) -> None:
         self._saga = saga_orchestrator
+        self._event_bus = event_bus
         self._result_size: int = 0
         self._result_checksum: str = ""
         self._result_storage_path: str = ""
         self._temp_dir: str | None = None
         self._tar_path: str | None = None
         self._enc_path: str | None = None
+
+    def _resolve_event_bus(self) -> EventBus | None:
+        return self._event_bus if self._event_bus is not None else get_optional_event_bus()
 
     async def execute(
         self,
@@ -140,7 +150,7 @@ class BackupSaga:
             instance = await self._saga.create_saga("backup", steps, timeout_seconds=600.0)
             result = await self._saga.execute(instance.saga_id)
 
-            async with UnitOfWork() as uow:
+            async with UnitOfWork(event_bus=self._resolve_event_bus()) as uow:
                 repo: BackupRepository = SQLBackupRepository(uow.session)
                 job = await repo.get_job(backup_id)
                 if result.status.value == "completed":
@@ -158,6 +168,8 @@ class BackupSaga:
                 else:
                     job.mark_failed(result.error or "Backup saga failed")
                 await repo.save_job(job)
+                for event in job.collect_events():
+                    uow.add_event(event)
                 await uow.commit()
         finally:
             clear_cancelled_backup(str(backup_id))
@@ -412,11 +424,13 @@ class BackupSaga:
 
     def _mark_failed(self, backup_id: BackupJobId):
         async def fn() -> None:
-            async with UnitOfWork() as uow:
+            async with UnitOfWork(event_bus=self._resolve_event_bus()) as uow:
                 repo: BackupRepository = SQLBackupRepository(uow.session)
                 job = await repo.get_job(backup_id)
                 job.mark_failed("Verification failed in backup saga")
                 await repo.save_job(job)
+                for event in job.collect_events():
+                    uow.add_event(event)
                 await uow.commit()
 
         return fn

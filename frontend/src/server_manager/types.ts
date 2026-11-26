@@ -8,6 +8,69 @@ export interface SoftwareInfo {
 
 export type ServerMode = "simple" | "advanced";
 
+export type ProvisioningStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export interface ProvisioningStepItem {
+  id: string;
+  label: string;
+  status: ProvisioningStepStatus;
+  detail?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  elapsed_ms: number;
+}
+
+export interface ProvisioningTransferState {
+  filename: string;
+  bytes_downloaded: number;
+  total_bytes: number | null;
+  percent: number | null;
+  speed_bps: number | null;
+  eta_seconds: number | null;
+  file_index: number;
+  file_total: number;
+  phase: "downloading" | "installing" | "verifying" | string;
+}
+
+export interface ProvisioningActivityItem {
+  timestamp: string;
+  message: string;
+  level: "info" | "success" | "warning" | "error" | string;
+}
+
+export interface ProvisioningArtifactItem {
+  id: string;
+  label: string;
+  value: string;
+  status: string;
+}
+
+export interface ProvisioningSnapshot {
+  server_id: string;
+  server_name?: string;
+  server_type?: string;
+  minecraft_version?: string;
+  mode?: string;
+  status: "running" | "completed" | "failed" | string;
+  started_at: string;
+  finished_at?: string | null;
+  elapsed_ms: number;
+  current_step_id?: string | null;
+  percent: number | null;
+  message: string;
+  error?: string | null;
+  failed_step_id?: string | null;
+  steps: ProvisioningStepItem[];
+  active_transfer?: ProvisioningTransferState | null;
+  activity: ProvisioningActivityItem[];
+  artifacts: ProvisioningArtifactItem[];
+}
+
 export interface ServerResponse {
   server_id: string;
   name: string;
@@ -25,7 +88,15 @@ export interface ServerResponse {
   mode?: ServerMode;
   provisioning_error?: string | null;
   provisioning_retryable?: boolean;
+  provisioning_progress?: ProvisioningSnapshot | null;
   startup_timeout_seconds?: number | null;
+  max_memory_mb?: number | null;
+  cpu_cores?: number | null;
+  uptime_seconds?: number | null;
+  deployment_host?: string | null;
+  public_address?: string | null;
+  active_branch?: string | null;
+  icon_data_url?: string | null;
 }
 
 export interface PendingSettingsBranchInfo {
@@ -315,17 +386,26 @@ export interface RuntimeDiagnosticsResponse {
   validation_chain: string[];
 }
 
+export type LogCategory = "server_log" | "crash_report" | "plugin_log";
+
 export interface FileItem {
   name: string;
   is_dir: boolean;
   size: number;
   path: string;
+  modified_at?: string | null;
+  file_class?: string | null;
+  editable?: boolean | null;
+  log_category?: LogCategory | null;
 }
 
 export interface FileContentResponse {
   path: string;
   content: string;
   is_binary?: boolean;
+  truncated?: boolean;
+  total_size_bytes?: number | null;
+  is_compressed?: boolean;
 }
 
 export interface CrashReportSummary {
@@ -1191,7 +1271,13 @@ export interface GitHubWebhookDeliveryResponse {
 
 // ── P5.5 Modpacks, 1-Click Safe Upgrades, LEC & CurseForge Integration ──────
 
-export type P55LoaderId = "fabric" | "quilt" | "forge" | "neoforge" | "paper";
+export type P55LoaderId =
+  | "fabric"
+  | "quilt"
+  | "forge"
+  | "neoforge"
+  | "paper"
+  | "purpur";
 
 export type MatrixStatusType =
   | "warning: unresolved_carried"
@@ -1394,6 +1480,8 @@ export interface MatrixEntryItem {
   detail: string;
   manual_blocker: ManualDownloadBlockerItem | null;
   excluded_by_operator: boolean;
+  kept_by_operator?: boolean;
+  action_label?: string;
   is_blocker: boolean;
 }
 
@@ -1406,9 +1494,17 @@ export interface CompatibilityMatrixPayload {
   bfs_depth_reached: number;
   bfs_projects_resolved: number;
   excluded_paths: string[];
+  kept_paths?: string[];
   has_blockers: boolean;
   blockers_count: number;
   warnings_count: number;
+  health_gate_checks?: Array<{
+    id: string;
+    label: string;
+    status: string;
+    detail?: string | null;
+  }>;
+  health_gate_warnings?: string[];
 }
 
 export interface PlanUpgradeRequest {
@@ -1418,7 +1514,9 @@ export interface PlanUpgradeRequest {
   target_lec_key?: string | null;
   staged_pack_id?: string | null;
   excluded_paths?: string[];
+  keep_paths?: string[];
   version_types?: Array<"release" | "beta" | "alpha">;
+  verify_public_network?: boolean | null;
 }
 
 export interface PrepareUpgradeTestRequest {
@@ -1434,6 +1532,7 @@ export interface PrepareUpgradeTestRequest {
 export interface ApplyUpgradeRequest {
   resolved_conflicts?: Record<string, string>;
   async_mode?: boolean;
+  verify_public_network?: boolean | null;
 }
 
 export interface RollbackUpgradeRequest {

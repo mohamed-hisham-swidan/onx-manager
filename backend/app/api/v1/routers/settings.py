@@ -18,6 +18,7 @@ from app.core.persistence.db import database
 from app.core.settings_store import (
     RESTART_REQUIRED_FIELDS,
     get_live_settings,
+    get_ui_setting_defaults,
 )
 from app.core.settings_store import (
     update_settings as update_settings_store,
@@ -58,6 +59,7 @@ async def get_settings_endpoint(
         "host_ram_reserve_mb": live.host_ram_reserve_mb,
         "host_cpu_reserve": live.host_cpu_reserve,
         "requires_restart": sorted(list(RESTART_REQUIRED_FIELDS)),
+        "defaults": get_ui_setting_defaults(),
     }
 
 

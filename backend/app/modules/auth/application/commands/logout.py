@@ -26,6 +26,7 @@ class LogoutHandler(CommandHandler[LogoutCommand]):
                 token_hash = hash_api_key(command.refresh_token)
                 stmt = select(RefreshTokenModel).where(
                     RefreshTokenModel.token_hash == token_hash,
+                    RefreshTokenModel.user_id == command.user_id,
                     RefreshTokenModel.is_revoked == False,
                 )
                 result = await uow.session.execute(stmt)

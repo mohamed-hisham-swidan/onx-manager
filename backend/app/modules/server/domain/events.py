@@ -127,6 +127,7 @@ class ForgeProvisionProgressEvent(DomainEvent):
     stage: str
     percent: int | None
     message: str
+    snapshot: dict[str, Any] | None = None
 
     def __init__(
         self,
@@ -134,6 +135,7 @@ class ForgeProvisionProgressEvent(DomainEvent):
         stage: str,
         percent: int | None,
         message: str,
+        snapshot: dict[str, Any] | None = None,
         **data: Any,
     ) -> None:
         super().__init__(
@@ -141,6 +143,7 @@ class ForgeProvisionProgressEvent(DomainEvent):
             stage=stage,
             percent=percent,
             message=message,
+            snapshot=snapshot,
             **data,
         )
 

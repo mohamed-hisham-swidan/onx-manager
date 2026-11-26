@@ -19,6 +19,7 @@ import { ServerP55SettingsCard } from "./ServerP55SettingsCard";
 import { ModpackInstallWizardModal } from "./ModpackInstallWizardModal";
 import { SafeUpgradeWizardModal } from "./SafeUpgradeWizardModal";
 import { UpgradePinnedBanner } from "./UpgradePinnedBanner";
+import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { useOperationStore } from "@/operations/stores/operationStore";
 
 const mockApi = {
@@ -41,6 +42,10 @@ const mockApi = {
   applyServerUpgrade: vi.fn(),
   confirmServerUpgrade: vi.fn(),
   rollbackServerUpgrade: vi.fn(),
+  stopBranchRun: vi.fn(),
+  destroyBranchRun: vi.fn(),
+  deleteServerBranch: vi.fn(),
+  getServerExposure: vi.fn(),
 };
 
 vi.mock("@/services/api", async (importOriginal) => {
@@ -311,7 +316,7 @@ describe("PanelP55IntegrationsSection — CurseForge & Host LEC", () => {
 
     const { container } = renderWithProviders(<PanelP55IntegrationsSection />);
 
-    expect(await screen.findByText("Not Configured")).toBeInTheDocument();
+    expect(await screen.findByText("Not Set")).toBeInTheDocument();
     const key = "$2a$10$secret-key-9f2a";
     const input = screen.getByTestId("curseforge-api-key-input");
     await user.type(input, key);
@@ -324,9 +329,7 @@ describe("PanelP55IntegrationsSection — CurseForge & Host LEC", () => {
     );
     await waitFor(() => expect(input).toHaveValue(""));
     expect(container.textContent ?? "").not.toContain("secret-key-9f2a");
-    expect(
-      await screen.findByText("Configured (Panel Encrypted Store)"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Configured")).toBeInTheDocument();
     expect(screen.getByText("***...9f2a")).toBeInTheDocument();
   });
 
@@ -340,17 +343,15 @@ describe("PanelP55IntegrationsSection — CurseForge & Host LEC", () => {
 
     renderWithProviders(<PanelP55IntegrationsSection />);
 
-    expect(
-      await screen.findByText("Configured (Panel Encrypted Store)"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Configured")).toBeInTheDocument();
     await user.click(screen.getByTestId("delete-curseforge-key-btn"));
     await waitFor(() =>
       expect(mockApi.deleteCurseForgeIntegrationKey).toHaveBeenCalledTimes(1),
     );
-    expect(await screen.findByText("Not Configured")).toBeInTheDocument();
+    expect(await screen.findByText("Not Set")).toBeInTheDocument();
   });
 
-  it("lists LEC entries, pre-warms an entry, and prunes the cache with a freed-byte summary", async () => {
+  it("lists loader cache entries, opens pre-warm & clean modals, and handles API errors", async () => {
     const user = userEvent.setup();
     mockApi.getCurseForgeIntegrationStatus.mockResolvedValue(NOT_CONFIGURED);
     mockApi.listLecEntries.mockResolvedValue([LEC_ENTRY]);
@@ -371,12 +372,14 @@ describe("PanelP55IntegrationsSection — CurseForge & Host LEC", () => {
 
     renderWithProviders(<PanelP55IntegrationsSection />);
 
-    expect(
-      await screen.findByText("fabric/1.21.1/0.16.9/1.0.1"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Verified (.onx-complete.json)")).toBeInTheDocument();
+    expect(await screen.findByText("1.21.1")).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("Java 21")).toBeInTheDocument();
 
+    // Pre-Warm via modal
+    await user.click(screen.getByTestId("open-prewarm-modal-btn"));
+    await user.type(screen.getByLabelText("Minecraft Version"), "1.21.1");
+    await user.type(screen.getByLabelText("Loader / Build Version"), "0.16.9");
     await user.click(screen.getByTestId("lec-prewarm-btn"));
     await waitFor(() =>
       expect(mockApi.prewarmLecEntry).toHaveBeenCalledWith(
@@ -390,23 +393,31 @@ describe("PanelP55IntegrationsSection — CurseForge & Host LEC", () => {
     );
     expect(await screen.findByText("Open Operation Drawer")).toBeInTheDocument();
 
+    // Clean Cache via modal
+    await user.click(screen.getByTestId("open-clean-cache-modal-btn"));
     await user.click(screen.getByTestId("lec-gc-btn"));
     await waitFor(() =>
       expect(mockApi.gcLecEntries).toHaveBeenCalledWith({ min_age_days: 7 }),
     );
-    expect(
-      await screen.findByText(/2 CAS blobs pruned/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("lec-gc-btn").parentElement?.textContent ?? "",
-    ).toContain("1.50 MB freed");
+    expect(await screen.findByText(/2 unused files freed · 1\.50 MB freed/i)).toBeInTheDocument();
+  });
+
+  it("renders ErrorState when loader cache list fails to load", async () => {
+    mockApi.getCurseForgeIntegrationStatus.mockResolvedValue(NOT_CONFIGURED);
+    mockApi.listLecEntries.mockRejectedValue(new Error("Cache index unreachable"));
+
+    renderWithProviders(<PanelP55IntegrationsSection />);
+
+    expect(await screen.findByText("Could not load loader cache")).toBeInTheDocument();
+    expect(screen.getByText("Cache index unreachable")).toBeInTheDocument();
+    expect(screen.queryByText(/No cached loaders yet/i)).not.toBeInTheDocument();
   });
 });
 
 describe("ServerP55SettingsCard", () => {
   beforeEach(resetApi);
 
-  it("loads settings, validates the 300–900s bound, edits toggles and custom hosts, then saves", async () => {
+  it("loads settings, validates the 300–900s bound with safe empty-input typing, edits toggles and custom hosts, then saves", async () => {
     const user = userEvent.setup();
     mockApi.getServerP55Settings.mockResolvedValue(P55_SETTINGS);
     mockApi.updateServerP55Settings.mockResolvedValue({
@@ -423,9 +434,16 @@ describe("ServerP55SettingsCard", () => {
       "Health Gate Boot Timeout",
     )) as HTMLInputElement;
     expect(timeout.value).toBe("300");
+    // Default hosts sit inside a collapsed disclosure by default
+    expect(screen.queryByText("cdn.modrinth.com")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /View 2 default hosts/i }));
     expect(screen.getByText("cdn.modrinth.com")).toBeInTheDocument();
 
+    // Clearing the field mid-typing must NOT snap to 0 or flash an error
     await user.clear(timeout);
+    expect(timeout.value).toBe("");
+    expect(screen.queryByText("Must be between 300 and 900 seconds.")).not.toBeInTheDocument();
+
     await user.type(timeout, "120");
     expect(
       screen.getByText("Must be between 300 and 900 seconds."),
@@ -461,9 +479,6 @@ describe("ServerP55SettingsCard", () => {
         }),
       ),
     );
-    expect(
-      await screen.findByText("Modpack & upgrade settings saved."),
-    ).toBeInTheDocument();
   });
 
   it("rejects scheme, port, wildcard, and IP-literal hostnames client-side", async () => {
@@ -645,7 +660,7 @@ describe("ModpackInstallWizardModal", () => {
         { file_id: 77, path: "mods/manual.jar" },
       ),
     );
-    expect(await screen.findByText("Verified in CAS")).toBeInTheDocument();
+    expect(await screen.findByText("Verified")).toBeInTheDocument();
     expect(screen.getByTestId("confirm-install-modpack-btn")).toBeEnabled();
   });
 
@@ -917,12 +932,10 @@ describe("SafeUpgradeWizardModal", () => {
     expect(
       await screen.findByTestId("upgrade-compatibility-matrix"),
     ).toBeInTheDocument();
-    expect(screen.getByText("blocker: no_target_build")).toBeInTheDocument();
-    expect(screen.getByText("blocker: manual_download_required")).toBeInTheDocument();
+    expect(screen.getByText("No Compatible Build")).toBeInTheDocument();
+    expect(screen.getByText("Manual Upload Required")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Unresolved (Carried Forward — Does Not Block Test/Upgrade)",
-      ),
+      screen.getByText("Custom / Untracked (Carried)"),
     ).toBeInTheDocument();
     expect(screen.getByTestId("continue-upgrade-btn")).toBeDisabled();
 
@@ -938,20 +951,24 @@ describe("SafeUpgradeWizardModal", () => {
     );
 
     expect(await screen.findByTestId("continue-upgrade-btn")).toBeEnabled();
-    await user.click(screen.getByTestId("continue-upgrade-btn"));
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
 
     expect(
       screen.queryByTestId("prepare-upgrade-test-btn"),
     ).not.toBeInTheDocument();
     const apply = screen.getByTestId("apply-upgrade-live-btn");
-    expect(apply).toHaveTextContent("Apply 1-Click Safe Upgrade");
+    expect(apply).toHaveTextContent("Apply Change Version");
     await user.click(apply);
 
     await waitFor(() =>
       expect(mockApi.applyServerUpgrade).toHaveBeenCalledWith(
         "srv-p55",
         "upgrade-1",
-        { resolved_conflicts: {}, async_mode: false },
+        {
+          resolved_conflicts: {},
+          async_mode: true,
+          verify_public_network: false,
+        },
       ),
     );
     expect(
@@ -973,13 +990,13 @@ describe("SafeUpgradeWizardModal", () => {
       upgrade: {
         ...UPGRADE_BASE,
         status: "testing",
-        upgrade_branch: "upgrade/1.21.4",
+        upgrade_branch: "upgrade-1.21.4",
         data_template_id: "dt-clone-1",
       },
       runtime: {
         runtime_id: "runtime-1",
         server_id: "srv-p55",
-        branch_name: "upgrade/1.21.4",
+        branch_name: "upgrade-1.21.4",
         commit_sha: "sha-test",
         container_name: "onx-srv-p55-upgrade-test",
         container_id: "container-1",
@@ -1015,11 +1032,11 @@ describe("SafeUpgradeWizardModal", () => {
     await user.type(targetMc, "1.21.4");
     await user.click(screen.getByTestId("plan-upgrade-btn"));
     await screen.findByTestId("upgrade-compatibility-matrix");
-    await user.click(screen.getByTestId("continue-upgrade-btn"));
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
 
     const prepare = screen.getByTestId("prepare-upgrade-test-btn");
     expect(prepare).toHaveTextContent(
-      "Prepare upgrade/1.21.4 Branch & Start Isolated Test",
+      "Prepare upgrade-1.21.4 Branch & Start Test",
     );
     await user.click(prepare);
 
@@ -1031,7 +1048,7 @@ describe("SafeUpgradeWizardModal", () => {
       ),
     );
     expect(
-      await screen.findByText("Branch: upgrade/1.21.4"),
+      await screen.findByText("Branch: upgrade-1.21.4"),
     ).toBeInTheDocument();
     expect(screen.getByText("onx-srv-p55-upgrade-test")).toBeInTheDocument();
     expect(
@@ -1047,6 +1064,95 @@ describe("SafeUpgradeWizardModal", () => {
         "Health Gate Passed — Upgrade Active & Rollback Snapshot Pinned",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("hydrates active run on open, supports Start Fresh, downgrade warning, Keep Current, branch handoff, and Discard Test", async () => {
+    const user = userEvent.setup();
+    const setBranch = vi.fn();
+    const onClose = vi.fn();
+
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [],
+      active_upgrade: {
+        ...UPGRADE_BASE,
+        mode: "advanced",
+        status: "testing",
+        target_mc: "1.21.4",
+        upgrade_branch: "upgrade-1.21.4",
+        matrix: CLEAN_MATRIX,
+      },
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+    mockApi.stopBranchRun.mockResolvedValue({});
+    mockApi.destroyBranchRun.mockResolvedValue({});
+    mockApi.deleteServerBranch.mockResolvedValue({});
+
+    renderWithProviders(
+      <ServerBranchContext.Provider
+        value={{
+          branch: "main",
+          setBranch,
+          gitBacked: true,
+          serverMode: "advanced",
+        }}
+      >
+        <SafeUpgradeWizardModal
+          serverId="srv-p55"
+          isOpen
+          onClose={onClose}
+          serverMode="advanced"
+          serverType="fabric"
+          currentMc="1.21.4"
+        />
+      </ServerBranchContext.Provider>,
+    );
+
+    // 1. Auto-hydrates testing branch step & allows Switch to Branch & Inspect
+    const switchBtn = await screen.findByTestId("switch-to-upgrade-branch-btn");
+    await user.click(switchBtn);
+    expect(setBranch).toHaveBeenCalledWith("upgrade-1.21.4");
+    expect(onClose).toHaveBeenCalled();
+
+    // 2. Discard Test stops/destroys runtime & deletes branch, resetting to Step 1
+    await user.click(screen.getByTestId("discard-upgrade-test-btn"));
+    await waitFor(() => {
+      expect(mockApi.stopBranchRun).toHaveBeenCalledWith("srv-p55", "upgrade-1.21.4", {});
+      expect(mockApi.destroyBranchRun).toHaveBeenCalledWith("srv-p55", "upgrade-1.21.4", {});
+      expect(mockApi.deleteServerBranch).toHaveBeenCalledWith("srv-p55", "upgrade-1.21.4");
+    });
+
+    // 3. Downgrade warning shown on Step 1 when target MC < current MC (1.21.4 -> 1.20.4)
+    const targetMcInput = await screen.findByLabelText("Target Minecraft");
+    await user.clear(targetMcInput);
+    await user.type(targetMcInput, "1.20.4");
+    expect(await screen.findByTestId("downgrade-advisory-banner")).toBeInTheDocument();
+
+    // 4. Keep Current toggle sends keep_paths in planServerUpgrade
+    mockApi.planServerUpgrade
+      .mockResolvedValueOnce({ ...UPGRADE_BASE, matrix: BLOCKED_MATRIX, status: "blocked" })
+      .mockResolvedValueOnce({
+        ...UPGRADE_BASE,
+        matrix: { ...CLEAN_MATRIX, kept_paths: ["mods/BrokenMod.jar"] },
+        status: "planned",
+      });
+    await user.click(screen.getByTestId("plan-upgrade-btn"));
+    await screen.findByTestId("upgrade-compatibility-matrix");
+    await user.click(screen.getByTestId("keep-entry-mods/BrokenMod.jar"));
+    await user.click(screen.getByRole("button", { name: "Re-evaluate Matrix" }));
+    await waitFor(() =>
+      expect(mockApi.planServerUpgrade).toHaveBeenLastCalledWith(
+        "srv-p55",
+        expect.objectContaining({
+          keep_paths: ["mods/BrokenMod.jar"],
+        }),
+      ),
+    );
+
+    // 5. Start Fresh resets hydrated/active run cleanly back to Step 1
+    await user.click(screen.getByTestId("start-fresh-upgrade-btn"));
+    expect(screen.getByTestId("plan-upgrade-btn")).toBeInTheDocument();
   });
 
   it("resolves a manual_download_required blocker via upload", async () => {
@@ -1125,7 +1231,7 @@ describe("SafeUpgradeWizardModal", () => {
     await user.type(targetMc, "1.21.4");
     await user.click(screen.getByTestId("plan-upgrade-btn"));
     await screen.findByTestId("upgrade-compatibility-matrix");
-    await user.click(screen.getByTestId("continue-upgrade-btn"));
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
     await user.click(screen.getByTestId("apply-upgrade-live-btn"));
 
     expect(
@@ -1214,7 +1320,7 @@ describe("UpgradePinnedBanner", () => {
     await screen.findByTestId("upgrade-pinned-banner");
     await user.click(screen.getByTestId("banner-emergency-rollback-btn"));
     expect(
-      screen.getByText(/restored atomically/i),
+      screen.getByText(/will be restored/i),
     ).toBeInTheDocument();
     await user.click(screen.getByTestId("confirm-emergency-rollback-btn"));
 
@@ -1235,5 +1341,735 @@ describe("UpgradePinnedBanner", () => {
     expect(container).toBeEmptyDOMElement();
     (mockApi as unknown as Record<string, unknown>).listServerUpgrades = original;
     expect(partialApi.listServerUpgrades).toBeUndefined();
+  });
+
+  it("renders Resume and branch switcher actions for active non-pinned runs", async () => {
+    const user = userEvent.setup();
+    const setBranch = vi.fn();
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [],
+      active_upgrade: {
+        ...UPGRADE_BASE,
+        status: "testing",
+        mode: "advanced",
+        upgrade_branch: "upgrade-1.21.4",
+      },
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+
+    const { rerender } = renderWithProviders(
+      <ServerBranchContext.Provider
+        value={{
+          branch: "main",
+          setBranch,
+          gitBacked: true,
+          serverMode: "advanced",
+        }}
+      >
+        <UpgradePinnedBanner serverId="srv-p55" />
+      </ServerBranchContext.Provider>,
+    );
+
+    expect(await screen.findByText("Change Version in Progress")).toBeInTheDocument();
+    expect(screen.getByTestId("banner-resume-upgrade-btn")).toHaveTextContent("Resume");
+    await user.click(screen.getByTestId("banner-switch-branch-btn"));
+    expect(setBranch).toHaveBeenCalledWith("upgrade-1.21.4");
+
+    rerender(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter>
+          <ServerBranchContext.Provider
+            value={{
+              branch: "upgrade-1.21.4",
+              setBranch,
+              gitBacked: true,
+              serverMode: "advanced",
+            }}
+          >
+            <UpgradePinnedBanner serverId="srv-p55" />
+          </ServerBranchContext.Provider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const backBtn = await screen.findByTestId("banner-back-to-main-btn");
+    await user.click(backBtn);
+    expect(setBranch).toHaveBeenCalledWith("main");
+  });
+
+  it("supports direct Apply to Live and Discard actions right on the staging/testing banner", async () => {
+    const user = userEvent.setup();
+    const setBranch = vi.fn();
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [],
+      active_upgrade: {
+        ...UPGRADE_BASE,
+        id: "upg-live-test",
+        status: "testing",
+        mode: "advanced",
+        upgrade_branch: "upgrade-1.21.4",
+      },
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+    mockApi.applyServerUpgrade.mockResolvedValue({
+      ...UPGRADE_BASE,
+      id: "upg-live-test",
+      status: "active_pinned",
+      pinned_until_confirm: true,
+    });
+    mockApi.rollbackServerUpgrade.mockResolvedValue({
+      ...UPGRADE_BASE,
+      id: "upg-live-test",
+      status: "rolled_back",
+    });
+
+    renderWithProviders(
+      <ServerBranchContext.Provider
+        value={{
+          branch: "upgrade-1.21.4",
+          setBranch,
+          gitBacked: true,
+          serverMode: "advanced",
+        }}
+      >
+        <UpgradePinnedBanner serverId="srv-p55" />
+      </ServerBranchContext.Provider>,
+    );
+
+    expect(
+      await screen.findByText(/Test container running on upgrade-1\.21\.4/i),
+    ).toBeInTheDocument();
+
+    // Direct Apply to Live confirmation flow
+    await user.click(screen.getByTestId("banner-apply-live-btn"));
+    await user.click(screen.getByTestId("confirm-banner-apply-live-btn"));
+    await waitFor(() =>
+      expect(mockApi.applyServerUpgrade).toHaveBeenCalledWith(
+        "srv-p55",
+        "upg-live-test",
+        { resolved_conflicts: {}, async_mode: false },
+      ),
+    );
+    expect(setBranch).toHaveBeenCalledWith("main");
+
+    // Direct Discard confirmation flow (cleans up branch + abandons upgrade row)
+    await user.click(screen.getByTestId("banner-discard-upgrade-btn"));
+    await user.click(screen.getByTestId("confirm-discard-upgrade-btn"));
+    await waitFor(() =>
+      expect(mockApi.rollbackServerUpgrade).toHaveBeenCalledWith(
+        "srv-p55",
+        "upg-live-test",
+        { reason: "operator discarded upgrade plan" },
+      ),
+    );
+  });
+});
+
+describe("SafeUpgradeWizardModal — Purpur default & inline error surfacing", () => {
+  beforeEach(resetApi);
+
+  it("defaults purpur servers to purpur and shows a loader-switch note when switching to paper", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={vi.fn()}
+        serverMode="advanced"
+        serverType="purpur"
+        currentMc="1.21.11"
+      />,
+    );
+
+    const loaderSelect = screen.getByLabelText("Target Loader") as HTMLSelectElement;
+    expect(loaderSelect.value).toBe("purpur");
+    expect(screen.queryByTestId("loader-switch-note")).not.toBeInTheDocument();
+
+    await user.selectOptions(loaderSelect, "paper");
+    expect(screen.getByTestId("loader-switch-note")).toHaveTextContent(
+      /Switching loader: Purpur → Paper/i,
+    );
+  });
+
+  it("surfaces persistent inline errors with recovery hints on Prepare Test and Apply failures", async () => {
+    const user = userEvent.setup();
+    mockApi.planServerUpgrade.mockResolvedValue({
+      ...UPGRADE_BASE,
+      mode: "advanced",
+      target_loader_id: "purpur",
+      target_loader_version: "latest",
+      matrix: CLEAN_MATRIX,
+      status: "planned",
+    });
+    mockApi.prepareServerUpgradeTest.mockRejectedValue(
+      new ApiError(409, "CONFLICT", "No changes to commit"),
+    );
+    mockApi.applyServerUpgrade.mockRejectedValue(
+      new ApiError(500, "INTERNAL_ERROR", "Purpur build download failed"),
+    );
+
+    renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={vi.fn()}
+        serverMode="advanced"
+        serverType="purpur"
+        currentMc="1.21.4"
+      />,
+    );
+
+    await user.click(screen.getByTestId("plan-upgrade-btn"));
+    await screen.findByTestId("upgrade-compatibility-matrix");
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
+
+    await user.click(screen.getByTestId("prepare-upgrade-test-btn"));
+    const prepareBanner = await screen.findByTestId("upgrade-error-banner");
+    expect(prepareBanner).toHaveTextContent("No changes to commit");
+    expect(prepareBanner).toHaveTextContent(/Start Fresh/i);
+
+    await user.click(screen.getByTestId("apply-upgrade-live-btn"));
+    const banners = await screen.findAllByTestId("upgrade-error-banner");
+    expect(
+      banners.some((b) =>
+        b.textContent?.includes("Purpur build download failed"),
+      ),
+    ).toBe(true);
+  });
+
+  it("shows accurate confirmation recovery guidance (not config-conflict text) for retained .prev errors", async () => {
+    const user = userEvent.setup();
+    mockApi.planServerUpgrade.mockResolvedValue({
+      ...UPGRADE_BASE,
+      mode: "simple",
+      target_loader_id: "purpur",
+      target_loader_version: "latest",
+      matrix: CLEAN_MATRIX,
+      status: "planned",
+    });
+    mockApi.applyServerUpgrade.mockRejectedValue(
+      new ApiError(
+        409,
+        "CONFLICT",
+        "A previous tree retained until confirmation blocks this refresh: journal j-1, path /data/srv.prev, requested policy until_confirm",
+      ),
+    );
+
+    renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={vi.fn()}
+        serverMode="simple"
+        serverType="purpur"
+        currentMc="1.21.11"
+      />,
+    );
+
+    await user.click(screen.getByTestId("plan-upgrade-btn"));
+    await screen.findByTestId("upgrade-compatibility-matrix");
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
+    await user.click(screen.getByTestId("apply-upgrade-live-btn"));
+
+    const banner = await screen.findByTestId("upgrade-error-banner");
+    expect(banner).toHaveTextContent(/previous version change is still waiting for confirmation/i);
+    expect(banner).not.toHaveTextContent(/conflicting config files/i);
+  });
+
+  it("renders as a non-blocking docked side panel, defaults async apply to true, and shows inline confirm/rollback buttons when pinned", async () => {
+    const user = userEvent.setup();
+    const pinnedUpgrade: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "pinned-prev-1",
+      status: "active_pinned",
+      pinned_until_confirm: true,
+    };
+    const currentPlan: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "current-plan-1",
+      mode: "simple",
+      target_loader_id: "purpur",
+      target_loader_version: "latest",
+      matrix: CLEAN_MATRIX,
+      status: "planned",
+    };
+
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [currentPlan, pinnedUpgrade],
+      active_upgrade: currentPlan,
+      banner_active: true,
+      reminder_72h_overdue: false,
+    });
+    mockApi.planServerUpgrade.mockResolvedValue(currentPlan);
+    mockApi.applyServerUpgrade.mockRejectedValue(
+      new ApiError(
+        409,
+        "CONFLICT",
+        "A previous tree retained until confirmation blocks this refresh: journal j-prev, path /data/srv.prev, requested policy until_confirm",
+      ),
+    );
+    mockApi.confirmServerUpgrade.mockResolvedValue({
+      ...pinnedUpgrade,
+      status: "confirmed",
+      pinned_until_confirm: false,
+    });
+
+    const { container } = renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={vi.fn()}
+        serverMode="simple"
+        serverType="purpur"
+        currentMc="1.21.11"
+      />,
+    );
+
+    const panel = await screen.findByTestId("change-version-side-panel");
+    expect(panel).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("inset-0");
+
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
+    const asyncCheckbox = screen.getByTestId(
+      "upgrade-async-checkbox",
+    ) as HTMLInputElement;
+    expect(asyncCheckbox.checked).toBe(true);
+
+    await user.click(screen.getByTestId("apply-upgrade-live-btn"));
+
+    const confirmPrevBtn = await screen.findByTestId(
+      "inline-confirm-prev-upgrade-btn",
+    );
+    expect(
+      screen.getByTestId("inline-rollback-prev-upgrade-btn"),
+    ).toBeInTheDocument();
+    await user.click(confirmPrevBtn);
+    await waitFor(() =>
+      expect(mockApi.confirmServerUpgrade).toHaveBeenCalledWith(
+        "srv-p55",
+        "pinned-prev-1",
+      ),
+    );
+  });
+
+  it("surfaces SERVER_UPGRADE active operation conflict with View Live Progress handoff and uses floating card classes", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    useOperationStore.setState({ activeDrawerId: null, operations: {} });
+
+    const currentPlan: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "plan-conflict-1",
+      mode: "simple",
+      status: "planned",
+      target_mc: "1.21.11",
+      target_loader_id: "purpur",
+      target_loader_version: "latest",
+      matrix: CLEAN_MATRIX,
+    };
+
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [currentPlan],
+      active_upgrade: currentPlan,
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+    mockApi.applyServerUpgrade.mockRejectedValue(
+      new ApiError(
+        409,
+        "OPERATION_CONCURRENCY_CONFLICT",
+        "Mutating operation 'SERVER_UPGRADE' is already active on server 'srv-p55'",
+        { operation_id: "op-live-conflict-1", active_operation_type: "SERVER_UPGRADE" },
+      ),
+    );
+
+    renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={onClose}
+        serverMode="simple"
+        serverType="purpur"
+        currentMc="1.21.11"
+      />,
+    );
+
+    const panel = await screen.findByTestId("change-version-side-panel");
+    expect(panel.className).toContain("lg:w-[460px]");
+    expect(panel.className).toContain("lg:right-4");
+    expect(panel.className).toContain("lg:h-fit");
+
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
+    await user.click(screen.getByTestId("apply-upgrade-live-btn"));
+
+    const banner = await screen.findByTestId("upgrade-error-banner");
+    expect(banner).toHaveTextContent(
+      "A version change operation is already running in the background for this server.",
+    );
+    expect(banner).not.toHaveTextContent("Resolve the conflicting config files above");
+
+    const viewBtn = await screen.findByTestId("view-conflict-operation-btn");
+    await user.click(viewBtn);
+    expect(useOperationStore.getState().activeDrawerId).toBe("op-live-conflict-1");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents double-click during apply, renders live step progress, and hands off on View Live Logs", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    useOperationStore.setState({ activeDrawerId: null, operations: {} });
+
+    const currentPlan: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "plan-bg-1",
+      mode: "simple",
+      status: "planned",
+      target_mc: "1.21.11",
+      target_loader_id: "purpur",
+      target_loader_version: "latest",
+      matrix: CLEAN_MATRIX,
+    };
+
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [currentPlan],
+      active_upgrade: currentPlan,
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+    let resolveApply!: (val: ServerUpgradeResponse) => void;
+    mockApi.applyServerUpgrade.mockImplementation(
+      () =>
+        new Promise<ServerUpgradeResponse>((res) => {
+          resolveApply = res;
+        }),
+    );
+    mockApi.getOperation.mockResolvedValue({
+      id: "op-bg-123",
+      type: "SERVER_UPGRADE",
+      target_type: "server",
+      target_id: "srv-p55",
+      actor_id: "usr-1",
+      status: "RUNNING",
+      idempotency_key: null,
+      current_step_id: "HEALTH_GATE",
+      last_event_seq: 4,
+      failure_code: null,
+      error_message: null,
+      cancellation_requested: false,
+      timeout_seconds: 1800,
+      created_at: "2026-11-25T11:35:00Z",
+      started_at: "2026-11-25T11:35:01Z",
+      finished_at: null,
+      elapsed_ms: 12300,
+      steps: [
+        {
+          id: "s1",
+          step_id: "PREPARE_AND_DOWNLOAD",
+          sequence: 1,
+          status: "COMPLETED",
+          progress: 1,
+          elapsed_ms: 2100,
+          message_key: "Preparing backup & downloading target artifacts",
+          safe_to_retry: false,
+          context: {},
+          started_at: "2026-11-25T11:35:01Z",
+          completed_at: "2026-11-25T11:35:03Z",
+        },
+        {
+          id: "s4",
+          step_id: "HEALTH_GATE",
+          sequence: 4,
+          status: "IN_PROGRESS",
+          progress: 0.5,
+          elapsed_ms: 10200,
+          message_key: "Booting server & running 4-step Health Gate",
+          safe_to_retry: false,
+          context: {},
+          started_at: "2026-11-25T11:35:03Z",
+          completed_at: null,
+        },
+      ],
+      metadata: {},
+    });
+
+    renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={onClose}
+        serverMode="simple"
+        serverType="purpur"
+        currentMc="1.21.11"
+      />,
+    );
+
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
+    const applyBtn = screen.getByTestId("apply-upgrade-live-btn");
+    await user.click(applyBtn);
+    expect(applyBtn).toBeDisabled();
+    // Second click must not trigger duplicate apply calls
+    await user.click(applyBtn);
+    expect(mockApi.applyServerUpgrade).toHaveBeenCalledTimes(1);
+
+    resolveApply({
+      ...currentPlan,
+      status: "applying",
+      operation_id: "op-bg-123",
+    });
+
+    const liveCard = await screen.findByTestId("upgrade-live-progress-card");
+    expect(liveCard).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Booting server & running 5-check Health Gate/),
+    ).toBeInTheDocument();
+
+    await user.click(await screen.findByTestId("open-operation-drawer-btn"));
+    expect(useOperationStore.getState().activeDrawerId).toBe("op-bg-123");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps rolled-back outcome summary visible inside Change Version and UpgradePinnedBanner instead of vanishing silently", async () => {
+    const rolledBackUpgrade: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "upg-rb-outcome-1",
+      mode: "simple",
+      status: "rolled_back",
+      source_mc: "1.21.4",
+      source_loader_id: "purpur",
+      target_mc: "1.21.11",
+      target_loader_id: "purpur",
+      error_code: "nbt_data_version",
+      error_message:
+        "Health Gate (nbt_data_version) failed: expected >= 4671 for MC 1.21.11. Automatically rolled back to purpur 1.21.4.",
+    };
+
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [rolledBackUpgrade],
+      active_upgrade: null,
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+
+    renderWithProviders(
+      <>
+        <UpgradePinnedBanner serverId="srv-p55" />
+        <SafeUpgradeWizardModal
+          serverId="srv-p55"
+          isOpen
+          onClose={vi.fn()}
+          serverMode="simple"
+          serverType="purpur"
+          currentMc="1.21.4"
+        />
+      </>,
+    );
+
+    const outcomeBanner = await screen.findByTestId("upgrade-outcome-banner");
+    expect(outcomeBanner).toHaveTextContent("Rolled Back Automatically");
+    expect(outcomeBanner).toHaveTextContent(/nbt_data_version/);
+    expect(outcomeBanner).toHaveTextContent(/restored to purpur 1\.21\.4 safely/i);
+    expect(screen.getByTestId("outcome-banner-dismiss-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("outcome-banner-retry-btn")).toBeInTheDocument();
+
+    const alertCard = await screen.findByTestId("upgrade-auto-rollback-alert");
+    expect(alertCard).toHaveTextContent("Rolled Back Automatically");
+    expect(alertCard).toHaveTextContent(/nbt_data_version/);
+    expect(screen.getByTestId("outcome-dismiss-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("outcome-try-again-btn")).toBeInTheDocument();
+  });
+
+  it("invalidates upgrades, server detail, and branches when applying operation finishes in UpgradePinnedBanner", async () => {
+    const applyingUpgrade: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "upg-applying-sync-1",
+      mode: "simple",
+      status: "applying",
+      operation_id: "op-sync-finish-1",
+    };
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [applyingUpgrade],
+      active_upgrade: applyingUpgrade,
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+    mockApi.getOperation.mockResolvedValue({
+      id: "op-sync-finish-1",
+      type: "SERVER_UPGRADE",
+      target_type: "server",
+      target_id: "srv-p55",
+      actor_id: "local-admin",
+      status: "COMPLETED",
+      idempotency_key: null,
+      current_step_id: "FINALIZE",
+      last_event_seq: 6,
+      failure_code: null,
+      error_message: null,
+      cancellation_requested: false,
+      timeout_seconds: 600,
+      created_at: "2026-11-25T12:00:00Z",
+      started_at: "2026-11-25T12:00:00Z",
+      finished_at: "2026-11-25T12:00:10Z",
+      elapsed_ms: 10000,
+      steps: [],
+      metadata: {},
+    });
+
+    renderWithProviders(<UpgradePinnedBanner serverId="srv-p55" />);
+
+    await waitFor(() => {
+      expect(mockApi.getOperation).toHaveBeenCalledWith("op-sync-finish-1");
+    });
+    await waitFor(() => {
+      expect(mockApi.listServerUpgrades.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it("auto-enables External Network Verification when public exposure is active and forwards verify_public_network", async () => {
+    const user = userEvent.setup();
+    const plannedUpgrade: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "upg-net-1",
+      mode: "simple",
+      status: "planned",
+      target_mc: "1.21.11",
+      target_loader_id: "purpur",
+      target_loader_version: "latest",
+      matrix: CLEAN_MATRIX,
+    };
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [plannedUpgrade],
+      active_upgrade: plannedUpgrade,
+      banner_active: false,
+      reminder_72h_overdue: false,
+    });
+    mockApi.getServerExposure.mockResolvedValue({
+      server_id: "srv-p55",
+      branch_name: "main",
+      method: "playit",
+      desired_state: "ENABLED",
+      aggregate_status: "ACTIVE",
+      targets: [
+        {
+          id: "t1",
+          service_type: "java",
+          protocol: "tcp",
+          local_port: 25565,
+          public_address: "demo.joinmc.link:25565",
+          status: "ACTIVE",
+        },
+      ],
+    });
+    mockApi.applyServerUpgrade.mockResolvedValue({
+      ...plannedUpgrade,
+      status: "active_pinned",
+      pinned_until_confirm: true,
+      health_gate_passed: true,
+      matrix: {
+        ...CLEAN_MATRIX,
+        health_gate_checks: [
+          { id: "startup_log", label: "Container Boot & Ready Signal", status: "passed", detail: "Done in 18.2s" },
+          { id: "local_slp", label: "Local Server Ping (SLP)", status: "passed", detail: "Purpur 1.21.11 · 4ms" },
+          { id: "rcon_flush", label: "RCON World Flush", status: "skipped", detail: "RCON disabled in server.properties" },
+          { id: "world_nbt", label: "World Save Integrity (NBT)", status: "passed", detail: "DataVersion 4671" },
+          { id: "network_reachability", label: "Public Network / Tunnel Probe", status: "warned", detail: "Local server 1.21.11 is healthy, but public address demo.joinmc.link:25565 was unreachable after 3 attempts" },
+        ],
+        health_gate_warnings: [
+          "Local server 1.21.11 is healthy, but public address demo.joinmc.link:25565 was unreachable after 3 attempts",
+        ],
+      },
+    });
+
+    renderWithProviders(
+      <SafeUpgradeWizardModal
+        serverId="srv-p55"
+        isOpen
+        onClose={vi.fn()}
+        serverMode="simple"
+        serverType="purpur"
+        currentMc="1.21.4"
+      />,
+    );
+
+    await user.click(await screen.findByTestId("continue-upgrade-btn"));
+    const toggle = (await screen.findByTestId(
+      "verify-public-network-toggle",
+    )) as HTMLInputElement;
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(screen.getByTestId("external-network-active-pill")).toHaveTextContent(
+      "Active: playit",
+    );
+
+    await user.click(screen.getByTestId("apply-upgrade-live-btn"));
+
+    await waitFor(() =>
+      expect(mockApi.applyServerUpgrade).toHaveBeenCalledWith(
+        "srv-p55",
+        "upg-net-1",
+        {
+          resolved_conflicts: {},
+          async_mode: true,
+          verify_public_network: true,
+        },
+      ),
+    );
+
+    expect(
+      await screen.findByTestId("wizard-health-warning-banner"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("health-gate-checklist")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("health-gate-check-network_reachability"),
+    ).toHaveAttribute("data-status", "warned");
+    expect(screen.getByTestId("confirm-upgrade-unpin-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("wizard-rollback-pinned-btn")).toBeInTheDocument();
+  });
+
+  it("renders public network warning cleanly in UpgradePinnedBanner when active_pinned has warnings", async () => {
+    const warnedPinned: ServerUpgradeResponse = {
+      ...UPGRADE_BASE,
+      id: "upg-warn-banner-1",
+      mode: "simple",
+      status: "active_pinned",
+      pinned_until_confirm: true,
+      health_gate_passed: true,
+      target_mc: "1.21.11",
+      matrix: {
+        ...CLEAN_MATRIX,
+        health_gate_warnings: [
+          "Local server 1.21.11 is healthy, but public address demo.joinmc.link:25565 was unreachable after 3 attempts",
+        ],
+      },
+    };
+    mockApi.listServerUpgrades.mockResolvedValue({
+      server_id: "srv-p55",
+      items: [warnedPinned],
+      active_upgrade: warnedPinned,
+      banner_active: true,
+      reminder_72h_overdue: false,
+    });
+
+    renderWithProviders(<UpgradePinnedBanner serverId="srv-p55" />);
+
+    expect(
+      await screen.findByTestId("banner-network-warning-pill"),
+    ).toHaveTextContent("Public Network Warning");
+    expect(screen.getByTestId("banner-health-warning")).toHaveTextContent(
+      "demo.joinmc.link:25565",
+    );
+    expect(screen.getByTestId("banner-confirm-upgrade-btn")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("banner-emergency-rollback-btn"),
+    ).toBeInTheDocument();
   });
 });

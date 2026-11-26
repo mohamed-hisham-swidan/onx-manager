@@ -271,14 +271,14 @@ route_permissions:
   # monitoring
   "GET /api/v1/monitoring/host-resources": {permission: null, status: missing, note: "authenticated read-only host RAM/CPU budget snapshot"}
   "POST /api/v1/monitoring/alerts/{server_id}": {permission: "server.{id}.settings", status: enforced}
-  "DELETE /api/v1/monitoring/alerts/{alert_rule_id}": {permission: "global.settings", status: enforced}
+  "DELETE /api/v1/monitoring/alerts/{alert_rule_id}": {permission: "settings:write", status: enforced}
 
   # health
   "POST /api/v1/health/evaluate/{server_id}": {permission: "server.{id}.view", status: enforced}
 
   # schedules
-  "POST /api/v1/schedules": {permission: "global.settings", status: enforced}
-  "DELETE /api/v1/schedules/{schedule_id}": {permission: "global.settings", status: enforced}
+  "POST /api/v1/schedules": {permission: "settings:write", status: enforced}
+  "DELETE /api/v1/schedules/{schedule_id}": {permission: "settings:write", status: enforced}
 
   # operations
   "POST /api/v1/operations": {permission: "server:write", status: enforced}

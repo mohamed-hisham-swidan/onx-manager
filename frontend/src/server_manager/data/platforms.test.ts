@@ -14,7 +14,6 @@ const BACKEND_SOFTWARE_KEYS = [
   "fabric",
   "forge",
   "spigot",
-  "bukkit",
 ];
 
 const MARKETPLACE_LOADERS = [

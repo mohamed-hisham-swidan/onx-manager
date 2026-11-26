@@ -11,7 +11,6 @@ interface CommitTimelineProps {
   onTagCommit: (commitId: string) => void;
   onDiff: (from: string, to: string) => void;
   onInspect: (commit: ServerCommit) => void;
-  onRunTest: (commitId: string) => void;
 }
 
 export function CommitTimeline({
@@ -22,7 +21,6 @@ export function CommitTimeline({
   onTagCommit,
   onDiff,
   onInspect,
-  onRunTest,
 }: CommitTimelineProps) {
   const [openMenuCommitId, setOpenMenuCommitId] = useState<string | null>(null);
 
@@ -48,7 +46,7 @@ export function CommitTimeline({
   }, [openMenuCommitId]);
 
   return (
-    <div className="h-full rounded-xl border border-border-subtle bg-surface-card dark:bg-gray-800 shadow-2xs overflow-hidden flex flex-col">
+    <div className="h-full rounded-xl border border-border-subtle bg-surface-card shadow-2xs overflow-hidden flex flex-col">
       {/* Header */}
       <div className="border-b border-border-subtle px-5 py-3.5 flex items-center justify-between bg-surface-elevated/40">
         <div className="flex items-center gap-2">
@@ -228,17 +226,6 @@ export function CommitTimeline({
                           </div>
                       )}
                     </div>
-
-                    {/* Primary Action */}
-                    <button
-                      type="button"
-                      onClick={() => onRunTest(commit.id)}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary px-3 py-1 text-xs font-bold text-accent-contrast-text hover:bg-accent-hover transition-colors shadow-2xs cursor-pointer ml-auto"
-                      title="Spawn a safe test environment and execute bot-driven dry-run verification"
-                    >
-                      <Icon name="play" size={12} />
-                      Run Isolated Test
-                    </button>
                   </div>
                 </div>
               </div>

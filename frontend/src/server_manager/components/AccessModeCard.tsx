@@ -4,6 +4,9 @@ import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
 import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Banner } from "@/components/ui/Banner";
+import { Icon } from "@/components/ui/Icon";
 
 export function AccessModeCard() {
   const queryClient = useQueryClient();
@@ -12,7 +15,6 @@ export function AccessModeCard() {
   const [pendingMode, setPendingMode] = useState<"LOCAL" | "GLOBAL" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // System status (canonical access_mode)
   const { data: systemStatus, isLoading: loadingStatus, isError: statusError } = useQuery({
     queryKey: ["systemStatus"],
     queryFn: () => api.getSetupStatus(),
@@ -23,20 +25,20 @@ export function AccessModeCard() {
       api.updateAccessMode({ access_mode: newMode }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["systemStatus"] });
-      toast("success", "Access Mode Updated", `Instance access mode successfully changed to ${data.access_mode}.`);
+      toast("success", "Registration mode updated", `Instance mode is now ${data.access_mode}.`);
       setPendingMode(null);
       setErrorMsg(null);
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : "Failed to update Access Mode";
+      const msg = err instanceof Error ? err.message : "Failed to update registration mode";
       setErrorMsg(msg);
-      toast("error", "Access Mode Update Failed", msg);
+      toast("error", "Mode update failed", msg);
     },
   });
 
   if (loadingStatus) {
     return (
-      <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-4">
+      <div className="rounded-xl border border-border-subtle bg-surface-card p-5 space-y-4">
         <Skeleton className="h-6 w-48" />
         <Skeleton className="h-24 w-full" />
       </div>
@@ -45,118 +47,100 @@ export function AccessModeCard() {
 
   if (statusError || !systemStatus) {
     return (
-      <div className="rounded-xl border border-status-danger-border bg-status-danger-bg p-6 text-center text-xs text-status-danger">
-        Unable to load system status. Please verify server connectivity.
-      </div>
+      <Banner
+        variant="danger"
+        title="Unable to load registration mode"
+        description="Verify panel connectivity and try again."
+      />
     );
   }
 
   const currentMode = systemStatus.access_mode as "LOCAL" | "GLOBAL";
 
   return (
-    <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-6">
-      <div className="border-b border-border-default pb-4">
-        <h3 className="text-base font-semibold text-text-primary">
-          Instance Access Control
-        </h3>
-        <p className="text-xs text-text-muted mt-1">
-          Configure how new users register and access this onx-manager instance.
-        </p>
-      </div>
-
-      {errorMsg && (
-        <div role="alert" className="p-3 text-xs text-status-danger bg-status-danger-bg rounded-lg border border-status-danger-border">
-          {errorMsg}
-        </div>
-      )}
-
-      {/* Current status overview banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg bg-surface-page border border-border-default">
+    <section className="rounded-xl border border-border-subtle bg-surface-card p-5 shadow-2xs space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-            Current Access Mode
-          </span>
-          <div className="flex items-center gap-2 mt-1">
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-              currentMode === "LOCAL"
-                ? "bg-status-success-bg text-status-success border border-status-success-border"
-                : "bg-accent-primary/10 text-accent-primary border border-accent-primary/20"
-            }`}>
-              {currentMode} MODE
-            </span>
-          </div>
+          <h3 className="text-sm font-semibold text-text-primary">User Registration Mode</h3>
+          <p className="text-xs text-text-muted mt-0.5">
+            Control whether new users can register themselves.
+          </p>
         </div>
-        <p className="text-xs text-text-secondary max-w-md">
-          {currentMode === "LOCAL"
-            ? "Open self-registration is ENABLED. Anyone on your local network can create an account (assigned Viewer role by default)."
-            : "Open self-registration is DISABLED. Registration requires a valid invitation link created by an Owner or Admin."}
-        </p>
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+            currentMode === "LOCAL"
+              ? "bg-status-success-bg text-status-success border-status-success-border"
+              : "bg-accent-primary/10 text-text-accent border-accent-primary/25"
+          }`}
+        >
+          {currentMode} MODE
+        </span>
       </div>
 
-      {/* Mode selection cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+      {errorMsg && <Banner variant="danger" title="Update failed" description={errorMsg} />}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* LOCAL Mode Card */}
-        <div className={`rounded-xl border p-5 space-y-3 transition-colors ${
-          currentMode === "LOCAL"
-            ? "border-accent-primary bg-surface-elevated ring-1 ring-accent-primary/20"
-            : "border-border-default hover:border-border-strong bg-surface-page"
-        }`}>
+        <div
+          className={`rounded-xl border p-4 space-y-3 transition-colors ${
+            currentMode === "LOCAL"
+              ? "border-accent-primary bg-accent-primary/8"
+              : "border-border-subtle bg-surface-page"
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-text-primary">
-              LOCAL (LAN / Self-Hosted)
-            </h4>
+            <h4 className="text-sm font-semibold text-text-primary">Local / Open</h4>
             {currentMode === "LOCAL" && (
-              <span className="text-xs font-medium text-accent-primary">
-                Active
-              </span>
+              <Icon name="check" size={15} className="text-text-accent" />
             )}
           </div>
           <p className="text-xs text-text-muted">
-            Ideal for local networks and home labs. Open self-registration is enabled. New users are assigned Viewer permissions by default.
+            LAN &amp; self-hosted — open registration as Viewer.
           </p>
           {currentMode !== "LOCAL" && (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full"
               onClick={() => setPendingMode("LOCAL")}
-              className="w-full py-2 px-3 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary text-xs font-medium border border-border-default transition-colors cursor-pointer"
             >
               Switch to LOCAL Mode
-            </button>
+            </Button>
           )}
         </div>
 
         {/* GLOBAL Mode Card */}
-        <div className={`rounded-xl border p-5 space-y-3 transition-colors ${
-          currentMode === "GLOBAL"
-            ? "border-accent-primary bg-surface-elevated ring-1 ring-accent-primary/20"
-            : "border-border-default hover:border-border-strong bg-surface-page"
-        }`}>
+        <div
+          className={`rounded-xl border p-4 space-y-3 transition-colors ${
+            currentMode === "GLOBAL"
+              ? "border-accent-primary bg-accent-primary/8"
+              : "border-border-subtle bg-surface-page"
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-text-primary">
-              GLOBAL (VPS / Multi-Tenant)
-            </h4>
+            <h4 className="text-sm font-semibold text-text-primary">Global / Invite-Only</h4>
             {currentMode === "GLOBAL" && (
-              <span className="text-xs font-medium text-accent-primary">
-                Active
-              </span>
+              <Icon name="check" size={15} className="text-text-accent" />
             )}
           </div>
           <p className="text-xs text-text-muted">
-            Ideal for internet-facing servers or cloud VPS deployments. Public self-registration is locked down; users can only join via invitation tokens.
+            VPS — locked down, invite link required.
           </p>
           {currentMode !== "GLOBAL" && (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full"
               onClick={() => setPendingMode("GLOBAL")}
-              className="w-full py-2 px-3 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary text-xs font-medium border border-border-default transition-colors cursor-pointer"
             >
               Switch to GLOBAL Mode
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Confirmation Modal */}
       <Modal
         open={Boolean(pendingMode)}
         onClose={() => {
@@ -176,36 +160,38 @@ export function AccessModeCard() {
         <div className="space-y-4">
           <p className="text-xs text-text-secondary leading-relaxed">
             {pendingMode === "GLOBAL"
-              ? "Changing the instance Access Mode to GLOBAL will immediately disable open self-registration. All future registrations will require a valid invitation link created by an Owner or Admin. Existing user accounts will remain unaffected."
-              : "Changing the instance Access Mode to LOCAL will immediately enable open self-registration. Anyone with access to this panel will be able to create a new account (assigned Viewer role by default). Existing user accounts will remain unaffected."}
+              ? "Open sign-ups will close immediately. New users will need an invitation link. Existing accounts stay unchanged."
+              : "Open sign-ups will open immediately with default Viewer permissions. Existing accounts stay unchanged."}
           </p>
 
-          <div className="flex justify-end gap-3 pt-2">
-            <button
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
               type="button"
-              onClick={() => setPendingMode(null)}
+              variant="outline"
+              size="sm"
               disabled={updateMutation.isPending}
-              className="px-4 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50 cursor-pointer"
+              onClick={() => setPendingMode(null)}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="primary"
+              size="sm"
+              loading={updateMutation.isPending}
               onClick={() => {
                 if (pendingMode) updateMutation.mutate(pendingMode);
               }}
-              disabled={updateMutation.isPending}
-              className="px-4 py-2 rounded-lg text-xs font-medium bg-accent-primary hover:bg-accent-hover text-accent-contrast-text transition-colors disabled:opacity-50 cursor-pointer"
             >
               {updateMutation.isPending
                 ? "Updating Mode..."
                 : pendingMode === "GLOBAL"
                 ? "Confirm Switch to GLOBAL"
                 : "Confirm Switch to LOCAL"}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
-    </div>
+    </section>
   );
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -9,6 +10,36 @@ from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
 
 logger = logging.getLogger(__name__)
+
+_HEX_ID_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+_VERSION_ONLY_RE = re.compile(r"^v?\d+(?:\.\d+)+(?:[+-].*)?$", re.IGNORECASE)
+
+
+def _strip_addon_extension(filename: str) -> str:
+    cleaned = filename.strip()
+    for suffix in (".jar.disabled", ".jar", ".disabled"):
+        if cleaned.lower().endswith(suffix):
+            return cleaned[: -len(suffix)]
+    return cleaned
+
+
+def _resolve_plugin_label(event: DomainEvent) -> str:
+    name = str(getattr(event, "name", "") or "").strip()
+    filename = str(
+        getattr(event, "filename", None) or getattr(event, "file_name", None) or ""
+    ).strip()
+    pid = str(getattr(event, "plugin_id", "") or "").strip()
+
+    if name and not _HEX_ID_RE.fullmatch(name):
+        # Prefer richer filename stem (e.g. "TAB v6.2.1.jar") over bare version ("6.2.1")
+        if _VERSION_ONLY_RE.fullmatch(name) and filename:
+            return _strip_addon_extension(filename) or name
+        return name
+    if filename:
+        return _strip_addon_extension(filename) or filename
+    if pid:
+        return pid
+    return "plugin"
 
 
 class ActivityEventSubscriber(EventHandler):
@@ -92,22 +123,22 @@ class ActivityEventSubscriber(EventHandler):
 
         # Plugins / Mods
         if event_name == "PluginInstalledEvent":
-            name = getattr(event, "name", None) or getattr(event, "plugin_id", "plugin")
+            name = _resolve_plugin_label(event)
             ver = getattr(event, "version", "")
             ver_suffix = f" (v{ver})" if ver else ""
             return f"Plugin/mod '{name}' installed{ver_suffix}", "plugin.installed"
         if event_name == "PluginEnabledEvent":
-            pid = getattr(event, "plugin_id", "plugin")
-            return f"Plugin/mod '{pid}' enabled", "plugin.enabled"
+            name = _resolve_plugin_label(event)
+            return f"Plugin/mod '{name}' enabled", "plugin.enabled"
         if event_name == "PluginDisabledEvent":
-            pid = getattr(event, "plugin_id", "plugin")
-            return f"Plugin/mod '{pid}' disabled", "plugin.disabled"
+            name = _resolve_plugin_label(event)
+            return f"Plugin/mod '{name}' disabled", "plugin.disabled"
         if event_name == "PluginUninstalledEvent":
-            pid = getattr(event, "plugin_id", "plugin")
-            return f"Plugin/mod '{pid}' uninstalled", "plugin.uninstalled"
+            name = _resolve_plugin_label(event)
+            return f"Plugin/mod '{name}' uninstalled", "plugin.uninstalled"
         if event_name == "PluginUpdatedEvent":
-            pid = getattr(event, "plugin_id", "plugin")
-            return f"Plugin/mod '{pid}' updated", "plugin.updated"
+            name = _resolve_plugin_label(event)
+            return f"Plugin/mod '{name}' updated", "plugin.updated"
 
         # Backups
         if event_name in {

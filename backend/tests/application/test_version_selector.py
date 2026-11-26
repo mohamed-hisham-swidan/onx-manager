@@ -51,18 +51,29 @@ def test_loader_fallback_to_paper_from_purpur():
     result = select_best_version("purpur", "1.21", versions)
     assert result.selected is not None
     assert result.selected.version_number == "2.0.0"
-    assert result.notice_kind == "loader_fallback"
+    # Purpur and Paper share the native Paper-API tier (no fallback warning).
+    assert result.notice_kind == ""
 
 
 def test_exact_loader_preferred_over_newer_parent_build():
+    # A stale purpur-tagged build must NOT starve a newer native paper build;
+    # on equal version/date ties, purpur wins.
     versions = [
         _ver("1.0.0", game_versions=["1.21"], loaders=["purpur"]),
         _ver("2.0.0", game_versions=["1.21"], loaders=["paper"]),
     ]
     result = select_best_version("purpur", "1.21", versions)
     assert result.selected is not None
-    assert result.selected.version_number == "1.0.0"
+    assert result.selected.version_number == "2.0.0"
     assert result.notice_kind == ""
+
+    tied = [
+        _ver("2.0.0", game_versions=["1.21"], loaders=["paper"]),
+        _ver("2.0.0", game_versions=["1.21"], loaders=["purpur"]),
+    ]
+    tied_result = select_best_version("purpur", "1.21", tied)
+    assert tied_result.selected is not None
+    assert tied_result.selected.loaders == ["purpur"]
 
 
 def test_loader_fallback_to_bukkit():
@@ -227,3 +238,13 @@ class TestGameVersionMatchesV13:
 
     def test_degenerate_empty_match(self):
         assert _game_version_matches("", "") is True
+
+    def test_empty_version_loaders_rejected(self):
+        from app.modules.plugin.application.services.version_selector import (
+            is_version_loader_compatible,
+        )
+
+        assert is_version_loader_compatible("paper", []) is False
+        assert is_version_loader_compatible("fabric", [""]) is False
+        assert is_version_loader_compatible("paper", ["spigot"]) is True
+        assert is_version_loader_compatible("paper", ["fabric"]) is False

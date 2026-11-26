@@ -49,7 +49,7 @@ export function AddonsStep({
 
   const requestKey =
     typeof api.searchMarketplaceGlobal === "function"
-      ? `${serverType}:${projectType}:${submittedQuery}`
+      ? `${serverType}:${minecraftVersion}:${projectType}:${submittedQuery}`
       : null;
   const loading = requestKey !== null && fetchState.key !== requestKey;
   const results = requestKey !== null && fetchState.key === requestKey ? fetchState.items : [];
@@ -61,7 +61,15 @@ export function AddonsStep({
     }
     let cancelled = false;
     api
-      .searchMarketplaceGlobal(submittedQuery, projectType, 12, 0, serverType)
+      .searchMarketplaceGlobal(
+        submittedQuery,
+        projectType,
+        12,
+        0,
+        serverType,
+        undefined,
+        minecraftVersion || undefined,
+      )
       .then((res) => {
         if (cancelled) return;
         setFetchState({ key: requestKey, items: res?.items ?? [], error: null });
@@ -80,7 +88,7 @@ export function AddonsStep({
     return () => {
       cancelled = true;
     };
-  }, [api, requestKey, submittedQuery, projectType, serverType, nounPlural]);
+  }, [api, requestKey, submittedQuery, projectType, serverType, minecraftVersion, nounPlural]);
 
   const selectedIds = useMemo(
     () => new Set(selectedAddons.map((a) => a.project_id)),
@@ -158,7 +166,7 @@ export function AddonsStep({
             <span
               className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
                 installModpack
-                  ? "bg-accent-primary text-white"
+                  ? "bg-accent-primary text-accent-contrast-text"
                   : "border border-border-default bg-surface-page text-text-secondary"
               }`}
             >
@@ -279,7 +287,7 @@ export function AddonsStep({
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                           isSelected
-                            ? "bg-accent-primary text-white"
+                            ? "bg-accent-primary text-accent-contrast-text"
                             : "bg-surface-elevated text-text-secondary"
                         }`}
                       >
@@ -321,7 +329,7 @@ export function AddonsStep({
           <button
             type="button"
             onClick={onNext}
-            className="rounded-lg bg-accent-primary px-5 py-2 text-sm font-semibold text-white hover:bg-accent-hover transition-colors shadow-xs cursor-pointer"
+            className="rounded-lg bg-accent-primary px-5 py-2 text-sm font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors shadow-xs cursor-pointer"
           >
             Next
           </button>

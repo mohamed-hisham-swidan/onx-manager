@@ -122,6 +122,37 @@ class TestGetServerHandler:
             persisted = await repo.get(ServerId("get-test-live"))
             assert persisted.runtime.host == "172.17.0.9"
 
+    @pytest.mark.asyncio
+    async def test_get_server_detail_enriches_uptime_icon_and_active_branch(
+        self, tmp_path
+    ) -> None:
+        srv_dir = tmp_path / "srv-detail-enrich"
+        srv_dir.mkdir()
+        (srv_dir / "server-icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfakeicon")
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = _build_server("get-enrich-1", "EnrichTest", root_path=str(srv_dir))
+            server.start()
+            server.mark_running(
+                pid=101,
+                port=25565,
+                host="172.17.0.5",
+                external_id="onx-get-enrich-1",
+            )
+            server.collect_events()
+            await repo.save(server)
+            await session.commit()
+
+        handler = GetServerHandler()
+        result = await handler.handle(GetServerQuery(server_id="get-enrich-1"))
+
+        assert result is not None
+        assert isinstance(result.uptime_seconds, int)
+        assert result.uptime_seconds >= 0
+        assert result.icon_data_url is not None
+        assert result.icon_data_url.startswith("data:image/png;base64,")
+
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -183,6 +214,42 @@ class TestListServersHandler:
         assert len(result) == 1
         assert result[0].name == "Alpha"
 
+    @pytest.mark.asyncio
+    async def test_list_projects_uptime_host_memory_and_rejects_symlink_icon(
+        self, tmp_path
+    ) -> None:
+        outside_icon = tmp_path / "outside.png"
+        outside_icon.write_bytes(b"\x89PNG\r\n\x1a\noutside")
+        srv_dir = tmp_path / "srv-run"
+        srv_dir.mkdir()
+        (srv_dir / "server-icon.png").symlink_to(outside_icon)
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            s = _build_server("list-live-1", "LiveOne", root_path=str(srv_dir))
+            s.start()
+            s.mark_running(
+                pid=999,
+                port=25570,
+                host="10.0.0.5",
+                external_id="onx-list-live-1",
+            )
+            s.collect_events()
+            await repo.save(s)
+            await session.commit()
+
+        handler = ListServersHandler()
+        result = await handler.handle(ListServersQuery(name_search="LiveOne"))
+
+        assert len(result) == 1
+        item = result[0]
+        assert item.max_memory_mb == 2048
+        assert item.deployment_host == "10.0.0.5"
+        assert isinstance(item.uptime_seconds, int)
+        assert item.uptime_seconds >= 0
+        # Symlink outside server directory must be rejected
+        assert item.icon_data_url is None
+
 
 class TestResolveDisplayName:
     def test_uses_db_name_when_no_deployment(self) -> None:
@@ -193,12 +260,20 @@ class TestResolveDisplayName:
         server = _build_server("rdn-2", "DbName", root_path=str(tmp_path))
         assert resolve_display_name(server) == "DbName"
 
-    def test_uses_server_name_from_properties_file(self, tmp_path) -> None:
+    def test_prioritizes_db_name_over_properties_file(self, tmp_path) -> None:
         (tmp_path / "server.properties").write_text(
             "#Minecraft server properties\nserver-name=OnxMC Test Server\n",
             encoding="utf-8",
         )
         server = _build_server("rdn-3", "DbName", root_path=str(tmp_path))
+        assert resolve_display_name(server) == "DbName"
+
+    def test_falls_back_to_properties_file_when_db_name_blank(self, tmp_path) -> None:
+        (tmp_path / "server.properties").write_text(
+            "#Minecraft server properties\nserver-name=OnxMC Test Server\n",
+            encoding="utf-8",
+        )
+        server = _build_server("rdn-3b", "   ", root_path=str(tmp_path))
         assert resolve_display_name(server) == "OnxMC Test Server"
 
     def test_ignores_empty_server_name_in_properties_file(self, tmp_path) -> None:

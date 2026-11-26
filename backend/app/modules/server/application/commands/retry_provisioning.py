@@ -45,7 +45,10 @@ class RetryProvisioningHandler(CommandHandler[RetryProvisioningCommand]):
             if server.status != ServerStatus.PROVISIONING_FAILED:
                 return CommandResult(
                     success=False,
-                    error=f"Server {command.server_id} is in status '{server.status.value}', expected '{ServerStatus.PROVISIONING_FAILED.value}'",
+                    error=(
+                        f"Server {command.server_id} is in status '{server.status.value}', "
+                        f"expected '{ServerStatus.PROVISIONING_FAILED.value}'"
+                    ),
                     error_code="INVALID_STATUS",
                 )
             server.begin_provisioning()
@@ -55,7 +58,34 @@ class RetryProvisioningHandler(CommandHandler[RetryProvisioningCommand]):
             await uow.commit()
 
         stype = server.server_type.value
-        mc_ver = str(server.minecraft_version)
+        mv = server.minecraft_version
+        if mv.patch == 0 and (mv.major >= 26 or (mv.major == 1 and mv.minor in (19, 20, 21))):
+            mc_ver = f"{mv.major}.{mv.minor}"
+        else:
+            mc_ver = str(mv)
+
+        from app.modules.server.application.services.provisioning_telemetry import (
+            ProvisioningProgressTracker,
+        )
+
+        tracker = ProvisioningProgressTracker(
+            server_id=str(sid),
+            server_name=server.name,
+            server_type=stype,
+            minecraft_version=mc_ver,
+            mode=server.mode.value,
+            event_bus=self._event_bus,
+        )
+        await tracker.complete_step(
+            "prepare_workspace",
+            detail="Workspace ready",
+            activity_message="Retrying server installation",
+        )
+        await tracker.start_step(
+            "download_core",
+            f"Preparing {stype} installer...",
+        )
+
         if stype == "forge":
             from app.modules.server.application.services.forge_provisioner import (
                 provision_forge_server,
@@ -79,7 +109,10 @@ class RetryProvisioningHandler(CommandHandler[RetryProvisioningCommand]):
         else:
             return CommandResult(
                 success=False,
-                error=f"Server {command.server_id} with type '{stype}' does not use installer provisioning",
+                error=(
+                    f"Server {command.server_id} with type '{stype}' "
+                    "does not use installer provisioning"
+                ),
                 error_code="UNSUPPORTED_SERVER_TYPE",
             )
 

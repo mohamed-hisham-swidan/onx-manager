@@ -64,6 +64,21 @@ class InvalidJarError(ValidationError):
         self.http_status = 400
 
 
+class InvalidPluginJarError(InvalidJarError):
+    def __init__(
+        self,
+        message: str = "Not a valid plugin JAR",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Not a valid plugin JAR",
+            details=details,
+        )
+        self.code = "INVALID_PLUGIN_JAR"
+        self.http_status = 422
+
+
 class MaterializationFileTooLargeError(ValidationError):
     def __init__(self, path: str, size_bytes: int, max_bytes: int) -> None:
         super().__init__(

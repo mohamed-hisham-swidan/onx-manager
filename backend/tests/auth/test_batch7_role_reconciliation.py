@@ -153,7 +153,8 @@ async def test_admin_global_bypass_console_and_command(client: AsyncClient, tmp_
 
     admin_header = await _seed_api_key_header("u_admin_b7", ["admin:full"])
 
-    # Authorization passed via admin:full short-circuit; server is stopped -> clean 200 OK with empty lines
+    # Authorization passed via admin:full short-circuit;
+    # server is stopped -> clean 200 OK with empty lines
     resp = await client.get("/api/v1/servers/srv-bypass/console", headers=admin_header)
     assert resp.status_code == 200
 
@@ -289,7 +290,8 @@ async def test_invited_member_gains_target_server_access(client: AsyncClient, tm
     assert acc_res.status_code == 201
     member_headers = {"Authorization": f"Bearer {acc_res.json()['access_token']}"}
 
-    # 4. Invitee can reach target server console + command (auth passed -> clean 200 OK for console, command 404)
+    # 4. Invitee can reach target server console + command
+    # (auth passed -> clean 200 OK for console, command 404)
     resp = await client.get("/api/v1/servers/srv-target/console", headers=member_headers)
     assert resp.status_code == 200
     resp = await client.post(
@@ -308,26 +310,39 @@ async def test_invited_member_gains_target_server_access(client: AsyncClient, tm
 
 @pytest.mark.asyncio
 async def test_docker_execute_command_escapes_single_quotes() -> None:
+    from unittest.mock import AsyncMock, patch
+
     from app.modules.server.infrastructure.providers.base import ServerHandle
     from app.modules.server.infrastructure.providers.docker import DockerProvider
 
     provider = DockerProvider()
     handle = ServerHandle(provider="docker", server_id="s1", external_id="onx-s1")
 
-    captured: dict[str, list[str]] = {}
+    captured: list[str] = []
+    mock_rcon = AsyncMock()
+    mock_rcon.connect = AsyncMock()
+    mock_rcon.close = AsyncMock()
 
-    async def fake_docker_command(*args: str) -> tuple[int, str]:
-        captured["args"] = list(args)
-        return 0, "ok"
+    async def _send(cmd: str) -> str:
+        captured.append(cmd)
+        return "ok"
 
-    provider._docker_command = fake_docker_command  # type: ignore[method-assign]
+    mock_rcon.send_command = AsyncMock(side_effect=_send)
+    mock_docker = AsyncMock()
 
-    await provider.execute_command(handle, "say 'hello'; touch /tmp/pwned")
+    with (
+        patch.object(
+            provider,
+            "_resolve_rcon_credentials",
+            AsyncMock(return_value=("127.0.0.1", 25575, "secret")),
+        ),
+        patch(
+            "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
+            return_value=mock_rcon,
+        ),
+        patch.object(provider, "_docker_command", mock_docker),
+    ):
+        await provider.execute_command(handle, "say 'hello'; touch /tmp/pwned")
 
-    assert captured["args"] == [
-        "exec",
-        "onx-s1",
-        "rcon-cli",
-        "--",
-        "say 'hello'; touch /tmp/pwned",
-    ]
+    mock_docker.assert_not_called()
+    assert captured == ["say 'hello'; touch /tmp/pwned"]

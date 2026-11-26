@@ -12,14 +12,21 @@ import { useUIStore } from "@/stores/uiStore";
 
 export function AppShell() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
+  const changeVersionOpen = useUIStore((s) => s.changeVersionOpen);
+  const syncRightPanelSidebarCollapse = useUIStore((s) => s.syncRightPanelSidebarCollapse);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const activeDrawerId = useOperationStore((s) => s.activeDrawerId);
   const closeDrawer = useOperationStore((s) => s.closeDrawer);
   const location = useLocation();
+  const rightPanelOpen = Boolean(activeDrawerId) || changeVersionOpen;
 
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname, setMobileSidebarOpen]);
+
+  useEffect(() => {
+    syncRightPanelSidebarCollapse(rightPanelOpen);
+  }, [rightPanelOpen, syncRightPanelSidebarCollapse]);
 
   return (
     <div
@@ -44,7 +51,7 @@ export function AppShell() {
         tabIndex={-1}
         className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden flex flex-col flex-1 min-h-0 ${
           sidebarOpen ? "lg:pl-[var(--sidebar-width,14rem)]" : "lg:pl-0"
-        }`}
+        } ${rightPanelOpen ? "lg:pr-[488px] xl:pr-[528px]" : ""}`}
       >
         <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 pb-16 flex flex-col flex-1 min-h-0">
           <ErrorBoundary>

@@ -29,8 +29,10 @@ class BtrfsZfsSnapshotDriver:
         src_dir: str | Path,
         dst_dir: str | Path,
         world_names: list[str] | None = None,
+        *,
+        allow_copy_fallback: bool = False,
     ) -> None:
-        """Clones world directories from src_dir to dst_dir using reflink block cloning."""
+        """Clones world directories from src_dir to dst_dir using reflink (or copy fallback)."""
         src_path = Path(src_dir).resolve()
         dst_path = Path(dst_dir).resolve()
         targets = world_names or cls.DEFAULT_WORLD_NAMES
@@ -61,20 +63,30 @@ class BtrfsZfsSnapshotDriver:
                         ),
                     ) from exc
                 if res.returncode != 0:
-                    logger.error(
-                        "Reflink world clone failed from %s to %s: %s",
-                        w_src,
-                        w_dst,
-                        res.stderr,
-                    )
-                    raise StorageCowUnavailableError(
-                        path=str(dst_dir),
-                        message=(
-                            f"Reflink world clone failed from '{w_src}' to '{w_dst}'. "
-                            "Filesystem must support copy-on-write block cloning: "
-                            f"{res.stderr.strip()}"
-                        ),
-                    )
+                    if allow_copy_fallback:
+                        logger.info(
+                            "Reflink unavailable for %s -> %s; falling back to standard copy",
+                            w_src,
+                            w_dst,
+                        )
+                        if w_dst.exists():
+                            shutil.rmtree(w_dst)
+                        shutil.copytree(w_src, w_dst, symlinks=True)
+                    else:
+                        logger.error(
+                            "Reflink world clone failed from %s to %s: %s",
+                            w_src,
+                            w_dst,
+                            res.stderr,
+                        )
+                        raise StorageCowUnavailableError(
+                            path=str(dst_dir),
+                            message=(
+                                f"Reflink world clone failed from '{w_src}' to '{w_dst}'. "
+                                "Filesystem must support copy-on-write block cloning: "
+                                f"{res.stderr.strip()}"
+                            ),
+                        )
                 cloned_any = True
 
         if not cloned_any:
@@ -86,9 +98,16 @@ class BtrfsZfsSnapshotDriver:
         server_dir: str | Path,
         snapshot_dir: str | Path,
         world_names: list[str] | None = None,
+        *,
+        allow_copy_fallback: bool = False,
     ) -> int:
         """Creates a snapshot of world state into snapshot_dir. Returns size in bytes."""
-        cls.clone_world(server_dir, snapshot_dir, world_names=world_names)
+        cls.clone_world(
+            server_dir,
+            snapshot_dir,
+            world_names=world_names,
+            allow_copy_fallback=allow_copy_fallback,
+        )
 
         total_size = 0
         s_path = Path(snapshot_dir)

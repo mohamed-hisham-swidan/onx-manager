@@ -29,6 +29,7 @@ from app.modules.shared.value_objects import MinecraftVersion, PluginId, ServerI
 def _version(
     version_number: str = "2.21.0",
     filename: str = "EssentialsX.jar",
+    loaders: list[str] | None = None,
 ) -> PluginVersionInfo:
     return PluginVersionInfo(
         version_id="ver-1",
@@ -36,7 +37,7 @@ def _version(
         name="EssentialsX",
         version_number=version_number,
         game_versions=["1.21"],
-        loaders=["paper"],
+        loaders=loaders or ["paper"],
         files=[
             PluginFile(
                 url="https://cdn.modrinth.com/data/proj-1/ver-1/EssentialsX.jar",
@@ -77,7 +78,16 @@ class _FakeProvider:
         expected_sha512: str | None = None,  # noqa: ARG002
     ) -> bytes:
         self.downloaded_url = url
-        return b"PK\x03\x04fake-jar-content"
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "plugin.yml",
+                "name: EssentialsX\nversion: 2.21.0\nmain: com.example.Main\n",
+            )
+        return buf.getvalue()
 
 
 async def _create_server(
@@ -268,4 +278,133 @@ class TestInstallModrinthPluginHandler:
         assert result.success is False
         assert result.error_code == "INVALID_FILENAME"
         assert ".jar" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_explicit_version_incompatible_loader_rejected(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        await _create_server(
+            "srv-modrinth-loader",
+            str(tmp_path / "srv-modrinth-loader"),
+            server_type=ServerType.PAPER,
+        )
+        fabric_ver = PluginVersionInfo(
+            version_id="ver-fabric-only",
+            project_id="proj-1",
+            name="FabricMod",
+            version_number="1.0.0",
+            game_versions=["1.21"],
+            loaders=["fabric"],
+            files=[
+                PluginFile(
+                    url="https://cdn.modrinth.com/data/proj-1/ver-fabric-only/FabricMod.jar",
+                    filename="FabricMod.jar",
+                    size_bytes=1024,
+                    sha1="deadbeef",
+                    primary=True,
+                ),
+            ],
+            date_published="2025-01-01T00:00:00Z",
+        )
+        provider = _FakeProvider(fabric_ver)
+        handler = InstallModrinthPluginHandler(event_bus, provider=provider)
+
+        result = await handler.handle(
+            InstallModrinthPluginCommand(
+                server_id="srv-modrinth-loader",
+                project_id="proj-1",
+                version_id="ver-fabric-only",
+            )
+        )
+        assert result.success is False
+        assert result.error_code == "NO_COMPATIBLE_VERSION"
+
+    @pytest.mark.asyncio
+    async def test_fabric_jar_bytes_rejected_on_paper_before_disk_write(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        import io
+        import zipfile
+
+        srv_dir = tmp_path / "srv-modrinth-fabric-leak"
+        await _create_server(
+            "srv-modrinth-fabric-leak",
+            str(srv_dir),
+            server_type=ServerType.PAPER,
+        )
+
+        # Provider falsely tags a Fabric-only JAR with loader="paper"
+        class _FabricPayloadProvider(_FakeProvider):
+            async def download(
+                self,
+                url: str,
+                expected_sha1: str | None = None,
+                expected_sha512: str | None = None,
+            ) -> bytes:
+                del url, expected_sha1, expected_sha512
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w") as zf:
+                    zf.writestr(
+                        "fabric.mod.json",
+                        '{"id": "fabric-only", "name": "FabricOnly", "version": "1.0.0"}',
+                    )
+                return buf.getvalue()
+
+        ver = _version(filename="FabricOnly.jar", loaders=["paper"])
+        handler = InstallModrinthPluginHandler(event_bus, provider=_FabricPayloadProvider(ver))
+        result = await handler.handle(
+            InstallModrinthPluginCommand(
+                server_id="srv-modrinth-fabric-leak",
+                project_id="proj-1",
+            )
+        )
+        assert result.success is False
+        assert result.error_code == "NO_COMPATIBLE_VERSION"
+        assert not (srv_dir / "plugins" / "FabricOnly.jar").exists()
+
+    @pytest.mark.asyncio
+    async def test_universal_jar_records_compatible_loader_not_fabric_on_paper(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        import io
+        import zipfile
+
+        srv_dir = tmp_path / "srv-modrinth-universal"
+        await _create_server(
+            "srv-modrinth-universal",
+            str(srv_dir),
+            server_type=ServerType.PAPER,
+        )
+
+        class _UniversalProvider(_FakeProvider):
+            async def download(
+                self,
+                url: str,
+                expected_sha1: str | None = None,
+                expected_sha512: str | None = None,
+            ) -> bytes:
+                del url, expected_sha1, expected_sha512
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w") as zf:
+                    zf.writestr(
+                        "fabric.mod.json",
+                        '{"id": "viaversion", "name": "ViaVersion", "version": "5.0.0"}',
+                    )
+                    zf.writestr(
+                        "plugin.yml",
+                        "name: ViaVersion\nversion: 5.0.0\nmain: com.viaversion.ViaPlugin\n",
+                    )
+                return buf.getvalue()
+
+        ver = _version(filename="ViaVersion.jar", loaders=["fabric", "paper", "spigot"])
+        handler = InstallModrinthPluginHandler(event_bus, provider=_UniversalProvider(ver))
+        result = await handler.handle(
+            InstallModrinthPluginCommand(
+                server_id="srv-modrinth-universal",
+                project_id="proj-1",
+            )
+        )
+        assert result.success is True
+        assert result.data["loader"] in ("paper", "spigot", "bukkit")
+        assert result.data["loader"] != "fabric"
 

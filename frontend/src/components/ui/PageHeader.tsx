@@ -58,7 +58,7 @@ export function PageHeader({
 
         <div className="flex items-center gap-3">
           {icon && (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20 shadow-2xs">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-text-accent border border-accent-primary/20 shadow-2xs">
               <Icon name={icon} size={20} />
             </div>
           )}

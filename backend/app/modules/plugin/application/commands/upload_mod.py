@@ -15,7 +15,7 @@ from app.modules.plugin.infrastructure.addon_fs import (
     get_addon_dir_name,
     sanitize_addon_filename,
 )
-from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_metadata
+from app.modules.plugin.infrastructure.jar_metadata_parser import validate_addon_jar
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
@@ -52,6 +52,12 @@ class UploadModHandler(CommandHandler[UploadModCommand]):
                 )
 
             server_type = server.server_type.value
+            meta = validate_addon_jar(
+                command.filename,
+                command.file_content,
+                server_type=server_type,
+            )
+
             addon_dir_name = get_addon_dir_name(server_type)
             addon_dir = os.path.join(server.deployment.server_directory(), addon_dir_name)
 
@@ -60,8 +66,23 @@ class UploadModHandler(CommandHandler[UploadModCommand]):
 
             target_path = sanitize_addon_filename(command.filename, addon_dir)
             target_path_str = str(target_path)
+            disabled_path_str = f"{target_path_str}.disabled"
 
-            if self._fs.exists(target_path_str):
+            repo: PluginRepository = SQLPluginRepository(uow.session)
+            existing_rows = [
+                p
+                for p in await repo.list_all_by_server(server_id)
+                if p.filename == target_path.name
+            ]
+            pending_rows = [p for p in existing_rows if p.pending_deletion]
+            if pending_rows and len(pending_rows) == len(existing_rows):
+                for stale_path in (target_path_str, disabled_path_str):
+                    if self._fs.exists(stale_path):
+                        self._fs.delete(stale_path)
+                for p in pending_rows:
+                    await repo.delete(p.plugin_id)
+
+            if self._fs.exists(target_path_str) or self._fs.exists(disabled_path_str):
                 return CommandResult(
                     success=False,
                     error=(
@@ -71,9 +92,7 @@ class UploadModHandler(CommandHandler[UploadModCommand]):
                     error_code="FILE_ALREADY_EXISTS",
                 )
 
-            meta = parse_jar_metadata(command.file_content)
-
-            self._fs.write_binary(target_path_str, command.file_content)
+            self._fs.write_binary_atomic(target_path_str, command.file_content)
 
             parsed_raw = meta.version
             if parsed_raw:
@@ -109,7 +128,6 @@ class UploadModHandler(CommandHandler[UploadModCommand]):
                 is_disabled_on_disk=False,
             )
 
-            repo: PluginRepository = SQLPluginRepository(uow.session)
             await repo.save(plugin)
             for event in plugin.collect_events():
                 uow.add_event(event)

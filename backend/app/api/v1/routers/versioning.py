@@ -267,6 +267,8 @@ def create_github_sync_service(
                     trigger="webhook",
                 )
             except asyncio.CancelledError:
+                with contextlib.suppress(Exception):
+                    await op_service.confirm_cancellation(operation_id)
                 raise
             except Exception:
                 # run_queued_sync_operation already recorded redacted failure
@@ -284,6 +286,7 @@ def create_github_sync_service(
         )
         with contextlib.suppress(Exception):
             op_service.executor.register_task(operation_id, task)
+            op_service.executor.schedule_timeout_watch(operation_id, 600)
 
     service = GitHubSyncService(
         layout,
@@ -573,10 +576,11 @@ async def _execute_live_data_template_clone(
     runtime_service: Any,
 ) -> tuple[str, int, int, str | None]:
     from app.core.host_state import resolve_host_state_layout
+    from app.modules.server.infrastructure.providers.docker import _read_persisted_rcon_port
     from app.modules.versioning.infrastructure.data_templates import DataTemplateService
 
     props = _read_server_properties(server_root)
-    rcon_port = int(props.get("rcon.port", "25575") or 25575)
+    rcon_port = _read_persisted_rcon_port(server_root) or int(props.get("rcon.port", "25575") or 25575)
     rcon_password = props.get("rcon.password", "")
     container_name = _server_container_name(server, server_id)
     status_text = str(getattr(server.status, "value", server.status)).upper()
@@ -676,7 +680,9 @@ async def _execute_data_template_clone(
                     row.updated_at = datetime.now(UTC)
                 await session.commit()
         else:
-            root = Path(server.root_path)
+            import os as _os_path
+
+            root = Path(_os_path.path.abspath(server.root_path))
             storage_path, file_count, total_bytes, source_commit_sha = (
                 await _execute_live_data_template_clone(
                     server_id=server_id,
@@ -1243,9 +1249,7 @@ async def get_preflight_status(
     )
 
     error_msg = None
-    if not reflink_ok:
-        error_msg = "Filesystem does not support copy-on-write (reflink). Btrfs or ZFS required."
-    elif not headroom.passed:
+    if not headroom.passed:
         error_msg = headroom.message
 
     return PreflightResponse(
@@ -1254,7 +1258,7 @@ async def get_preflight_status(
         available_cores=headroom.available_cores,
         min_required_ram_mb=headroom.required_ram_mb,
         min_required_cores=headroom.required_cores,
-        passed=reflink_ok and headroom.passed,
+        passed=headroom.passed,
         error=error_msg,
     )
 
@@ -2589,6 +2593,41 @@ async def start_branch_run(
     else:
         port_set = None
 
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.server.application.branch_settings import load_branch_runtime_overrides
+    from app.modules.versioning.infrastructure.git_branches import GitBranchService
+
+    rt_overrides: dict[str, Any] = {}
+    if server.root_path:
+        with contextlib.suppress(Exception):
+            git_br = GitBranchService(resolve_host_state_layout()).get_branch(
+                server_id, Path(server.root_path), name
+            )
+            if git_br is not None and git_br.worktree_path and git_br.worktree_path.is_dir():
+                rt_overrides = load_branch_runtime_overrides(git_br.worktree_path)
+
+    eff_max_mem = (
+        req_body.requested_memory_mb
+        if req_body.requested_memory_mb is not None
+        else rt_overrides.get("max_memory_mb", server.memory_max_mb)
+    )
+    eff_min_mem = rt_overrides.get("min_memory_mb", server.memory_min_mb)
+    eff_cpu_cores = (
+        req_body.requested_cpu_cores
+        if req_body.requested_cpu_cores is not None
+        else rt_overrides.get("cpu_cores", server.cpu_cores or None)
+    )
+    eff_cpu_affinity = (
+        str(rt_overrides["cpu_affinity"])
+        if "cpu_affinity" in rt_overrides
+        else (server.cpu_affinity or "")
+    )
+    eff_jvm_args = (
+        str(rt_overrides["java_args"])
+        if "java_args" in rt_overrides
+        else (server.java_args or "")
+    )
+
     request = BranchStartRequest(
         server_id=server_id,
         server_root=server.root_path,
@@ -2603,10 +2642,12 @@ async def start_branch_run(
         port_set=port_set,
         include_query=req_body.include_query,
         plugin_port_names=tuple(req_body.plugin_port_names),
-        requested_memory_mb=req_body.requested_memory_mb or server.memory_max_mb,
-        requested_cpu_cores=req_body.requested_cpu_cores or (server.cpu_cores or None),
+        requested_memory_mb=eff_max_mem,
+        requested_memory_min_mb=eff_min_mem,
+        requested_cpu_cores=eff_cpu_cores,
+        cpu_affinity=eff_cpu_affinity,
         max_concurrent_branch_runs=server.max_concurrent_branch_runs,
-        jvm_args=server.java_args or "",
+        jvm_args=eff_jvm_args,
         startup_jar=server.startup_jar or "server.jar",
         check_os_ports=req_body.check_os_ports,
     )

@@ -274,7 +274,7 @@ describe("Sidebar", () => {
   });
 
   describe("mode-based navigation gating", () => {
-    it("hides Versions & Testing link when serverContext mode is simple", () => {
+    it("hides Versions & Sandboxes link when serverContext mode is simple", () => {
       render(
         <MemoryRouter>
           <Sidebar
@@ -287,12 +287,12 @@ describe("Sidebar", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: /Network & Exposure/i })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /Change History/i })).toBeInTheDocument();
     });
 
-    it("renders Versions & Testing link when serverContext mode is advanced", () => {
+    it("renders Versions & Sandboxes link when serverContext mode is advanced", () => {
       render(
         <MemoryRouter>
           <Sidebar
@@ -305,12 +305,12 @@ describe("Sidebar", () => {
         </MemoryRouter>,
       );
 
-      const versioningLink = screen.getByRole("link", { name: /Versions & Testing/i });
+      const versioningLink = screen.getByRole("link", { name: /Versions & Sandboxes/i });
       expect(versioningLink).toBeInTheDocument();
       expect(versioningLink).toHaveAttribute("href", "/servers/srv-adv/versioning");
     });
 
-    it("falls back to hiding Versions & Testing when mode is undefined or unknown", () => {
+    it("falls back to hiding Versions & Sandboxes when mode is undefined or unknown", () => {
       const { rerender } = render(
         <MemoryRouter>
           <Sidebar
@@ -322,7 +322,7 @@ describe("Sidebar", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
 
       rerender(
         <MemoryRouter>
@@ -336,7 +336,7 @@ describe("Sidebar", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
     });
   });
 });

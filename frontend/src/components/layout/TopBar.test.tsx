@@ -36,7 +36,6 @@ describe("TopBar", () => {
       mobileSidebarOpen: false,
       theme: "light",
       skin: "graphite",
-      density: "comfortable",
       accent: "theme",
     });
     useOperationStore.setState({
@@ -60,7 +59,6 @@ describe("TopBar", () => {
     expect(screen.getByText("Logout")).toBeInTheDocument();
 
     expect(screen.queryByLabelText("Toggle skin")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Toggle density")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Appearance options")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Background Operations")).not.toBeInTheDocument();
     expect(screen.queryByTestId("deployment-profile-badge")).not.toBeInTheDocument();

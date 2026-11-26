@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError, type MetricsSnapshot } from "@/services/api";
 import type { RuntimeDiagnosticsResponse, ServerDetailResponse } from "@/server_manager/types";
@@ -99,10 +99,6 @@ vi.mock("@/server_manager/hooks/useServerMetrics", () => ({
   })),
 }));
 
-vi.mock("@/server_manager/components/ServerConfigEditor", () => ({
-  ServerConfigEditor: () => <div data-testid="config-editor">ConfigEditor</div>,
-}));
-
 vi.mock("@/server_manager/components/ServerConsole", () => ({
   ServerConsole: () => <div data-testid="server-console">Console</div>,
 }));
@@ -115,13 +111,30 @@ vi.mock("@/hooks/useClipboard", () => ({
   useClipboard: () => ({ copy: copyMock }),
 }));
 
+function SettingsRouteProbe() {
+  const loc = useLocation();
+  return <div data-testid="settings-route-target">{`${loc.pathname}${loc.search}`}</div>;
+}
+
 function renderPage(serverId = "srv-1") {
   const qc = new QueryClient();
+  qc.setQueryData(["auth", "me"], {
+    user_id: "u1",
+    username: "admin",
+    email: null,
+    display_name: "Admin",
+    is_active: true,
+    roles: ["owner"],
+    permissions: ["admin:full"],
+    created_at: "",
+    last_login_at: null,
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/servers/${serverId}`]}>
         <Routes>
           <Route path="/servers/:serverId" element={<ServerDetailPage />} />
+          <Route path="/servers/:serverId/settings" element={<SettingsRouteProbe />} />
           <Route path="/servers" element={<div data-testid="servers-list">Servers</div>} />
         </Routes>
       </MemoryRouter>
@@ -166,31 +179,33 @@ describe("ServerDetailPage", () => {
     expect(screen.queryByText("Request failed with status 404")).not.toBeInTheDocument();
   });
 
-  it("shows all info fields correctly in the collapsible section", async () => {
+  it("opens Diagnostics & Runtime Info drawer with server configuration and no Zone ID placeholder", async () => {
     const user = userEvent.setup();
     renderPage();
-    const expandBtn = screen.getByText("Server Info & Configuration");
-    await user.click(expandBtn);
-    expect(screen.getByText("1.20.4")).toBeInTheDocument();
-    expect(screen.getAllByText("25565")).toHaveLength(2);
-    expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Network")).toBeInTheDocument();
-    expect(screen.getByText("Zone ID")).toBeInTheDocument();
+    await user.click(screen.getByTestId("open-diagnostics-drawer-btn"));
+    const drawer = screen.getByTestId("server-diagnostics-drawer");
+    expect(drawer).toBeInTheDocument();
+    expect(drawer).toHaveTextContent("1.20.4");
+    expect(drawer).toHaveTextContent("25565");
+    expect(drawer).toHaveTextContent("Runtime & Process");
+    expect(drawer).toHaveTextContent("Gameplay Snapshot");
+    expect(drawer).not.toHaveTextContent("Zone ID");
+    expect(drawer).not.toHaveTextContent("Coming Soon");
   });
 
-  it("renders a cleaned MOTD", async () => {
+  it("renders a cleaned MOTD inside Diagnostics drawer", async () => {
     const user = userEvent.setup();
     mockData = { ...mockServer, motd: "\u00a7bWelcome\u00a7r &6to &ethe server" };
     renderPage();
-    await user.click(screen.getByText("Server Info & Configuration"));
+    await user.click(screen.getByTestId("open-diagnostics-drawer-btn"));
     expect(screen.getByText("Welcome to the server")).toBeInTheDocument();
   });
 
-  it("shows a placeholder MOTD when empty", async () => {
+  it("shows a placeholder MOTD when empty inside Diagnostics drawer", async () => {
     const user = userEvent.setup();
     mockData = { ...mockServer, motd: "" };
     renderPage();
-    await user.click(screen.getByText("Server Info & Configuration"));
+    await user.click(screen.getByTestId("open-diagnostics-drawer-btn"));
     const motdRow = screen.getByText("MOTD").parentElement!;
     expect(motdRow.querySelector("dd")!.textContent).toBe("—");
   });
@@ -293,7 +308,7 @@ describe("ServerDetailPage", () => {
     expect(portWidget).toHaveTextContent("25577");
   });
 
-  it("displays deployment_host IP in server-port-widget and copies <ip>:<port> when deployment_host is known", async () => {
+  it("always renders numeric port in server-port-widget and never leaks Docker 172.x bridge IP", async () => {
     const user = userEvent.setup();
     mockData = {
       ...mockServer,
@@ -303,11 +318,25 @@ describe("ServerDetailPage", () => {
     };
     renderPage();
     const portWidget = screen.getByTestId("server-port-widget");
-    expect(portWidget).toHaveTextContent("172.18.0.5");
+    expect(portWidget).toHaveTextContent("25565");
+    expect(portWidget).not.toHaveTextContent("172.18.0.5");
+    expect(screen.getByTestId("vitals-join-address")).toHaveTextContent("localhost:25565");
     const copyBtn = portWidget.querySelector("button");
     expect(copyBtn).not.toBeNull();
     await user.click(copyBtn!);
-    expect(copyMock).toHaveBeenCalledWith("172.18.0.5:25565", expect.any(String));
+    expect(copyMock).toHaveBeenCalledWith("25565", expect.any(String));
+  });
+
+  it("hides Retry Provisioning button when provisioning_retryable is false", () => {
+    mockData = {
+      ...mockServer,
+      status: "provisioning_failed",
+      provisioning_error: "Unsupported Java version",
+      provisioning_retryable: false,
+    };
+    renderPage();
+    expect(screen.getByTestId("provisioning-failed-banner")).toBeInTheDocument();
+    expect(screen.queryByTestId("detail-retry-provisioning-btn")).not.toBeInTheDocument();
   });
 
   it("renders uptime formatted when uptime_seconds > 0", () => {
@@ -372,7 +401,7 @@ describe("ServerDetailPage", () => {
     expect(subscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-2"]);
   });
 
-  it("renders Container IP in deployment details and address for docker server", async () => {
+  it("filters Docker bridge IP from join address while showing Internal Container IP in Diagnostics drawer", async () => {
     const user = userEvent.setup();
     mockData = {
       ...mockServer,
@@ -382,12 +411,13 @@ describe("ServerDetailPage", () => {
       port: 25569,
     };
     renderPage();
-    expect(screen.getAllByText("172.17.0.3:25569").length).toBeGreaterThan(0);
-    await user.click(screen.getByText("Server Info & Configuration"));
-    expect(screen.getByText("Container IP")).toBeInTheDocument();
+    expect(screen.getByTestId("vitals-join-address")).toHaveTextContent("localhost:25569");
+    await user.click(screen.getByTestId("open-diagnostics-drawer-btn"));
+    expect(screen.getByText("Internal Container IP")).toBeInTheDocument();
+    expect(screen.getByText("172.17.0.3:25569")).toBeInTheDocument();
   });
 
-  it("renders Host in deployment details for host process server", async () => {
+  it("renders LAN Host in join address and Diagnostics drawer for host process server", async () => {
     const user = userEvent.setup();
     mockData = {
       ...mockServer,
@@ -397,8 +427,8 @@ describe("ServerDetailPage", () => {
       port: 25565,
     };
     renderPage();
-    expect(screen.getAllByText("192.168.1.253:25565").length).toBeGreaterThan(0);
-    await user.click(screen.getByText("Server Info & Configuration"));
+    expect(screen.getByTestId("vitals-join-address")).toHaveTextContent("192.168.1.253:25565");
+    await user.click(screen.getByTestId("open-diagnostics-drawer-btn"));
     expect(screen.getByText("Host")).toBeInTheDocument();
   });
 
@@ -427,5 +457,16 @@ describe("ServerDetailPage", () => {
     );
     expect(screen.getByTestId("detail-open-modpack-wizard-btn")).toBeInTheDocument();
     expect(screen.getByTestId("detail-open-safe-upgrade-wizard-btn")).toBeInTheDocument();
+  });
+
+  it("navigates to Settings Change Version drawer when Change Version is clicked", async () => {
+    const user = userEvent.setup();
+    renderPage("srv-1");
+    const btn = screen.getByTestId("detail-open-safe-upgrade-wizard-btn");
+    expect(btn).toHaveTextContent("Change Version");
+    await user.click(btn);
+    expect(screen.getByTestId("settings-route-target")).toHaveTextContent(
+      "/servers/srv-1/settings?tab=lifecycle&action=change-version",
+    );
   });
 });

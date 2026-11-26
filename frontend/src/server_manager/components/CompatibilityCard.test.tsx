@@ -16,39 +16,35 @@ describe("groupGameVersions", () => {
     expect(groupGameVersions(["1.17.1"])).toEqual(["1.17.1"]);
   });
 
-  it("collapses a line that includes the bare base release to major.minor.x", () => {
-    expect(groupGameVersions(["1.21", "1.21.1"])).toEqual(["1.21.x"]);
-    expect(groupGameVersions(["26.1", "26.1.1", "26.1.2"])).toEqual(["26.1.x"]);
-    expect(groupGameVersions(["1.18", "1.18.1", "1.18.2"])).toEqual(["1.18.x"]);
+  it("groups contiguous releases within a minor line and keeps bare base accurate", () => {
+    expect(groupGameVersions(["1.21", "1.21.1"])).toEqual(["1.21–1.21.1"]);
+    expect(groupGameVersions(["26.1", "26.1.1", "26.1.2"])).toEqual(["26.1–26.1.2"]);
+    expect(groupGameVersions(["1.18", "1.18.1", "1.18.2"])).toEqual(["1.18–1.18.2"]);
   });
 
-  it("merges consecutive base-covered lines into a line range", () => {
+  it("never collapses gaps into .x or merges across minor lines", () => {
     expect(
       groupGameVersions([
-        "1.17", "1.17.1",
-        "1.18", "1.18.1", "1.18.2",
-        "1.19", "1.19.1",
+        "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11",
+        "1.21.4", "1.21.5",
+        "1.21.1",
+        "1.20.4",
       ]),
-    ).toEqual(["1.17–1.19"]);
-    expect(groupGameVersions(["1.18", "1.18.1", "1.19", "1.19.1"])).toEqual([
-      "1.18–1.19",
+    ).toEqual([
+      "1.21.7–1.21.11",
+      "1.21.4–1.21.5",
+      "1.21.1",
+      "1.20.4",
     ]);
-  });
-
-  it("does not merge a gap-covered line or an exact single line into a range", () => {
     expect(
-      groupGameVersions(["1.18", "1.18.1", "1.19", "1.19.1", "1.20.1", "1.20.4"]),
-    ).toEqual(["1.20.x", "1.18–1.19"]);
-    expect(groupGameVersions(["1.17.1", "1.18", "1.18.1", "1.19", "1.19.1"])).toEqual([
-      "1.18–1.19",
-      "1.17.1",
-    ]);
+      groupGameVersions(["1.17", "1.17.1", "1.18", "1.18.1", "1.18.2", "1.19", "1.19.1"]),
+    ).toEqual(["1.19–1.19.1", "1.18–1.18.2", "1.17–1.17.1"]);
   });
 
   it("does not merge across majors or into an exact line", () => {
     expect(
       groupGameVersions(["26.1", "26.1.1", "26.2", "1.21", "1.21.1"]),
-    ).toEqual(["26.2", "26.1.x", "1.21.x"]);
+    ).toEqual(["26.2", "26.1–26.1.1", "1.21–1.21.1"]);
   });
 
   it("renders a gap-free contiguous run as a range", () => {
@@ -58,17 +54,18 @@ describe("groupGameVersions", () => {
     expect(groupGameVersions(["1.18.1", "1.18.2"])).toEqual(["1.18.1–1.18.2"]);
   });
 
-  it("collapses a non-contiguous run without a base to major.minor.x", () => {
+  it("splits non-contiguous runs within the same minor line accurately", () => {
     expect(groupGameVersions(["1.20.1", "1.20.2", "1.20.4"])).toEqual([
-      "1.20.x",
+      "1.20.4",
+      "1.20.1–1.20.2",
     ]);
-    expect(groupGameVersions(["1.19.2", "1.19.4"])).toEqual(["1.19.x"]);
+    expect(groupGameVersions(["1.19.2", "1.19.4"])).toEqual(["1.19.4", "1.19.2"]);
   });
 
   it("sorts numeric lines newest-first", () => {
     expect(
       groupGameVersions(["1.20.1", "26.1", "1.21.1", "1.21.10", "26.1.4"]),
-    ).toEqual(["26.1.x", "1.21.x", "1.20.1"]);
+    ).toEqual(["26.1.4", "26.1", "1.21.10", "1.21.1", "1.20.1"]);
   });
 
   it("keeps non-numeric versions raw, after numeric lines", () => {
@@ -80,7 +77,7 @@ describe("groupGameVersions", () => {
     expect(groupGameVersions(["24w14potato"])).toEqual(["24w14potato"]);
   });
 
-  it("reproduces the Modrinth-style summary for a wide-support project", () => {
+  it("reproduces accurate contiguous ranges for a wide-support project", () => {
     expect(
       groupGameVersions([
         "1.16.3", "1.16.4", "1.16.5",
@@ -95,8 +92,12 @@ describe("groupGameVersions", () => {
       ]),
     ).toEqual([
       "26.2",
-      "26.1.x",
-      "1.17–1.21",
+      "26.1–26.1.2",
+      "1.21–1.21.11",
+      "1.20–1.20.6",
+      "1.19–1.19.4",
+      "1.18–1.18.2",
+      "1.17–1.17.1",
       "1.16.3–1.16.5",
     ]);
   });
@@ -165,20 +166,21 @@ describe("CompatibilityCard", () => {
     expect(pill?.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("renders game versions and platform pills", () => {
+  it("renders game versions and platform pills including Geyser Extension", () => {
     render(
       <CompatibilityCard
         gameVersions={["1.21", "1.21.1"]}
-        loaders={["paper", "spigot"]}
+        loaders={["paper", "spigot", "geyser"]}
         clientSide="optional"
         serverSide="required"
       />,
     );
 
     expect(screen.getByText("Compatibility")).toBeInTheDocument();
-    expect(screen.getByText("1.21.x")).toBeInTheDocument();
+    expect(screen.getByText("1.21–1.21.1")).toBeInTheDocument();
     expect(screen.getByText("Paper")).toBeInTheDocument();
     expect(screen.getByText("Spigot")).toBeInTheDocument();
+    expect(screen.getByText("Geyser Extension")).toBeInTheDocument();
     expect(screen.getByText("Client and server")).toBeInTheDocument();
   });
 
@@ -205,7 +207,8 @@ describe("CompatibilityCard", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("1.21.x")).toBeInTheDocument();
+    expect(screen.getByText("1.21–1.21.1")).toBeInTheDocument();
+    expect(screen.getByText("1.21.4")).toBeInTheDocument();
     expect(screen.queryByText("26.1-snapshot-1")).not.toBeInTheDocument();
     expect(screen.queryByText("24w14potato")).not.toBeInTheDocument();
 
@@ -224,7 +227,7 @@ describe("groupReleaseVersions & categorizeServerVersions", () => {
     expect(
       groupReleaseVersions(["1.21", "1.21.1", "26.2-rc-1", "24w14potato"]),
     ).toEqual({
-      releasePills: ["1.21.x"],
+      releasePills: ["1.21–1.21.1"],
       snapshots: ["26.2-rc-1", "24w14potato"],
     });
   });

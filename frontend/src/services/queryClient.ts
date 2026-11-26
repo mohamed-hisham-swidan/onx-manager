@@ -24,17 +24,59 @@ export const queryKeys = {
     list: (serverId?: string, tier?: string) => ["backups", "list", serverId, tier] as const,
     detail: (id: string) => ["backups", "detail", id] as const,
   },
+  schedules: {
+    all: ["schedules"] as const,
+    list: () => ["schedules", "list"] as const,
+  },
   plugins: {
     all: ["plugins"] as const,
     list: (serverId: string, branch?: string) => ["plugins", "list", serverId, branch ?? "main"] as const,
     detail: (serverId: string, pluginId: string, branch?: string) =>
       ["plugins", "detail", serverId, pluginId, branch ?? "main"] as const,
     marketplace: {
-      search: (serverId: string, query: string, projectType?: string, offset = 0, loader?: string) =>
-        ["plugins", "marketplace", "search", serverId, query, projectType ?? "plugin", offset, loader ?? "all"] as const,
+      search: (
+        serverId: string,
+        query: string,
+        projectType?: string,
+        offset = 0,
+        loader?: string,
+        sort = "relevance",
+        gameVersion?: string,
+        compatibleOnly = false,
+      ) =>
+        [
+          "plugins",
+          "marketplace",
+          "search",
+          serverId,
+          query,
+          projectType ?? "plugin",
+          offset,
+          loader ?? "all",
+          sort,
+          gameVersion ?? "all",
+          compatibleOnly,
+        ] as const,
       // Global (no server_id) marketplace search — distinct from the server-scoped `search` key to avoid cache collisions.
-      global: (query: string, projectType?: string, offset = 0, loader?: string) =>
-        ["plugins", "marketplace", "global", query, projectType ?? "plugin", offset, loader ?? "all"] as const,
+      global: (
+        query: string,
+        projectType?: string,
+        offset = 0,
+        loader?: string,
+        sort = "relevance",
+        gameVersion?: string,
+      ) =>
+        [
+          "plugins",
+          "marketplace",
+          "global",
+          query,
+          projectType ?? "plugin",
+          offset,
+          loader ?? "all",
+          sort,
+          gameVersion ?? "all",
+        ] as const,
       project: (projectId: string) => ["plugins", "marketplace", "project", projectId] as const,
       projectVersions: (projectId: string, offset = 0) => ["plugins", "marketplace", "project-versions", projectId, offset] as const,
       versions: (serverId: string, projectId: string, offset = 0) => ["plugins", "marketplace", "versions", serverId, projectId, offset] as const,
@@ -52,6 +94,17 @@ export const queryKeys = {
   monitoring: {
     metrics: (serverId?: string) => ["monitoring", "metrics", serverId] as const,
   },
+  health: {
+    daemon: () => ["health", "daemon"] as const,
+    dashboard: () => ["health", "dashboard"] as const,
+    serverStatus: (serverId: string) => ["health", "status", serverId] as const,
+  },
+  operations: {
+    list: (limit = 15) => ["operations", "list", limit] as const,
+  },
+  activity: {
+    server: (serverId: string) => ["servers", "activity", serverId] as const,
+  },
   console: {
     history: (serverId: string, branch?: string) =>
       ["console", "history", serverId, branch ?? "main"] as const,
@@ -64,6 +117,8 @@ export const queryKeys = {
     all: ["files"] as const,
     list: (serverId: string, path: string, branch?: string) => ["files", "list", serverId, path, branch ?? null] as const,
     content: (serverId: string, path: string, branch?: string) => ["files", "content", serverId, path, branch ?? null] as const,
+    logsList: (serverId: string, branch?: string) => ["files", "logs", "list", serverId, branch ?? null] as const,
+    logsContent: (serverId: string, path: string, branch?: string) => ["files", "logs", "content", serverId, path, branch ?? null] as const,
     liveStateList: (serverId: string, path: string) => ["files", "live-state", "list", serverId, path] as const,
     liveStateContent: (serverId: string, path: string) => ["files", "live-state", "content", serverId, path] as const,
   },
@@ -106,5 +161,8 @@ export const queryKeys = {
       ["servers", "upgrades", serverId] as const,
     upgradeDetail: (serverId: string, upgradeId: string) =>
       ["servers", "upgrades", serverId, upgradeId] as const,
+  },
+  software: {
+    versions: (softwareType: string) => ["software", "versions", softwareType] as const,
   },
 };

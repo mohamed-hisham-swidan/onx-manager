@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.health.domain.aggregate import DiagnosticsReport, HealthStatus
@@ -21,6 +21,7 @@ from app.modules.health.infrastructure.models import (
     HealthStatusModel,
     HealthTimelineModel,
 )
+from app.modules.server.infrastructure.models import ServerModel
 
 
 class SQLHealthRepository(HealthRepository):
@@ -53,6 +54,62 @@ class SQLHealthRepository(HealthRepository):
         stmt = select(HealthStatusModel).order_by(HealthStatusModel.last_updated.desc())
         result = await self._session.execute(stmt)
         return [self._model_to_domain(m) for m in result.scalars().all()]
+
+    async def list_active(self) -> list[HealthStatus]:
+        """Return health statuses only for servers that currently exist."""
+        stmt = (
+            select(HealthStatusModel)
+            .where(HealthStatusModel.server_id.in_(select(ServerModel.id)))
+            .order_by(HealthStatusModel.last_updated.desc())
+        )
+        result = await self._session.execute(stmt)
+        return [self._model_to_domain(m) for m in result.scalars().all()]
+
+    async def exists_server(self, server_id: str) -> bool:
+        stmt = select(ServerModel.id).where(ServerModel.id == server_id).limit(1)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def delete_by_server(self, server_id: str) -> int:
+        """Delete all health tables rows associated with a server_id."""
+        res = await self._session.execute(
+            delete(HealthStatusModel).where(HealthStatusModel.server_id == server_id)
+        )
+        await self._session.execute(
+            delete(HealthTimelineModel).where(HealthTimelineModel.server_id == server_id)
+        )
+        await self._session.execute(
+            delete(EvidenceBundleModel).where(EvidenceBundleModel.server_id == server_id)
+        )
+        await self._session.execute(
+            delete(DiagnosticsReportModel).where(DiagnosticsReportModel.server_id == server_id)
+        )
+        await self._session.flush()
+        return int(res.rowcount or 0)
+
+    async def prune_orphaned(self) -> int:
+        """Remove health records whose server_id no longer exists in servers."""
+        active_subquery = select(ServerModel.id)
+        res = await self._session.execute(
+            delete(HealthStatusModel).where(HealthStatusModel.server_id.not_in(active_subquery))
+        )
+        await self._session.execute(
+            delete(HealthTimelineModel).where(
+                HealthTimelineModel.server_id.not_in(active_subquery)
+            )
+        )
+        await self._session.execute(
+            delete(EvidenceBundleModel).where(
+                EvidenceBundleModel.server_id.not_in(active_subquery)
+            )
+        )
+        await self._session.execute(
+            delete(DiagnosticsReportModel).where(
+                DiagnosticsReportModel.server_id.not_in(active_subquery)
+            )
+        )
+        await self._session.flush()
+        return int(res.rowcount or 0)
 
     async def list_by_classification(self, classification: str) -> list[HealthStatus]:
         stmt = (

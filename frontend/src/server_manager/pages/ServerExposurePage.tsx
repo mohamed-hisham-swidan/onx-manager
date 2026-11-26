@@ -18,6 +18,7 @@ import { toast } from "@/stores/toastStore";
 import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import type {
   ExposureMethodType,
+  ReachabilityProbeResult,
   ServerExposureResponse,
   ClaimResponse,
 } from "@/types";
@@ -50,6 +51,17 @@ export function ServerExposurePage() {
   const isNonMainBranch = Boolean(gitBacked && activeBranch && activeBranch !== "main");
   const { copy } = useClipboard();
 
+  // Form Draft State
+  const [draftMethod, setDraftMethod] = useState<ExposureMethodType>("none");
+  const [isConfirmDisableOpen, setIsConfirmDisableOpen] = useState(false);
+  const [isGeneratingClaim, setIsGeneratingClaim] = useState(false);
+  const [isResettingAgent, setIsResettingAgent] = useState(false);
+  const [claimData, setClaimData] = useState<ClaimResponse | null>(null);
+  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void> | void) | null>(null);
+  const [isProbingReachability, setIsProbingReachability] = useState(false);
+  const [reachabilityResult, setReachabilityResult] = useState<ReachabilityProbeResult | null>(null);
+
   const { data: server, isLoading: isServerLoading } = useServerDetail(
     serverId ?? "",
     activeBranch,
@@ -59,26 +71,20 @@ export function ServerExposurePage() {
     isLoading: isExposureLoading,
     refetch,
     agent,
+    refetchAgent,
     setExposure,
     isSettingExposure,
     setExposureState,
     isSettingExposureState,
-    createTarget,
+    createTargetAsync,
     isCreatingTarget,
-    updateTargetAddress,
+    updateTargetAddressAsync,
     isUpdatingTargetAddress,
-    deleteTarget,
+    deleteTargetAsync,
     isDeletingTarget,
-  } = useServerExposure(serverId ?? "", activeBranch);
-
-  // Form Draft State
-  const [draftMethod, setDraftMethod] = useState<ExposureMethodType>("none");
-  const [isConfirmDisableOpen, setIsConfirmDisableOpen] = useState(false);
-  const [isGeneratingClaim, setIsGeneratingClaim] = useState(false);
-  const [isResettingAgent, setIsResettingAgent] = useState(false);
-  const [claimData, setClaimData] = useState<ClaimResponse | null>(null);
-  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void> | void) | null>(null);
+  } = useServerExposure(serverId ?? "", activeBranch, {
+    isPlayitSelected: draftMethod === "playit" || Boolean(claimData),
+  });
 
   const disableButtonRef = useRef<HTMLButtonElement>(null);
   const modalCancelButtonRef = useRef<HTMLButtonElement>(null);
@@ -87,18 +93,49 @@ export function ServerExposurePage() {
   const [syncedExposure, setSyncedExposure] = useState<ServerExposureResponse | null | undefined>(null);
   if (exposure && syncedExposure !== exposure) {
     setSyncedExposure(exposure);
-    setDraftMethod(exposure.method);
+    const effectiveMethod: ExposureMethodType =
+      exposure.desired_state === "DISABLED" &&
+      (exposure.method === "none" || exposure.method === "port_forward")
+        ? "none"
+        : exposure.method;
+    setDraftMethod(effectiveMethod);
   }
   if (agent?.claimed && claimData) {
     setClaimData(null);
   }
+
+  const handleTestReachability = async () => {
+    if (!serverId || isProbingReachability) return;
+    try {
+      setIsProbingReachability(true);
+      const probed = await api.getServerExposure(serverId, activeBranch, true);
+      if (probed?.reachability) {
+        setReachabilityResult(probed.reachability);
+      } else {
+        setReachabilityResult({
+          reachable: false,
+          target_address: `127.0.0.1:${exposure?.allocated_game_port || server?.port || 25565}`,
+          error: "Reachability probe returned no result.",
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Reachability probe failed";
+      setReachabilityResult({
+        reachable: false,
+        target_address: exposure?.targets?.[0]?.public_address || `127.0.0.1:${exposure?.allocated_game_port || server?.port || 25565}`,
+        error: msg,
+      });
+    } finally {
+      setIsProbingReachability(false);
+    }
+  };
 
   const executeGenerateClaim = async (): Promise<ClaimResponse | void> => {
     try {
       setIsGeneratingClaim(true);
       const res = await api.generateClaim();
       setClaimData(res);
-      await refetch();
+      await Promise.all([refetch(), refetchAgent?.()]);
       toast("success", "Claim Link Generated", "Authorize with playit.gg to complete setup.");
       return res;
     } catch (err: unknown) {
@@ -127,7 +164,7 @@ export function ServerExposurePage() {
     try {
       setIsResettingAgent(true);
       await api.resetAgent();
-      await refetch();
+      await Promise.all([refetch(), refetchAgent?.()]);
       toast("success", "Agent Reset", "Playit agent credentials cleared.");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to reset agent";
@@ -234,6 +271,17 @@ export function ServerExposurePage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            data-testid="test-reachability-btn"
+            disabled={isProbingReachability}
+            onClick={() => void handleTestReachability()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border-default bg-surface-card text-xs font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <Icon name="globe" size={14} />
+            <span>{isProbingReachability ? "Testing..." : "Test Reachability"}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => refetch()}
@@ -354,6 +402,40 @@ export function ServerExposurePage() {
         </div>
       )}
 
+      {reachabilityResult && (
+        <div
+          data-testid="reachability-result"
+          role="status"
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-xs ${
+            reachabilityResult.reachable
+              ? "border-status-success-border bg-status-success-bg text-status-success"
+              : "border-status-danger-border bg-status-danger-bg text-status-danger"
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2 font-medium">
+            <Icon name={reachabilityResult.reachable ? "check" : "alert"} size={15} />
+            {reachabilityResult.reachable ? (
+              <span>
+                Reachable
+                {reachabilityResult.latency_ms != null ? ` · ${reachabilityResult.latency_ms}ms` : ""}
+                {reachabilityResult.version_name ? ` · ${reachabilityResult.version_name}` : ""}
+                {reachabilityResult.players_online != null && reachabilityResult.players_max != null
+                  ? ` · ${reachabilityResult.players_online}/${reachabilityResult.players_max} players`
+                  : ""}
+              </span>
+            ) : (
+              <span>
+                Unreachable ({reachabilityResult.target_address})
+                {reachabilityResult.error ? ` — ${reachabilityResult.error}` : ""}
+              </span>
+            )}
+          </div>
+          <span className="font-mono text-[11px] opacity-80">
+            {reachabilityResult.target_address}
+          </span>
+        </div>
+      )}
+
       {/* Quick-Share Guidance in Local Mode vs Full Topology in VPS Mode */}
       {isLocal && !showFullControls ? (
         <div
@@ -387,18 +469,21 @@ export function ServerExposurePage() {
             </span>
           </div>
           <span className="font-mono text-xs text-text-muted">
-            Container Port: {exposure?.allocated_game_port || server?.port || 25565}
+            {server?.provider === "docker" ? "Container Port" : "Host Port"}:{" "}
+            {exposure?.allocated_game_port || server?.port || 25565}
           </span>
         </div>
 
         <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-7">
-          {/* Node 1: Docker Container */}
+          {/* Node 1: Server Runtime */}
           <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-page p-3 md:col-span-2">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
               <Icon name="server" size={18} />
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-bold text-text-primary">Docker Container</p>
+              <p className="text-xs font-bold text-text-primary" data-testid="topology-node-runtime">
+                {server?.provider === "docker" ? "Docker Container" : "Host Process"}
+              </p>
               <p className="font-mono text-[11px] text-text-muted">
                 :{exposure?.allocated_game_port || server?.port || 25565} / TCP
               </p>
@@ -416,10 +501,18 @@ export function ServerExposurePage() {
           {/* Node 2: Exposure Engine */}
           <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-page p-3 md:col-span-2">
             <div
+              data-testid="topology-node-engine-icon"
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                isEnabled
+                isEnabled && aggregateStatus === "ACTIVE"
                   ? "bg-status-success-bg text-status-success border border-status-success/30"
-                  : "bg-surface-elevated text-text-muted border border-border-subtle"
+                  : aggregateStatus === "ERROR"
+                    ? "bg-status-danger-bg text-status-danger border border-status-danger/30"
+                    : isEnabled &&
+                        ["STARTING", "CLAIM_REQUIRED", "RECLAIM_REQUIRED", "DEGRADED"].includes(
+                          aggregateStatus,
+                        )
+                      ? "bg-status-warning-bg text-status-warning border border-status-warning/30"
+                      : "bg-surface-elevated text-text-muted border border-border-subtle"
               }`}
             >
               <Icon name="external" size={18} />
@@ -428,8 +521,18 @@ export function ServerExposurePage() {
               <p className="text-xs font-bold text-text-primary capitalize">
                 {exposure?.method === "none" ? "Local Host" : exposure?.method || "None"}
               </p>
-              <p className="truncate text-[11px] text-text-muted">
-                {isEnabled ? "Tunnel active" : "No public route"}
+              <p className="truncate text-[11px] text-text-muted" data-testid="topology-node-engine-status">
+                {isEnabled && aggregateStatus === "ACTIVE"
+                  ? "Tunnel active"
+                  : aggregateStatus === "ERROR"
+                    ? "Tunnel error"
+                    : isEnabled && aggregateStatus === "CLAIM_REQUIRED"
+                      ? "Claim required"
+                      : isEnabled && aggregateStatus === "STARTING"
+                        ? "Starting..."
+                        : isEnabled && aggregateStatus === "DEGRADED"
+                          ? "Degraded"
+                          : "No public route"}
               </p>
             </div>
           </div>
@@ -448,7 +551,14 @@ export function ServerExposurePage() {
               className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                 isEnabled && aggregateStatus === "ACTIVE"
                   ? "bg-status-success-bg text-status-success border border-status-success/30"
-                  : "bg-surface-elevated text-text-muted border border-border-subtle"
+                  : aggregateStatus === "ERROR"
+                    ? "bg-status-danger-bg text-status-danger border border-status-danger/30"
+                    : isEnabled &&
+                        ["STARTING", "CLAIM_REQUIRED", "RECLAIM_REQUIRED", "DEGRADED"].includes(
+                          aggregateStatus,
+                        )
+                      ? "bg-status-warning-bg text-status-warning border border-status-warning/30"
+                      : "bg-surface-elevated text-text-muted border border-border-subtle"
               }`}
             >
               <Icon name="globe" size={18} />
@@ -461,12 +571,14 @@ export function ServerExposurePage() {
             </div>
             <div className="min-w-0">
               <p className="text-xs font-bold text-text-primary">Public Endpoint</p>
-              <p className="truncate font-mono text-[11px] text-text-muted">
-                {exposure?.targets?.[0]?.public_address
+              <p className="truncate font-mono text-[11px] text-text-muted" data-testid="topology-node-endpoint-status">
+                {isEnabled && aggregateStatus === "ACTIVE" && exposure?.targets?.[0]?.public_address
                   ? `Active: ${exposure.targets[0].public_address}`
-                  : isEnabled
-                  ? "Resolving..."
-                  : "Offline"}
+                  : isEnabled && aggregateStatus === "ERROR"
+                    ? "Unavailable"
+                    : isEnabled
+                      ? "Resolving..."
+                      : "Offline"}
               </p>
             </div>
           </div>
@@ -530,9 +642,15 @@ export function ServerExposurePage() {
       <TargetListSection
         exposure={exposure}
         serverGamePort={exposure?.allocated_game_port || server?.port || 25565}
-        onCreateTarget={(data) => createTarget(data)}
-        onUpdateTargetAddress={(params) => updateTargetAddress(params)}
-        onDeleteTarget={(targetId) => deleteTarget(targetId)}
+        onCreateTarget={async (data) => {
+          await createTargetAsync(data);
+        }}
+        onUpdateTargetAddress={async (params) => {
+          await updateTargetAddressAsync(params);
+        }}
+        onDeleteTarget={async (targetId) => {
+          await deleteTargetAsync(targetId);
+        }}
         isCreatingTarget={isCreatingTarget}
         isUpdatingTargetAddress={isUpdatingTargetAddress}
         isDeletingTarget={isDeletingTarget}

@@ -58,7 +58,7 @@ export const Banner: React.FC<BannerProps> = ({
 
   return (
     <div
-      role="status"
+      role={variant === "danger" ? "alert" : "status"}
       className={`relative flex items-start gap-3 rounded-xl border p-4 text-sm transition-all shadow-2xs ${config.container} ${className}`}
     >
       <div className={`mt-0.5 shrink-0 ${config.iconColor}`}>

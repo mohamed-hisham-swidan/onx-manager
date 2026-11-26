@@ -637,3 +637,32 @@ class TestHealthCheckExceptionBoundary:
         release.set()
         await asyncio.wait_for(supervisor._task, timeout=5)
         assert supervisor._task.done()
+
+    async def test_reattach_to_running_server_preserves_running_start_time(
+        self, mock_provider, mock_server, server_handle
+    ):
+        """Re-attaching RuntimeSupervisor to an already-RUNNING server preserves uptime."""
+        mock_server.mark_running(pid=1234, port=25565, host="127.0.0.1")
+        persisted_start = time.time() - 3600.0
+        mock_server.runtime.running_start_time = persisted_start
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+            health_interval=0.05,
+            startup_timeout=1.0,
+        )
+
+        # Immediately preserves persisted uptime before & after start()
+        assert 3590.0 <= supervisor.uptime <= 3610.0
+
+        await supervisor.start()
+        await asyncio.sleep(0.1)
+
+        assert 3590.0 <= supervisor.uptime <= 3615.0
+        assert supervisor._ready_at_wall == persisted_start
+
+        await supervisor.stop()

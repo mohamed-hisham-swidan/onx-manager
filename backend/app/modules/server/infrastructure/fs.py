@@ -272,6 +272,9 @@ class LocalFileSystem(FileSystem):
             if orig_mode is not None:
                 with contextlib.suppress(OSError):
                     os.chmod(tmp_path, orig_mode)
+            else:
+                with contextlib.suppress(OSError):
+                    os.chmod(tmp_path, 0o644)
             os.replace(tmp_path, str(dest))
             replaced = True
             self._fsync_parent_dir(parent)

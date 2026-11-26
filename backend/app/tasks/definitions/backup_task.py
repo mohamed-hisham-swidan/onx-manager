@@ -4,13 +4,18 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app.api.deps import build_backup_encryption, build_storage_backend
+from app.api.deps import build_backup_encryption, build_storage_backend, get_optional_event_bus
 from app.core.config import ConfigFactory
 from app.core.exceptions import CasUnsupportedPlatformError
 from app.core.host_state import ensure_host_state_layout
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.saga import SagaOrchestrator
-from app.modules.backup.domain.aggregate import BackupTier, BackupType, parse_backup_tier
+from app.modules.backup.domain.aggregate import (
+    BackupJob,
+    BackupTier,
+    BackupType,
+    parse_backup_tier,
+)
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.backup.infrastructure.tier1_snapshot import create_tier1_snapshot
 from app.modules.backup.infrastructure.tier2_archive import create_tier2_archive
@@ -31,16 +36,39 @@ logger = logging.getLogger(__name__)
 
 
 async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
-    backup_id = BackupJobId(params["backup_id"])
     server_id = ServerId(params["server_id"])
     backup_type = BackupType(params.get("backup_type", "full"))
     tier = parse_backup_tier(params.get("tier", "tier_1"))
     use_two_tier = bool(params.get("two_tier", False)) or tier == BackupTier.TIER_2
+    event_bus = get_optional_event_bus()
+
+    if "backup_id" not in params and params.get("scheduled"):
+        backup_id = BackupJobId()
+        async with UnitOfWork(event_bus=event_bus) as uow:
+            repo = SQLBackupRepository(uow.session)
+            if tier == BackupTier.TIER_2:
+                job = BackupJob.create_tier2(
+                    backup_id=backup_id,
+                    server_id=server_id,
+                    backup_type=backup_type,
+                )
+            else:
+                job = BackupJob.create_tier1(
+                    backup_id=backup_id,
+                    server_id=server_id,
+                    backup_type=backup_type,
+                )
+            await repo.save_job(job)
+            for event in job.collect_events():
+                uow.add_event(event)
+            await uow.commit()
+    else:
+        backup_id = BackupJobId(params["backup_id"])
 
     settings = ConfigFactory.global_settings()
     storage = build_storage_backend(settings)
     encryption = build_backup_encryption(settings.backup_encryption_key_path)
-    saga = BackupSaga(SagaOrchestrator())
+    saga = BackupSaga(SagaOrchestrator(), event_bus=event_bus)
 
     try:
         try:
@@ -83,7 +111,7 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
                 snap = await create_tier1_snapshot(
                     server_id=str(server_id),
                     server_dir=server_dir,
-                    snapshots_root=Path(settings.backup_local_dir) / "tier1",
+                    snapshots_root=Path(settings.backup_storage_path) / "tier1",
                     backup_id=str(backup_id),
                     is_running=is_running,
                     locks_dir=layout.locks,
@@ -96,6 +124,11 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
                 include_cas_jars = bool(params.get("include_cas_jars", False))
                 encrypt = params.get("encrypt")
                 cas = ArtifactCas(layout.cas)
+                kek_path = (
+                    Path(settings.master_kek_file)
+                    if getattr(settings, "master_kek_file", None)
+                    else None
+                )
                 arch = await create_tier2_archive(
                     server_id=str(server_id),
                     server_dir=server_dir,
@@ -104,14 +137,15 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
                     archive_format=archive_format,
                     include_cas_jars=include_cas_jars,
                     encrypt=encrypt,
-                    kek_file_path=Path(settings.backup_encryption_key_path),
+                    kek_file_path=kek_path,
                     cas=cas,
                 )
                 size_bytes = arch.size_bytes
                 checksum = arch.checksum
                 storage_path = arch.storage_path
 
-            async with UnitOfWork() as uow:
+            pruned_storage_paths: list[str] = []
+            async with UnitOfWork(event_bus=event_bus) as uow:
                 repo = SQLBackupRepository(uow.session)
                 job = await repo.get_job(backup_id)
                 job.mark_completed(
@@ -120,10 +154,19 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
                     storage_path=storage_path,
                 )
                 await repo.save_job(job)
-                await repo.prune_old_backups(server_id, tier=tier)
+                await repo.prune_old_backups(
+                    server_id, tier=tier, deleted_paths=pruned_storage_paths
+                )
                 for event in job.collect_events():
                     uow.add_event(event)
                 await uow.commit()
+            for old_path in pruned_storage_paths:
+                try:
+                    await storage.delete(old_path)
+                except Exception as del_exc:
+                    logger.warning(
+                        "Failed deleting pruned backup artifact %s: %s", old_path, del_exc
+                    )
         else:
             await saga.execute(
                 backup_id=backup_id,
@@ -134,11 +177,14 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
             )
     except BackupCancelledError as exc:
         logger.warning("Backup task cancelled: %s for server %s (%s)", backup_id, server_id, exc)
-        async with UnitOfWork() as uow:
+        async with UnitOfWork(event_bus=event_bus) as uow:
             repo = SQLBackupRepository(uow.session)
             job = await repo.get_job(backup_id)
             job.mark_failed_timeout(str(exc))
             await repo.save_job(job)
+            if hasattr(job, "collect_events") and hasattr(uow, "add_event"):
+                for event in job.collect_events():
+                    uow.add_event(event)
             await uow.commit()
         clear_cancelled_backup(str(backup_id))
         return {
@@ -146,16 +192,20 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
             "server_id": str(server_id),
             "status": "failed_timeout",
         }
-    except Exception:
+    except Exception as exc:
         logger.exception("Backup task failed: %s for server %s", backup_id, server_id)
-        async with UnitOfWork() as uow:
+        async with UnitOfWork(event_bus=event_bus) as uow:
             repo = SQLBackupRepository(uow.session)
             job = await repo.get_job(backup_id)
             if is_backup_cancelled(str(backup_id)):
                 job.mark_failed_timeout("Backup cancelled due to timeout")
             else:
-                job.mark_failed("Backup task failed")
+                reason = f"Backup task failed: {exc}" if str(exc) else "Backup task failed"
+                job.mark_failed(reason)
             await repo.save_job(job)
+            if hasattr(job, "collect_events") and hasattr(uow, "add_event"):
+                for event in job.collect_events():
+                    uow.add_event(event)
             await uow.commit()
         clear_cancelled_backup(str(backup_id))
         raise

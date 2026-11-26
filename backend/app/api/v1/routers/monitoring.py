@@ -125,7 +125,7 @@ async def get_host_resources(
 async def delete_alert_rule(
     alert_rule_id: str,
     session: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(require_permission("global.settings")),
+    _current_user: dict = Depends(require_permission("settings:write")),
 ) -> None:
     repo = SQLAlertRuleRepository(session)
     await repo.delete(alert_rule_id)

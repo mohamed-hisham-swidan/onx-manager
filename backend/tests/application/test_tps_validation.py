@@ -78,9 +78,17 @@ class TestParseTpsClamping:
         assert parsed == 20.0
 
     def test_parse_tick_query_overclocked_30_clamped(self) -> None:
-        raw = "Target tick rate: 30.0 per second."
-        parsed = _parse_tick_query(raw)
-        assert parsed == 20.0
+        # Static "Target tick rate: ..." alone must NOT report fake TPS.
+        assert _parse_tick_query("Target tick rate: 30.0 per second.") is None
+        # Real MSPT derives actual lagging TPS (1000 / 125 = 8.0 TPS).
+        assert (
+            _parse_tick_query(
+                "Target tick rate: 20.0 per second.\nAverage time per tick: 125.0ms"
+            )
+            == 8.0
+        )
+        # Explicit overclocked tick rate still clamps to 20.0.
+        assert _parse_tick_query("The average tick time is 10.0ms, with 30.0 ticks per second") == 20.0
 
     def test_parse_forge_tps_overshoot_20_1_clamped(self) -> None:
         raw = "Dim minecraft:overworld: Mean tick time: 0.109 ms. Mean TPS: 20.100"

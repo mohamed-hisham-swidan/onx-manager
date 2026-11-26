@@ -88,7 +88,7 @@ describe("CodeEditor (ISS-051)", () => {
     expect(scrollContainer.scrollTop).toBe(120);
   });
 
-  it("renders gutter as a <pre> element matching content typography (ISS-070)", () => {
+  it("renders gutter as a <pre> element matching content typography and responsive height (ISS-070)", () => {
     render(
       <CodeEditor
         value={"line 1\nline 2\nline 3"}
@@ -97,13 +97,62 @@ describe("CodeEditor (ISS-051)", () => {
       />
     );
 
+    const root = screen.getByTestId("code-editor");
+    expect(root.className).toContain("h-[clamp(440px,calc(100dvh-16rem),780px)]");
+
     const gutter = screen.getByTestId("editor-gutter");
     expect(gutter.tagName.toLowerCase()).toBe("pre");
     expect(gutter.className).toContain("text-sm");
     expect(gutter.className).toContain("leading-6");
     expect(gutter.className).toContain("whitespace-pre");
-    expect(gutter.className).toContain("h-[560px]");
+    expect(gutter.className).toContain("h-full");
     expect(gutter.textContent).toBe("1\n2\n3");
+  });
+
+  it("highlights .log files with semantic log level tokens", () => {
+    render(
+      <CodeEditor
+        value={"[12:00:00] [Server thread/INFO]: Done\n[12:00:01] [Server thread/WARN]: Lag\n[12:00:02] [Server thread/ERROR]: Crash\n\tat com.example.Main.run(Main.java:10)"}
+        onChange={vi.fn()}
+        filename="latest.log"
+      />
+    );
+
+    expect(screen.getByText("Log")).toBeInTheDocument();
+    expect(screen.getByText("[Server thread/INFO]")).toHaveClass("text-status-info");
+    expect(screen.getByText("[Server thread/WARN]")).toHaveClass("text-status-warning");
+    expect(screen.getByText("[Server thread/ERROR]")).toHaveClass("text-status-danger");
+  });
+
+  it("triggers onSave on Ctrl+S when editable and suppresses it when readOnly", () => {
+    const onSave = vi.fn();
+    const { rerender } = render(
+      <CodeEditor
+        value="motd=Hello"
+        onChange={vi.fn()}
+        onSave={onSave}
+        filename="server.properties"
+      />
+    );
+
+    const textarea = screen.getByRole("textbox", { name: /code editor/i });
+    fireEvent.keyDown(textarea, { key: "s", ctrlKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <CodeEditor
+        value="motd=Hello"
+        onChange={vi.fn()}
+        onSave={onSave}
+        filename="server.properties"
+        readOnly
+      />
+    );
+
+    expect(screen.getByTestId("editor-readonly-pill")).toHaveTextContent("Read-Only");
+    fireEvent.keyDown(textarea, { key: "s", ctrlKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(textarea, { key: "Tab" });
   });
 
   it("syncs gutter scrollTop with scroll container on scroll event (ISS-070)", () => {

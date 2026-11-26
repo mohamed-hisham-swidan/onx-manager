@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 from datetime import UTC
@@ -51,20 +52,25 @@ class S3Storage(StorageBackend):
         self._session_instance = value
 
     def _key(self, path: str) -> str:
+        cleaned = path.lstrip("/")
         if self._prefix:
-            return f"{self._prefix}/{path.lstrip('/')}"
-        return path.lstrip("/")
+            if cleaned == self._prefix or cleaned.startswith(f"{self._prefix}/"):
+                return cleaned
+            return f"{self._prefix}/{cleaned}"
+        return cleaned
 
     async def write(self, path: str, data: bytes) -> StorageResult:
         key = self._key(path)
-        checksum = hashlib.sha256(data).hexdigest()
+        digest_bytes = hashlib.sha256(data).digest()
+        checksum = digest_bytes.hex()
+        checksum_b64 = base64.b64encode(digest_bytes).decode("ascii")
 
         async with self._session.client("s3", endpoint_url=self._endpoint_url) as client:
             await client.put_object(
                 Bucket=self._bucket,
                 Key=key,
                 Body=data,
-                ContentSHA256=checksum,
+                ChecksumSHA256=checksum_b64,
             )
 
         return StorageResult(

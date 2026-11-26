@@ -307,6 +307,127 @@ class TestDeleteServerHandler:
         assert result.error_code == "PROVIDER_UNAVAILABLE"
         assert "Provider plugin crashed" in (result.error or "")
 
+    @pytest.mark.asyncio
+    async def test_delete_server_cleans_up_health_metrics_and_evicts_collector(
+        self, event_bus: EventBus
+    ) -> None:
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
+        from app.api.v1.routers.health import get_health_dashboard
+        from app.modules.backup.infrastructure.models import BackupJobModel, PendingRestoreModel
+        from app.modules.health.infrastructure.models import HealthStatusModel, HealthTimelineModel
+        from app.modules.monitoring.infrastructure.collector import MetricsCollector
+        from app.modules.monitoring.infrastructure.models import AlertRuleModel, MetricPointModel
+        from app.tasks.definitions.metrics_collector import init_collector
+
+        sid = "test-del-cleanup-1"
+        await _create_test_server(sid)
+
+        now = datetime.now(UTC)
+        async with database.session_factory() as session:
+            session.add(
+                HealthStatusModel(
+                    server_id=sid,
+                    classification="critical",
+                    contributing_factors='["Critical: crash=UNKNOWN_RUNTIME_FAILURE"]',
+                    trend="declining",
+                    confidence=0.65,
+                    last_updated=now,
+                )
+            )
+            session.add(
+                HealthTimelineModel(
+                    server_id=sid,
+                    previous_status="pending",
+                    new_status="critical",
+                    contributing_factors="[]",
+                    entry_timestamp=now,
+                )
+            )
+            session.add(
+                MetricPointModel(
+                    server_id=sid,
+                    tps=20.0,
+                    players=1,
+                    ram_used_mb=512.0,
+                    cpu_percent=10.0,
+                    recorded_at=now,
+                )
+            )
+            session.add(
+                AlertRuleModel(
+                    id="rule-del-1",
+                    server_id=sid,
+                    metric_name="cpu_percent",
+                    condition=">",
+                    threshold=90.0,
+                )
+            )
+            session.add(
+                PendingRestoreModel(
+                    server_id=sid,
+                    backup_id="bk-del-1",
+                    requested_at=now,
+                )
+            )
+            session.add(
+                BackupJobModel(
+                    id="bk-keep-1",
+                    server_id=sid,
+                    backup_type="full",
+                    status="completed",
+                )
+            )
+            await session.commit()
+
+        collector = MetricsCollector(known_servers=[sid, "other-srv"])
+        init_collector(collector)
+
+        handler = DeleteServerHandler(event_bus)
+        with patch(
+            "app.modules.server.application.commands.delete_server._port_is_listening",
+            return_value=False,
+        ):
+            result = await handler.handle(DeleteServerCommand(server_id=sid))
+
+        assert result.success is True
+        assert sid not in collector._known_servers
+        assert "other-srv" in collector._known_servers
+
+        dash = await get_health_dashboard(_current_user={"user_id": "admin"})
+        assert dash.total_servers == 0
+        assert dash.critical == 0
+
+        async with database.session_factory() as session:
+            assert (
+                await session.execute(
+                    select(HealthStatusModel).where(HealthStatusModel.server_id == sid)
+                )
+            ).scalar_one_or_none() is None
+            assert (
+                await session.execute(
+                    select(MetricPointModel).where(MetricPointModel.server_id == sid)
+                )
+            ).scalar_one_or_none() is None
+            assert (
+                await session.execute(
+                    select(AlertRuleModel).where(AlertRuleModel.server_id == sid)
+                )
+            ).scalar_one_or_none() is None
+            assert (
+                await session.execute(
+                    select(PendingRestoreModel).where(PendingRestoreModel.server_id == sid)
+                )
+            ).scalar_one_or_none() is None
+            # Backups remain intact so historical server_deleted=True behavior works
+            assert (
+                await session.execute(
+                    select(BackupJobModel).where(BackupJobModel.id == "bk-keep-1")
+                )
+            ).scalar_one_or_none() is not None
+
 
 
 @pytest.mark.usefixtures("init_test_db")

@@ -97,6 +97,7 @@ class SQLBackupRepository(BackupRepository):
         tier1_keep: int = 5,
         tier2_daily: int = 7,
         tier2_weekly: int = 4,
+        deleted_paths: list[str] | None = None,
     ) -> list[str]:
         from app.core.exceptions import ValidationError
 
@@ -115,6 +116,7 @@ class SQLBackupRepository(BackupRepository):
                 .where(
                     BackupJobModel.server_id == str(server_id),
                     BackupJobModel.tier == tier.value,
+                    BackupJobModel.status == BackupStatus.COMPLETED.value,
                 )
                 .order_by(BackupJobModel.created_at.desc())
             )
@@ -170,6 +172,10 @@ class SQLBackupRepository(BackupRepository):
 
             if not to_delete:
                 return []
+            if deleted_paths is not None:
+                for row in unpinned:
+                    if str(row.id) in to_delete and row.storage_path:
+                        deleted_paths.append(str(row.storage_path))
             await self._session.execute(
                 delete(BackupJobModel).where(BackupJobModel.id.in_(to_delete))
             )
@@ -211,6 +217,10 @@ class SQLBackupRepository(BackupRepository):
 
         if not to_delete:
             return []
+        if deleted_paths is not None:
+            for row in rows:
+                if row.id in to_delete and row.storage_path:
+                    deleted_paths.append(str(row.storage_path))
         await self._session.execute(
             delete(BackupJobModel).where(BackupJobModel.id.in_(to_delete))
         )

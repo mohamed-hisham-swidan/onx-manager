@@ -134,6 +134,8 @@ async def create_api_key(
             user_id=current_user["user_id"],
             name=body.name,
             permissions=body.permissions,
+            caller_permissions=list(current_user.get("permissions", [])),
+            caller_roles=list(current_user.get("roles", [])),
         )
     )
     data = check_command_result(result)

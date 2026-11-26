@@ -436,9 +436,9 @@ async def test_empty_external_id_does_not_invoke_docker_logs(tmp_path: Path):
         # Verify docker logs was NEVER called
         assert mock_exec.call_count == 0
 
-        # Verify disk log was read and broadcast
+        # Single authoritative source: latest.log is never tailed for live servers
         flat = [line for chunk in broadcast_lines for line in chunk]
-        assert "server stopped gracefully" in flat
+        assert "server stopped gracefully" not in flat
 
 
 @pytest.mark.asyncio

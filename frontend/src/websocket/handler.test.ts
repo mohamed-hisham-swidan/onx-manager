@@ -126,8 +126,18 @@ describe("WSHandler", () => {
     });
   });
 
-  it("invalidates both server list and server detail on ServerStarting, ServerStopping, ServerCrashed, and ServerRestarted events", () => {
-    const lifecycleEvents = ["ServerStarting", "ServerStarted", "ServerStopping", "ServerStopped", "ServerCrashed", "ServerRestarted"];
+  it("invalidates both server list and server detail on ServerStarting, ServerStopping, ServerCrashed, ServerRestarted, ServerConfigChanged, ServerDiscovered, and ServerVanished events", () => {
+    const lifecycleEvents = [
+      "ServerStarting",
+      "ServerStarted",
+      "ServerStopping",
+      "ServerStopped",
+      "ServerCrashed",
+      "ServerRestarted",
+      "ServerConfigChangedEvent",
+      "ServerDiscoveredEvent",
+      "ServerVanishedEvent",
+    ];
 
     for (const eventType of lifecycleEvents) {
       const onCacheUpdate = vi.fn();
@@ -149,6 +159,32 @@ describe("WSHandler", () => {
         action: "invalidate",
       });
     }
+  });
+
+  it("invalidates backups:list, servers:list, and server detail on BackupRestoredEvent", () => {
+    const onCacheUpdate = vi.fn();
+    const handler = new WSHandler({ onCacheUpdate });
+
+    handler["_route"]({
+      type: "event",
+      event: { event_type: "BackupRestoredEvent", server_id: "s-restore-1" },
+    });
+
+    expect(onCacheUpdate).toHaveBeenCalledWith({
+      key: "backups:list",
+      data: null,
+      action: "invalidate",
+    });
+    expect(onCacheUpdate).toHaveBeenCalledWith({
+      key: "servers:list",
+      data: null,
+      action: "invalidate",
+    });
+    expect(onCacheUpdate).toHaveBeenCalledWith({
+      key: "server:s-restore-1",
+      data: null,
+      action: "invalidate",
+    });
   });
 
   it("invalidates backup list on backup events", () => {

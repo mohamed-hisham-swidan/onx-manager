@@ -99,14 +99,62 @@ def _resolved_root(raw: str | os.PathLike[str]) -> Path:
     return Path(os.path.realpath(path))
 
 
+def _strip_swap_suffixes(component: str) -> str:
+    if component.startswith(".") and f"{STAGING_SUFFIX}_" in component:
+        return component[1 : component.index(f"{STAGING_SUFFIX}_")]
+    for marker in (STAGING_SUFFIX, ".prev"):
+        if component.endswith(marker):
+            return component[: -len(marker)]
+        marker_dot = f"{marker}."
+        if marker_dot in component:
+            return component[: component.index(marker_dot)]
+    return component
+
+
+def _is_server_id_dir_match(base_name: str, server_id: str) -> bool:
+    """Return True when ``base_name`` represents ``server_id`` (full ID or ONX short-UUID dir)."""
+    if base_name == server_id:
+        return True
+    hex_id = server_id.replace("-", "").lower()
+    if len(hex_id) >= 8 and all(ch in "0123456789abcdef" for ch in hex_id):
+        if base_name.replace("-", "").lower() == hex_id:
+            return True
+        parts = base_name.split("-")
+        if (
+            len(parts) > 1
+            and len(parts[-1]) == 8
+            and all(ch in "0123456789abcdef" for ch in parts[-1].lower())
+            and parts[-1].lower() == hex_id[:8]
+        ):
+            return True
+    return False
+
+
+def _owned_component_for_base(component: str, base_name: str, *, field: str = "") -> bool:
+    is_live = component == base_name
+    is_staging = (
+        component == f"{base_name}{STAGING_SUFFIX}"
+        or component.startswith(f"{base_name}{STAGING_SUFFIX}.")
+        or component.startswith(f".{base_name}{STAGING_SUFFIX}_")
+    )
+    is_prev = component == f"{base_name}.prev" or component.startswith(f"{base_name}.prev.")
+    if field in ("live_path", "live_dir"):
+        return is_live
+    if field == "staging_path":
+        return is_staging
+    if field == "previous_path":
+        # Note: RENAME_EXCHANGE leaves the previous tree at ``staging_path`` and
+        # callers pass it with ``field="previous_path"``.
+        return is_prev or is_staging
+    return is_live or is_staging or is_prev
+
+
 def _server_owned_component(component: str, server_id: str) -> bool:
-    return (
-        component == server_id
-        or component == f"{server_id}{STAGING_SUFFIX}"
-        or component == f"{server_id}.prev"
-        or component.startswith(f"{server_id}{STAGING_SUFFIX}.")
-        or component.startswith(f"{server_id}.prev.")
-        or component.startswith(f".{server_id}{STAGING_SUFFIX}_")
+    if _owned_component_for_base(component, server_id):
+        return True
+    base_name = _strip_swap_suffixes(component)
+    return _is_server_id_dir_match(base_name, server_id) and _owned_component_for_base(
+        component, base_name
     )
 
 
@@ -141,6 +189,7 @@ class RefreshStartupReconciler:
         *,
         repository: RefreshJournalRepository | None = None,
         servers_data_dir: str | os.PathLike[str] | None = None,
+        live_root: str | os.PathLike[str] | None = None,
         repo_lease: RepoLeaseManager | None = None,
         now: datetime | None = None,
     ) -> None:
@@ -148,6 +197,9 @@ class RefreshStartupReconciler:
         self._repository = repository or RefreshJournalRepository(layout)
         self._servers_root = _resolved_root(
             servers_data_dir or AppSettings().servers_data_dir
+        )
+        self._live_root = (
+            Path(os.path.abspath(os.fspath(live_root))) if live_root is not None else None
         )
         self._repo_lease = repo_lease
         self._now = now
@@ -232,14 +284,20 @@ class RefreshStartupReconciler:
     # ------------------------------------------------------------------
 
     def validate_swap_path(
-        self, server_id: str, raw_path: str | os.PathLike[str], *, field: str
+        self,
+        server_id: str,
+        raw_path: str | os.PathLike[str],
+        *,
+        field: str,
+        live_root: str | os.PathLike[str] | None = None,
     ) -> Path:
         """Return a path only when it is safely owned by ``server_id``.
 
-        Rejects relative paths, paths outside ``servers_data_dir``, paths whose
-        first component does not belong to the server, and paths that traverse
-        a symlink. Raises :class:`ValidationError` before any caller can rename
-        or remove the target.
+        Rejects relative paths, paths outside ``servers_data_dir``, paths that
+        do not belong to ``server_id`` (or its resolved ``live_root`` sibling
+        ``.staging`` / ``.prev`` names), and paths that traverse a symlink.
+        Raises :class:`ValidationError` before any caller can rename or remove
+        the target.
         """
         segment = validate_server_segment(server_id)
         try:
@@ -259,7 +317,57 @@ class RefreshStartupReconciler:
                 field=field,
                 details={"path": str(lexical)[:256]},
             ) from exc
-        if not relative.parts or not _server_owned_component(relative.parts[0], segment):
+
+        effective_live_root: Path | None = self._live_root
+        authoritative_from_host = self._live_root is not None
+        if effective_live_root is None and live_root is not None:
+            try:
+                raw_lr = os.fspath(live_root)
+            except TypeError:
+                raw_lr = ""
+            if isinstance(raw_lr, str) and raw_lr and os.path.isabs(raw_lr):
+                effective_live_root = Path(os.path.abspath(raw_lr))
+
+        if effective_live_root is not None:
+            try:
+                lr_rel = effective_live_root.relative_to(self._servers_root)
+            except ValueError as exc:
+                raise ValidationError(
+                    f"{field} does not belong to server '{segment}'",
+                    field=field,
+                    details={"path": str(lexical)[:256]},
+                ) from exc
+            if (
+                not lr_rel.parts
+                or effective_live_root.is_symlink()
+                or Path(os.path.realpath(effective_live_root)) != effective_live_root
+            ):
+                raise ValidationError(
+                    f"{field} does not belong to server '{segment}'",
+                    field=field,
+                    details={"path": str(lexical)[:256]},
+                )
+            if not authoritative_from_host and not _is_server_id_dir_match(
+                effective_live_root.name, segment
+            ):
+                raise ValidationError(
+                    f"{field} does not belong to server '{segment}'",
+                    field=field,
+                    details={"path": str(lexical)[:256]},
+                )
+            if field in ("live_path", "live_dir"):
+                owned = lexical == effective_live_root
+            else:
+                owned = lexical.parent == effective_live_root.parent and _owned_component_for_base(
+                    lexical.name, effective_live_root.name, field=field
+                )
+            if not owned:
+                raise ValidationError(
+                    f"{field} does not belong to server '{segment}'",
+                    field=field,
+                    details={"path": str(lexical)[:256]},
+                )
+        elif not relative.parts or not _server_owned_component(relative.parts[0], segment):
             raise ValidationError(
                 f"{field} does not belong to server '{segment}'",
                 field=field,
@@ -306,39 +414,48 @@ class RefreshStartupReconciler:
             except Exception:
                 logger.warning("Ignoring unexpected journal directory %s", entry.name)
                 continue
-            swap_path = entry / "swap.json"
-            if not os.path.lexists(swap_path):
-                continue
-            if swap_path.is_symlink():
-                errors.append(f"{server_id}: swap journal is a symlink")
-                continue
-            try:
-                journal = DirectorySwapJournal(swap_path)
-                record = journal.read()
-                if record is None:
+            for journal_filename in ("swap.json", "swap-rollback.json"):
+                swap_path = entry / journal_filename
+                if not os.path.lexists(swap_path):
                     continue
-                if record.server_id != server_id:
-                    raise ValidationError(
-                        "swap journal server_id does not match its directory",
-                        field="journal_path",
+                if swap_path.is_symlink():
+                    errors.append(f"{server_id}: {journal_filename} is a symlink")
+                    continue
+                try:
+                    journal = DirectorySwapJournal(swap_path)
+                    record = journal.read()
+                    if record is None:
+                        continue
+                    if record.server_id != server_id:
+                        raise ValidationError(
+                            "swap journal server_id does not match its directory",
+                            field="journal_path",
+                        )
+                    if journal_filename == "swap.json":
+                        for field in ("live_path", "staging_path", "previous_path"):
+                            self.validate_swap_path(
+                                server_id,
+                                getattr(record, field),
+                                field=field,
+                                live_root=record.live_path,
+                            )
+                    result = recover_interrupted_swap(journal)
+                except Exception as exc:
+                    logger.exception(
+                        "Swap recovery failed for server %s (%s)", server_id, journal_filename
                     )
-                for field in ("live_path", "staging_path", "previous_path"):
-                    self.validate_swap_path(
-                        server_id, getattr(record, field), field=field
+                    errors.append(
+                        f"{server_id}: swap recovery failed ({journal_filename}): {exc}"
                     )
-                result = recover_interrupted_swap(journal)
-            except Exception as exc:
-                logger.exception("Swap recovery failed for server %s", server_id)
-                errors.append(f"{server_id}: swap recovery failed: {exc}")
-                continue
-            if result.record is not None:
-                recovered[server_id] = result
-                if (
-                    result.status in ("completed", "rolled_back")
-                    and record.phase
-                    not in (PHASE_SWAP_COMPLETED, PHASE_SWAP_ROLLED_BACK)
-                ):
-                    changed.add(server_id)
+                    continue
+                if result.record is not None:
+                    recovered[server_id] = result
+                    if (
+                        result.status in ("completed", "rolled_back")
+                        and record.phase
+                        not in (PHASE_SWAP_COMPLETED, PHASE_SWAP_ROLLED_BACK)
+                    ):
+                        changed.add(server_id)
         return recovered, changed
 
     async def _reconcile_disk_only_journals(self, errors: list[str]) -> None:
@@ -498,7 +615,10 @@ class RefreshStartupReconciler:
 
         try:
             live = self.validate_swap_path(
-                record.server_id, record.live_path, field="live_path"
+                record.server_id,
+                record.live_path,
+                field="live_path",
+                live_root=record.live_path,
             )
         except ValidationError as exc:
             errors.append(f"{record.journal_id}: unsafe live_path: {exc}")
@@ -513,7 +633,10 @@ class RefreshStartupReconciler:
         carried = tuple(record.carried_entries)
         try:
             staging = self.validate_swap_path(
-                record.server_id, record.staging_path, field="staging_path"
+                record.server_id,
+                record.staging_path,
+                field="staging_path",
+                live_root=record.live_path,
             )
         except ValidationError as exc:
             errors.append(f"{record.journal_id}: unsafe staging_path: {exc}")
@@ -578,7 +701,10 @@ class RefreshStartupReconciler:
     ) -> None:
         try:
             live = self.validate_swap_path(
-                record.server_id, record.live_path, field="live_path"
+                record.server_id,
+                record.live_path,
+                field="live_path",
+                live_root=record.live_path,
             )
         except ValidationError as exc:
             errors.append(f"{record.journal_id}: unsafe live_path: {exc}")
@@ -644,7 +770,10 @@ class RefreshStartupReconciler:
         for record in [*records, *retained]:
             try:
                 staging = self.validate_swap_path(
-                    record.server_id, record.staging_path, field="staging_path"
+                    record.server_id,
+                    record.staging_path,
+                    field="staging_path",
+                    live_root=record.live_path,
                 )
             except ValidationError:
                 continue
@@ -664,7 +793,10 @@ class RefreshStartupReconciler:
             return False
         try:
             live = self.validate_swap_path(
-                record.server_id, record.live_path, field="live_path"
+                record.server_id,
+                record.live_path,
+                field="live_path",
+                live_root=record.live_path,
             )
         except ValidationError:
             return False
@@ -787,7 +919,10 @@ class RefreshStartupReconciler:
                 continue
             try:
                 path = self.validate_swap_path(
-                    record.server_id, candidate, field="previous_path"
+                    record.server_id,
+                    candidate,
+                    field="previous_path",
+                    live_root=record.live_path,
                 )
             except ValidationError as exc:
                 errors.append(f"{record.journal_id}: unsafe previous_path: {exc}")

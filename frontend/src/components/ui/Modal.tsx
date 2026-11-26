@@ -9,6 +9,8 @@ export interface ModalProps {
   description?: React.ReactNode;
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl" | "2xl" | "full";
+  variant?: "modal" | "drawer";
+  padded?: boolean;
   showCloseButton?: boolean;
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
@@ -34,6 +36,8 @@ export const Modal: React.FC<ModalProps> = ({
   description,
   children,
   size = "md",
+  variant = "modal",
+  padded = true,
   showCloseButton = true,
   closeOnBackdrop = true,
   closeOnEscape = true,
@@ -129,8 +133,16 @@ export const Modal: React.FC<ModalProps> = ({
 
   const accessibleTitle = typeof title === "string" ? title : ariaLabel || "Dialog";
 
+  const isDrawer = variant === "drawer";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className={
+        isDrawer
+          ? "fixed inset-0 z-50 flex justify-end"
+          : "fixed inset-0 z-50 flex items-center justify-center p-4"
+      }
+    >
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
@@ -145,7 +157,11 @@ export const Modal: React.FC<ModalProps> = ({
         aria-modal="true"
         aria-label={accessibleTitle}
         tabIndex={-1}
-        className={`relative z-10 w-full ${sizeClasses[size]} rounded-xl border border-border-subtle bg-surface-card p-6 text-text-primary shadow-2xl transition-all ${className}`}
+        className={
+          isDrawer
+            ? `relative z-10 flex h-full w-full ${sizeClasses[size]} flex-col border-l border-border-subtle bg-surface-card ${padded ? "p-6" : ""} text-text-primary shadow-2xl transition-all ${className}`
+            : `relative z-10 w-full ${sizeClasses[size]} rounded-xl border border-border-subtle bg-surface-card ${padded ? "p-6" : ""} text-text-primary shadow-2xl transition-all ${className}`
+        }
       >
         {(title || showCloseButton) && (
           <div className="mb-4 flex items-start justify-between gap-3">

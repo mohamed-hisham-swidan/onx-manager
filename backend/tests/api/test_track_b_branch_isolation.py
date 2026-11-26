@@ -522,36 +522,41 @@ async def test_b4_per_branch_exposure_cgnat_and_stop_teardown(
     assert start_res.status_code == 201
     game_port = start_res.json()["port_set"]["game_port"]
 
-    # Configure Cloudflare Quick Preview on branch feat-a (mocks CloudflaredSupervisor.start_quick)
+    # Cloudflare Quick Tunnel (trycloudflare.com) is blocked on raw TCP Minecraft servers
     from app.modules.exposure.application import commands as exp_cmds
+    from app.modules.exposure.infrastructure.upnp import UPnPResult
 
-    async def fake_start_quick(
-        _self: Any,
-        local_url: str,
-        *,
-        on_status: Any = None,
-        on_url: Any = None,
-    ) -> bool:
-        port_part = local_url.rsplit(":", 1)[-1]
-        if on_url is not None:
-            await on_url(f"https://branch-{port_part}.trycloudflare.com")
-        if on_status is not None:
-            await on_status("ACTIVE")
-        return True
-
-    async def fake_stop(_self: Any) -> None:
-        return None
-
-    monkeypatch.setattr(exp_cmds.CloudflaredSupervisor, "start_quick", fake_start_quick)
-    monkeypatch.setattr(exp_cmds.CloudflaredSupervisor, "stop", fake_stop)
-
-    put_res = await api.client.put(
+    quick_res = await api.client.put(
         f"/api/v1/servers/{SERVER_ID}/exposure?branch=feat-a",
         json={
             "method": "cloudflare_tcp",
             "desired_state": "ENABLED",
             "cloudflare_mode": "quick",
             "acknowledged_warning": True,
+        },
+        headers=api.header,
+    )
+    assert quick_res.status_code == 422, quick_res.text
+
+    # Configure UPnP Port Forward on branch feat-a (mocks AsyncUPnPService)
+    async def fake_ok_map(_self: Any, *_args: Any, **_kwargs: Any) -> Any:
+        return UPnPResult(
+            success=True,
+            external_ip="203.0.113.42",
+            external_port=game_port,
+        )
+
+    async def fake_delete_map(_self: Any, *_args: Any, **_kwargs: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(exp_cmds.AsyncUPnPService, "attempt_mapping", fake_ok_map)
+    monkeypatch.setattr(exp_cmds.AsyncUPnPService, "delete_mapping", fake_delete_map)
+
+    put_res = await api.client.put(
+        f"/api/v1/servers/{SERVER_ID}/exposure?branch=feat-a",
+        json={
+            "method": "port_forward",
+            "desired_state": "ENABLED",
         },
         headers=api.header,
     )
@@ -563,8 +568,7 @@ async def test_b4_per_branch_exposure_cgnat_and_stop_teardown(
     body = get_res.json()
     assert body["branch_name"] == "feat-a"
     assert body["allocated_game_port"] == game_port
-    assert body["ephemeral"] is True
-    assert f"branch-{game_port}.trycloudflare.com" in (body["targets"][0]["public_address"] or "")
+    assert f"203.0.113.42:{game_port}" == (body["targets"][0]["public_address"] or "")
 
     # Main exposure remains independent/disabled
     main_exp = await api.client.get(
@@ -788,3 +792,65 @@ async def test_b7_simple_mode_command_returns_rcon_output(
     )
     assert res.status_code == 200, res.text
     assert res.json()["output"] == "Plugins (1): TestPlugin [plugins]"
+
+
+@pytest.mark.asyncio
+async def test_b8_branch_modrinth_install_rejects_fabric_jar_on_paper(
+    trackb_api: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import zipfile
+
+    from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
+
+    api = trackb_api
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "fabric.mod.json",
+            '{"id": "fabric-leak", "name": "FabricLeak", "version": "1.0.0"}',
+        )
+    fabric_bytes = buf.getvalue()
+
+    class _FakeFabricLeakProvider:
+        name = "modrinth"
+
+        async def get_version(self, version_id: str) -> PluginVersionInfo:
+            return PluginVersionInfo(
+                version_id=version_id,
+                project_id="proj-leak",
+                name="FabricLeak 1.0",
+                version_number="1.0.0",
+                game_versions=["1.21"],
+                loaders=["paper"],
+                files=[
+                    PluginFile(
+                        url="https://cdn.modrinth.com/data/proj-leak/1.0/FabricLeak.jar",
+                        filename="FabricLeak.jar",
+                        size_bytes=len(fabric_bytes),
+                        sha1="a" * 40,
+                        primary=True,
+                    )
+                ],
+                dependencies=[],
+            )
+
+        async def download(self, url: str, **_kwargs: Any) -> bytes:
+            del url
+            return fabric_bytes
+
+    from app.modules.plugin.application import branch_plugins
+
+    monkeypatch.setattr(
+        branch_plugins,
+        "build_plugin_catalog_provider",
+        lambda *_args, **_kwargs: _FakeFabricLeakProvider(),
+    )
+
+    resp = await api.client.post(
+        f"/api/v1/servers/{SERVER_ID}/plugins/marketplace/install?branch=feat-a",
+        json={"project_id": "proj-leak", "version_id": "v-leak"},
+        headers=api.header,
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["code"] == "NO_COMPATIBLE_VERSION"

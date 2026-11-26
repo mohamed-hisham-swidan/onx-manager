@@ -98,7 +98,7 @@ describe("PanelExposureSection Component", () => {
   it("T-74-01: renders method selector cards with none selected by default", async () => {
     renderPanelExposureSection();
 
-    expect(await screen.findByText("Panel Network Exposure")).toBeInTheDocument();
+    expect(await screen.findByText("Panel Remote Access")).toBeInTheDocument();
     expect(screen.getByText("Local Only")).toBeInTheDocument();
     expect(screen.getByText("Cloudflare")).toBeInTheDocument();
     expect(screen.getByText("playit.gg")).toBeInTheDocument();
@@ -358,7 +358,7 @@ describe("PanelExposureSection Component", () => {
 
     renderPanelExposureSection();
 
-    await screen.findByText("Panel Network Exposure");
+    await screen.findByText("Panel Remote Access");
     expect(mockGetAgentStatus).not.toHaveBeenCalled();
   });
 
@@ -613,8 +613,7 @@ describe("PanelExposureSection Component", () => {
 
       await renderActiveAndOpenModal();
 
-      const dialog = screen.getByRole("dialog");
-      const confirmBtn = dialog.querySelector("button.bg-red-600") as HTMLButtonElement;
+      const confirmBtn = screen.getByRole("button", { name: "Confirm Disable" });
       const cancelBtn = screen.getByRole("button", { name: "Cancel" });
 
       fireEvent.click(confirmBtn);

@@ -169,8 +169,8 @@ class DockerServerRuntimeAdapter:
 
     def start(self) -> bool:
         self._assert_worker_thread()
-        if self._refresh_start is None:
-            self._refresh_start = datetime.now(UTC)
+        # Always stamp fresh refresh_start right before spawning the post-swap container.
+        self._refresh_start = datetime.now(UTC)
         command = StartServerCommand(
             server_id=self._server_id,
             allow_journal_id=self._allow_journal_id,
@@ -465,7 +465,30 @@ class CleanExportStageAdapter:
         fencing_verifier: Callable[[], None],
     ) -> CleanExportResult:
         _assert_off_loop(self._loop_thread_id, "CleanExportStageAdapter")
-        if self._lockfile is None:
+        effective_lockfile = self._lockfile
+        # Re-read the lockfile from the target commit (or host state) so post-merge
+        # Advanced upgrades always materialize the upgraded lockfile rather than a
+        # stale pre-upgrade snapshot captured before the merge.
+        try:
+            from app.modules.versioning.domain.lockfile import LOCKFILE_RELPATH, load_lockfile
+            from app.modules.versioning.infrastructure.git_runner import GitRunner
+
+            repo_dir = self._layout.repo_git_dir(self._server_id)
+            if commit_sha and repo_dir.exists():
+                git_out = GitRunner().run(
+                    ["--git-dir", str(repo_dir), "show", f"{commit_sha}:{LOCKFILE_RELPATH}"],
+                    cwd=repo_dir.parent,
+                    check=False,
+                )
+                if git_out.returncode == 0 and git_out.stdout.strip():
+                    effective_lockfile = load_lockfile(git_out.stdout)
+        except Exception:
+            pass
+        if effective_lockfile is None:
+            from app.modules.versioning.infrastructure.lockfile_service import LockfileService
+
+            effective_lockfile = LockfileService(self._layout).read(self._server_id)
+        if effective_lockfile is None:
             raise ValidationError(
                 "Clean export requires an authoritative server lockfile",
                 field="lockfile",
@@ -477,14 +500,14 @@ class CleanExportStageAdapter:
         if jvm_args is None:
             jvm_args = _read_jvm_args(self._server_root)
         lec_root = self._lec_root
-        if lec_root is None and self._lockfile.lec is not None:
-            lec_root = self._layout.lec / self._lockfile.lec.key
+        if lec_root is None and effective_lockfile.lec is not None:
+            lec_root = self._layout.lec / effective_lockfile.lec.key
         request = CleanExportRequest(
             server_id=self._server_id,
             server_root=self._server_root,
             commit_sha=commit_sha,
             destination=staging,
-            lockfile=self._lockfile,
+            lockfile=effective_lockfile,
             panel_properties=panel_properties,
             jvm_args=jvm_args,
             secrets=self._resolve_secrets(),

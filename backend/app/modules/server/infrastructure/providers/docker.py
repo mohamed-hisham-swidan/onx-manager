@@ -8,6 +8,8 @@ import logging
 import os
 import posixpath
 import re
+import shlex
+import socket
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -55,6 +57,10 @@ from app.modules.versioning.infrastructure.java_floor import (
 )
 
 logger = logging.getLogger(__name__)
+
+RCON_DISABLED_MESSAGE = (
+    "RCON is disabled in server.properties. Enable RCON in Settings to run console commands."
+)
 
 _SECRET_VALUE_PATTERN = re.compile(
     r"(\b[A-Za-z0-9_]*(?:PASSWORD|SECRET|TOKEN|KEY)[A-Za-z0-9_]*=)([^\s\"';&]+)",
@@ -218,6 +224,56 @@ def extract_unix_args_relpath(
             rel = validate_canonical_relpath(match.group(1))
             if rel.startswith("libraries/") and rel.endswith("/unix_args.txt"):
                 return rel
+    return None
+
+
+def _extract_preserved_loader_flags(lc_flags: Sequence[str]) -> list[str]:
+    """Preserve essential loader flags (@argfiles and JVM module opens/exports/adds)."""
+    preserved: list[str] = []
+    i = 0
+    flags_list = list(lc_flags)
+    while i < len(flags_list):
+        token = str(flags_list[i])
+        if token.startswith("@") or token.startswith(
+            ("--add-opens=", "--add-exports=", "--add-modules=")
+        ):
+            preserved.append(token)
+        elif token in ("--add-opens", "--add-exports", "--add-modules"):
+            preserved.append(token)
+            if i + 1 < len(flags_list):
+                preserved.append(str(flags_list[i + 1]))
+                i += 1
+        i += 1
+    return preserved
+
+
+def _resolve_jvm_flags(
+    launch_config: LaunchConfiguration | None,
+    cfg: dict[str, Any] | None,
+) -> list[str] | None:
+    """Resolve effective JVM flags, prioritizing explicit user ``java_args`` over launch_config."""
+    raw_user = cfg.get("java_args") if cfg else None
+    user_args: list[str] = []
+    if isinstance(raw_user, str):
+        if raw_user.strip():
+            with contextlib.suppress(ValueError):
+                user_args = [tok for tok in shlex.split(raw_user) if tok]
+    elif isinstance(raw_user, (list, tuple)):
+        user_args = [str(tok).strip() for tok in raw_user if str(tok).strip()]
+
+    lc_args = list(launch_config.jvm_flags) if launch_config and launch_config.jvm_flags else []
+
+    if user_args:
+        preserved = _extract_preserved_loader_flags(lc_args)
+        combined: list[str] = []
+        seen: set[str] = set()
+        for tok in [*preserved, *user_args]:
+            if tok not in seen:
+                combined.append(tok)
+                seen.add(tok)
+        return combined
+    if lc_args:
+        return lc_args
     return None
 
 
@@ -385,12 +441,196 @@ def _inspect_hardening_compliance(
     return True, "ok"
 
 
+_RCON_RUNTIME_RELPATH = ".onx-manager/rcon-runtime.json"
+_RCON_PORT_SCAN_START = 25575
+_RCON_PORT_SCAN_END = 25675
+_RCON_PORT_FALLBACK_END = 26000
+
+
+def is_loopback_port_free(port: int) -> bool:
+    """Return True if TCP ``port`` is unbound on both 127.0.0.1 and 0.0.0.0."""
+    for host in ("127.0.0.1", "0.0.0.0"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def allocate_host_rcon_port(
+    *,
+    game_port: int = 25565,
+    preferred_rcon_port: int = 25575,
+    reserved_ports: set[int] | None = None,
+    check_os: bool = True,
+) -> int:
+    """Allocate a non-colliding loopback host RCON port.
+
+    Uses a deterministic offset ``25575 + (game_port - 25565)`` when the server's
+    configured container RCON port is the default ``25575`` and its game port is
+    not ``25565``, then scans ``25575-25675`` (and up to ``26000``) to skip any
+    port already claimed by another server or bound on the host OS.
+    """
+    reserved = set(reserved_ports or ())
+    if preferred_rcon_port == 25575 and game_port != 25565:
+        offset_candidate = 25575 + (game_port - 25565)
+        start_candidate = offset_candidate if 1024 <= offset_candidate <= 65535 else 25575
+    else:
+        start_candidate = (
+            preferred_rcon_port if 1024 <= preferred_rcon_port <= 65535 else 25575
+        )
+
+    candidates: list[int] = [start_candidate]
+    seen: set[int] = {start_candidate}
+    for port in range(_RCON_PORT_SCAN_START, _RCON_PORT_FALLBACK_END + 1):
+        if port not in seen:
+            candidates.append(port)
+            seen.add(port)
+
+    for candidate in candidates:
+        if candidate == game_port or candidate in reserved:
+            continue
+        if check_os and not is_loopback_port_free(candidate):
+            continue
+        return candidate
+
+    return start_candidate
+
+
+def _extract_host_rcon_port_from_inspect(
+    info: dict[str, Any] | None,
+    container_rcon_port: int = 25575,
+) -> int | None:
+    """Extract the published host RCON port from ``docker inspect`` JSON."""
+    if not isinstance(info, dict):
+        return None
+    net = info.get("NetworkSettings")
+    if not isinstance(net, dict):
+        return None
+    ports = net.get("Ports")
+    if not isinstance(ports, dict):
+        return None
+    bindings = ports.get(f"{container_rcon_port}/tcp")
+    if not isinstance(bindings, list):
+        return None
+    for entry in bindings:
+        if not isinstance(entry, dict):
+            continue
+        raw_port = entry.get("HostPort")
+        if raw_port is None:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            parsed = int(raw_port)
+            if parsed > 0:
+                return parsed
+    return None
+
+
+def _read_persisted_rcon_port(server_dir: str | Path) -> int | None:
+    """Read the last allocated host RCON port from ``.onx-manager/rcon-runtime.json``."""
+    if not server_dir:
+        return None
+    target = Path(server_dir) / _RCON_RUNTIME_RELPATH
+    if not target.is_file():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+        raw = data.get("rcon_port")
+        if raw is not None:
+            port = int(raw)
+            if port > 0:
+                return port
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _persist_rcon_port(
+    server_dir: str | Path,
+    *,
+    host_rcon_port: int,
+    container_rcon_port: int,
+) -> None:
+    """Persist the allocated host RCON port alongside the server identity dir."""
+    if not server_dir:
+        return
+    base = Path(server_dir)
+    if not base.is_dir():
+        return
+    target = base / _RCON_RUNTIME_RELPATH
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {
+                "host": "127.0.0.1",
+                "rcon_port": int(host_rcon_port),
+                "container_rcon_port": int(container_rcon_port),
+            },
+            indent=2,
+        )
+        target.write_text(payload, encoding="utf-8")
+    except OSError as exc:
+        logger.debug("Could not persist RCON runtime port at %s: %s", target, exc)
+
+
+def _remove_persisted_rcon_port(server_dir: str | Path) -> None:
+    if not server_dir:
+        return
+    target = Path(server_dir) / _RCON_RUNTIME_RELPATH
+    with contextlib.suppress(OSError):
+        if target.is_file():
+            target.unlink()
+
+
 class DockerProvider(ServerProvider):
     def __init__(self, docker_host: str | None = None) -> None:
         self._docker_host = docker_host
         self._rcon_cache: dict[str, dict[str, Any]] = {}
         self._rcon_info: dict[str, dict[str, Any]] = {}
         self._last_ping_error: str = ""
+
+    def _active_rcon_ports_excluding(self, server_id: str) -> set[int]:
+        """Return host RCON ports currently cached for other managed servers."""
+        ports: set[int] = set()
+        for source in (self._rcon_cache, self._rcon_info):
+            for sid, entry in source.items():
+                if sid == server_id or not isinstance(entry, dict):
+                    continue
+                raw = entry.get("port")
+                if raw is not None:
+                    with contextlib.suppress(TypeError, ValueError):
+                        ports.add(int(raw))
+        return ports
+
+    async def _live_docker_published_ports_excluding(self, server_id: str) -> set[int]:
+        """Return host ports published by other running Docker containers."""
+        from app.modules.versioning.infrastructure.port_allocator import (
+            parse_docker_published_ports,
+        )
+
+        excluded = {
+            f"{IDENTITY.temp_prefix_new}{server_id}",
+            f"{IDENTITY.temp_prefix_legacy}{server_id}",
+        }
+        try:
+            rc, out = await self._docker_command(
+                "ps", "--format", "{{.Names}}\t{{.Ports}}", log_failure=False
+            )
+        except Exception:
+            return set()
+        if rc != 0 or not out:
+            return set()
+        ports: set[int] = set()
+        for line in out.splitlines():
+            if "\t" in line:
+                name, spec = line.split("\t", 1)
+                if name.strip() in excluded:
+                    continue
+            else:
+                spec = line
+            ports.update(parse_docker_published_ports(spec))
+        return ports
 
     @property
     def name(self) -> str:
@@ -560,16 +800,68 @@ class DockerProvider(ServerProvider):
         else:
             create_args.extend(["-p", game_port_spec])
 
-        # RCON Port: published EXCLUSIVELY to loopback (127.0.0.1) for security (Decision 6)
+        # Companion UDP/TCP ports (e.g., Simple Voice Chat 24454/udp, Geyser 19132/udp, Dynmap 8123/tcp)
+        companion_port_specs: list[str] = []
+        for cp in cfg.get("companion_ports") or ():
+            if not isinstance(cp, dict):
+                continue
+            try:
+                cp_port = int(cp.get("port") or 0)
+            except (TypeError, ValueError):
+                continue
+            if cp_port <= 0 or cp_port > 65535 or cp_port == port:
+                continue
+            cp_proto = str(cp.get("protocol") or "tcp").strip().lower()
+            cp_bind = f"{host_ip}:{cp_port}:{cp_port}" if host_ip else f"{cp_port}:{cp_port}"
+            if cp_proto == "both":
+                for p_suffix in ("tcp", "udp"):
+                    spec = f"{cp_bind}/{p_suffix}"
+                    if spec not in companion_port_specs:
+                        companion_port_specs.append(spec)
+                        create_args.extend(["-p", spec])
+            else:
+                p_suffix = "udp" if cp_proto == "udp" else "tcp"
+                spec = f"{cp_bind}/{p_suffix}"
+                if spec not in companion_port_specs:
+                    companion_port_specs.append(spec)
+                    create_args.extend(["-p", spec])
+
+        # RCON Port: published EXCLUSIVELY to loopback (127.0.0.1) for security (Decision 6).
+        # Cross-check cached RCON ports, live Docker published ports, and OS socket probes
+        # so multiple servers never collide on 127.0.0.1:25575.
         rcon_port: int | None = None
         container_rcon_port = 25575
-        if cfg.get("rcon_port"):
+        explicit_rcon_port = cfg.get("rcon_port")
+        live_docker_ports: set[int] = set()
+        reserved_rcon_ports: set[int] = set()
+        rcon_enabled = bool(explicit_rcon_port) or (
+            props.get("enable-rcon", "").lower() in ("true", "yes", "1")
+        )
+        if rcon_enabled:
+            live_docker_ports = await self._live_docker_published_ports_excluding(server_id)
+            reserved_rcon_ports = self._active_rcon_ports_excluding(server_id) | live_docker_ports
+
+        if explicit_rcon_port:
             with contextlib.suppress(ValueError, TypeError):
-                rcon_port = int(cfg["rcon_port"])
+                rcon_port = int(explicit_rcon_port)
+            if rcon_port is not None and (rcon_port in live_docker_ports or rcon_port == port):
+                rcon_port = allocate_host_rcon_port(
+                    game_port=port,
+                    preferred_rcon_port=rcon_port,
+                    reserved_ports=reserved_rcon_ports,
+                    check_os=True,
+                )
         elif props.get("enable-rcon", "").lower() in ("true", "yes", "1"):
             with contextlib.suppress(ValueError, TypeError):
-                rcon_port = int(props.get("rcon.port", "25575"))
+                container_rcon_port = int(props.get("rcon.port", "25575"))
+            rcon_port = allocate_host_rcon_port(
+                game_port=port,
+                preferred_rcon_port=container_rcon_port,
+                reserved_ports=reserved_rcon_ports,
+                check_os=True,
+            )
 
+        rcon_port_arg_idx: int | None = None
         if rcon_port:
             if cfg.get("container_rcon_port") is not None:
                 with contextlib.suppress(ValueError, TypeError):
@@ -577,19 +869,28 @@ class DockerProvider(ServerProvider):
             elif props.get("rcon.port"):
                 with contextlib.suppress(ValueError, TypeError):
                     container_rcon_port = int(props["rcon.port"])
-            else:
+            elif explicit_rcon_port:
                 container_rcon_port = rcon_port
 
             create_args.extend(["-p", f"127.0.0.1:{rcon_port}:{container_rcon_port}"])
+            rcon_port_arg_idx = len(create_args) - 1
 
-        # Resource limits: memory limit + equal swap limit with 512MB headroom (Spec §6)
-        container_mem_mb = memory_max + 512
+        # Resource limits: proportional JVM off-heap headroom (min 768 MB or 25% of heap)
+        # plus 512 MB swap headroom to prevent silent kernel OOM-killer SIGKILLs,
+        # and bounded json-file log rotation.
+        headroom_mb = max(768, int(memory_max * 0.25))
+        container_mem_mb = memory_max + headroom_mb
+        container_swap_mb = container_mem_mb + 512
         create_args.extend(
             [
                 "--memory",
                 f"{container_mem_mb}m",
                 "--memory-swap",
-                f"{container_mem_mb}m",
+                f"{container_swap_mb}m",
+                "--log-opt",
+                "max-size=20m",
+                "--log-opt",
+                "max-file=3",
             ]
         )
 
@@ -621,13 +922,20 @@ class DockerProvider(ServerProvider):
         # append the authoritative values last (below).
         for key in [k for k in env_vars if str(k).upper() in ("PUID", "PGID")]:
             env_vars.pop(key, None)
+        resolved_jvm_flags = _resolve_jvm_flags(launch_config, cfg)
+
         if "itzg" in image:
             if "VERSION" not in env_vars and cfg.get("minecraft_version"):
                 env_vars["VERSION"] = str(cfg["minecraft_version"])
             if "MEMORY" not in env_vars:
                 env_vars["MEMORY"] = f"{memory_max}M"
             if "JVM_XX_OPTS" not in env_vars:
-                env_vars["JVM_XX_OPTS"] = f"-Xms{memory_min}M"
+                xx_opts = [f"-Xms{memory_min}M"]
+                if launch_config is None and resolved_jvm_flags:
+                    for flag in resolved_jvm_flags:
+                        if not flag.startswith(("-Xms", "-Xmx", "@")) and flag not in xx_opts:
+                            xx_opts.append(flag)
+                env_vars["JVM_XX_OPTS"] = " ".join(xx_opts)
             if "EULA" not in env_vars:
                 env_vars["EULA"] = "TRUE"
             if "SERVER_PORT" not in env_vars:
@@ -660,12 +968,6 @@ class DockerProvider(ServerProvider):
             resolved_jar = deployment.startup_jar
         elif cfg.get("jar_path"):
             resolved_jar = str(cfg["jar_path"])
-
-        resolved_jvm_flags = None
-        if launch_config and launch_config.jvm_flags:
-            resolved_jvm_flags = launch_config.jvm_flags
-        elif cfg.get("java_args"):
-            resolved_jvm_flags = cfg["java_args"]
 
         resolved_unix_args = extract_unix_args_relpath(
             startup_cmd, unix_args_relpath=cfg.get("unix_args_relpath")
@@ -749,27 +1051,32 @@ class DockerProvider(ServerProvider):
             ports_list = [f"{game_port_spec}/tcp", f"{game_port_spec}/udp"]
         if rcon_port:
             ports_list.append(f"127.0.0.1:{rcon_port}:{container_rcon_port}")
+        ports_list.extend(companion_port_specs)
 
         mounts_list = []
         if server_dir:
             mounts_list.append(f"{host_mount}:/data")
 
-        fingerprint = _compute_config_fingerprint(
-            image=image,
-            memory_min=memory_min,
-            memory_max=memory_max,
-            cpu_cores=cpu_cores,
-            cpu_affinity=str(cpu_affinity or ""),
-            ports=ports_list,
-            mounts=mounts_list,
-            env=env_vars,
-            cmd=server_cmd,
-            user=f"{container_uid}:{container_gid}",
-            cap_drop=[CAP_DROP_ALL_VALUE],
-            security_opt=[NO_NEW_PRIVILEGES_VALUE],
-            pids_limit=PIDS_LIMIT,
-        )
+        def _build_fp(eff_ports: list[str]) -> str:
+            return _compute_config_fingerprint(
+                image=image,
+                memory_min=memory_min,
+                memory_max=memory_max,
+                cpu_cores=cpu_cores,
+                cpu_affinity=str(cpu_affinity or ""),
+                ports=eff_ports,
+                mounts=mounts_list,
+                env=env_vars,
+                cmd=server_cmd,
+                user=f"{container_uid}:{container_gid}",
+                cap_drop=[CAP_DROP_ALL_VALUE],
+                security_opt=[NO_NEW_PRIVILEGES_VALUE],
+                pids_limit=PIDS_LIMIT,
+            )
 
+        fingerprint = _build_fp(ports_list)
+
+        fp_label_arg_idx = len(create_args) + 1
         create_args.extend([
             "--label",
             f"{IDENTITY.docker_label_prefix_new}.config-fingerprint={fingerprint}",
@@ -841,13 +1148,26 @@ class DockerProvider(ServerProvider):
                     container_ip = await self.get_container_ip(target_container)
                     address = container_ip or get_dynamic_local_ip()
 
+                    live_rcon_port = (
+                        _extract_host_rcon_port_from_inspect(existing_info, container_rcon_port)
+                        or rcon_port
+                        or container_rcon_port
+                    )
                     rcon_info_entry = {
                         "host": "127.0.0.1",
-                        "port": rcon_port or 25575,
+                        "port": live_rcon_port,
+                        "container_port": container_rcon_port,
                         "password": props.get("rcon.password", ""),
+                        "server_dir": server_dir,
                     }
                     self._rcon_info[server_id] = rcon_info_entry
                     self._rcon_cache[server_id] = rcon_info_entry
+                    if server_dir and live_rcon_port:
+                        _persist_rcon_port(
+                            server_dir,
+                            host_rcon_port=live_rcon_port,
+                            container_rcon_port=container_rcon_port,
+                        )
 
                     handle = ServerHandle(
                         provider="docker",
@@ -859,7 +1179,8 @@ class DockerProvider(ServerProvider):
                             "server_dir": server_dir,
                             "image": image,
                             "network": network,
-                            "ports": {"game": port, "rcon": rcon_port},
+                            "ports": {"game": port, "rcon": live_rcon_port},
+                            "rcon_port": live_rcon_port,
                             "pid": pid,
                             "adopted": True,
                         },
@@ -931,9 +1252,64 @@ class DockerProvider(ServerProvider):
             raise ProviderError("docker", "start", f"Container creation failed: {output.strip()}")
 
         returncode, output = await self._docker_command("start", container_name)
+        if (
+            returncode != 0
+            and rcon_port is not None
+            and rcon_port_arg_idx is not None
+            and (
+                "port is already allocated" in output.lower()
+                or "address already in use" in output.lower()
+            )
+            and f":{rcon_port}" in output
+        ):
+            # TOCTOU race on host RCON port: cleanly remove failed container,
+            # exclude the colliding port, re-allocate, and retry once.
+            await self._docker_command("rm", container_name, log_failure=False)
+            reserved_rcon_ports.add(rcon_port)
+            retry_rcon = allocate_host_rcon_port(
+                game_port=port,
+                preferred_rcon_port=rcon_port,
+                reserved_ports=reserved_rcon_ports,
+                check_os=True,
+            )
+            if retry_rcon != rcon_port:
+                logger.warning(
+                    "RCON port %d collided during docker start for %s; retrying with %d",
+                    rcon_port,
+                    server_id,
+                    retry_rcon,
+                )
+                rcon_port = retry_rcon
+                new_rcon_spec = f"127.0.0.1:{rcon_port}:{container_rcon_port}"
+                create_args[rcon_port_arg_idx] = new_rcon_spec
+                updated_ports = [
+                    p for p in ports_list if not p.startswith("127.0.0.1:")
+                ] + [new_rcon_spec]
+                fingerprint = _build_fp(updated_ports)
+                create_args[fp_label_arg_idx] = (
+                    f"{IDENTITY.docker_label_prefix_new}.config-fingerprint={fingerprint}"
+                )
+                rc_c, out_c = await self._docker_command(*create_args)
+                if rc_c != 0:
+                    raise ProviderError(
+                        "docker", "start", f"Container creation failed: {out_c.strip()}"
+                    )
+                returncode, output = await self._docker_command("start", container_name)
+
         if returncode != 0:
+            container_logs: list[str] = []
+            rc_logs, log_out = await self._docker_command(
+                "logs", "--tail", "100", container_name, log_failure=False
+            )
+            if rc_logs == 0 and log_out.strip():
+                container_logs = [ln for ln in log_out.splitlines() if ln.strip()]
             await self._docker_command("rm", container_name)
-            raise ProviderError("docker", "start", f"Container start failed: {output.strip()}")
+            raise ProviderError(
+                "docker",
+                "start",
+                f"Container start failed: {output.strip()}",
+                details={"container_logs": container_logs} if container_logs else None,
+            )
 
         await asyncio.sleep(0.5)
 
@@ -957,23 +1333,33 @@ class DockerProvider(ServerProvider):
 
         if server_dir:
             rcon_pwd = props.get("rcon.password", "")
+            eff_rcon_port = rcon_port or container_rcon_port
+            if rcon_port:
+                _persist_rcon_port(
+                    server_dir,
+                    host_rcon_port=eff_rcon_port,
+                    container_rcon_port=container_rcon_port,
+                )
             if rcon_pwd:
-                eff_rcon_port = rcon_port or 25575
-                with contextlib.suppress(ValueError, TypeError):
-                    eff_rcon_port = int(props.get("rcon.port", str(eff_rcon_port)))
-                self._rcon_cache[server_id] = {
+                entry = {
                     "host": "127.0.0.1",
                     "port": eff_rcon_port,
+                    "container_port": container_rcon_port,
                     "password": rcon_pwd,
                     "server_dir": server_dir,
                 }
+                self._rcon_cache[server_id] = entry
+                self._rcon_info[server_id] = entry
         elif rcon_port and cfg.get("rcon_password"):
-            self._rcon_cache[server_id] = {
+            entry = {
                 "host": "127.0.0.1",
                 "port": rcon_port,
+                "container_port": container_rcon_port,
                 "password": str(cfg["rcon_password"]),
                 "server_dir": server_dir,
             }
+            self._rcon_cache[server_id] = entry
+            self._rcon_info[server_id] = entry
 
         return DeploymentResult(
             status=ServerRuntimeStatus.RUNNING,
@@ -1046,19 +1432,54 @@ class DockerProvider(ServerProvider):
                 if props.get("enable-rcon", "").lower() in ("true", "1", "yes"):
                     pwd = props.get("rcon.password", "")
                     try:
-                        port = int(props.get("rcon.port", "25575"))
+                        container_rcon_port = int(props.get("rcon.port", "25575"))
                     except (ValueError, TypeError):
-                        port = 25575
+                        container_rcon_port = 25575
+                    host_rcon_port: int | None = None
+                    if meta.get("rcon_port") is not None:
+                        with contextlib.suppress(TypeError, ValueError):
+                            host_rcon_port = int(meta["rcon_port"])
+                    if host_rcon_port is None:
+                        container_name = self._resolve_container_name(handle)
+                        if container_name:
+                            inspected = await self._inspect_container_json(container_name)
+                            host_rcon_port = _extract_host_rcon_port_from_inspect(
+                                inspected, container_rcon_port
+                            )
+                    if host_rcon_port is None:
+                        host_rcon_port = _read_persisted_rcon_port(server_dir)
+                    resolved_port = host_rcon_port or container_rcon_port
                     if pwd:
-                        self._rcon_cache[handle.server_id] = {
-                            "host": "127.0.0.1",
-                            "port": port,
+                        in_dood = bool(
+                            os.environ.get("ONX_HOST_DATA_DIR")
+                            or os.environ.get("MCS_HOST_DATA_DIR")
+                            or Path("/.dockerenv").exists()
+                        )
+                        rcon_host = "127.0.0.1"
+                        rcon_connect_port = resolved_port
+                        if in_dood:
+                            cname = self._resolve_container_name(handle)
+                            if cname:
+                                cip = await self.get_container_ip(cname)
+                                if cip:
+                                    rcon_host = cip
+                                    rcon_connect_port = container_rcon_port
+                        entry = {
+                            "host": rcon_host,
+                            "port": rcon_connect_port,
+                            "container_port": container_rcon_port,
                             "password": pwd,
                             "server_dir": server_dir,
                         }
-                        return ("127.0.0.1", port, pwd)
+                        self._rcon_cache[handle.server_id] = entry
+                        self._rcon_info[handle.server_id] = entry
+                        return (rcon_host, rcon_connect_port, pwd)
 
         return None
+
+    async def resolve_rcon_endpoint(self, handle: ServerHandle) -> tuple[str, int, str] | None:
+        """Public accessor for resolved ``(host, host_rcon_port, password)``."""
+        return await self._resolve_rcon_credentials(handle)
 
     async def _wait_for_container_exit(
         self, target: ServerHandle | str, timeout: float = 15.0
@@ -1086,11 +1507,21 @@ class DockerProvider(ServerProvider):
             return f"{IDENTITY.temp_prefix_new}{handle.server_id}"
         return ""
 
+    def _evict_rcon_state(self, handle: ServerHandle) -> None:
+        cached = self._rcon_cache.pop(handle.server_id, None)
+        self._rcon_info.pop(handle.server_id, None)
+        server_dir = (handle.metadata or {}).get("server_dir") or (
+            cached.get("server_dir") if isinstance(cached, dict) else None
+        )
+        if server_dir:
+            _remove_persisted_rcon_port(server_dir)
+
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
         container_name = self._resolve_container_name(handle)
         if force:
             rc, out = await self._docker_command("kill", container_name)
             if "No such container" in out or "is not running" in out:
+                self._evict_rcon_state(handle)
                 return
             exited = await self._wait_for_container_exit(container_name, timeout=10.0)
             if not exited:
@@ -1099,6 +1530,7 @@ class DockerProvider(ServerProvider):
                     "stop",
                     f"Container {container_name} did not exit after docker kill: {out.strip()}",
                 )
+            self._evict_rcon_state(handle)
             return
 
         # Graceful stop: send /stop over RCON first, wait for container exit
@@ -1116,6 +1548,7 @@ class DockerProvider(ServerProvider):
         if not rcon_stopped:
             rc, out = await self._docker_command("stop", "-t", "30", container_name)
             if "No such container" in out or "is not running" in out:
+                self._evict_rcon_state(handle)
                 return
             exited = await self._wait_for_container_exit(container_name, timeout=5.0)
             if not exited:
@@ -1124,6 +1557,7 @@ class DockerProvider(ServerProvider):
                     "stop",
                     f"Container {container_name} still running after docker stop -t 30",
                 )
+        self._evict_rcon_state(handle)
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         container_name = self._resolve_container_name(handle)
@@ -1174,6 +1608,8 @@ class DockerProvider(ServerProvider):
         Inspects crash-reports, checks container running status, and polls container
         logs and latest.log on disk for boot completion markers (e.g. 'Done (').
         """
+        from datetime import UTC, datetime, timedelta
+
         from app.modules.server.infrastructure.signal_detection import poll_boot_signals
 
         container_name = (
@@ -1192,7 +1628,16 @@ class DockerProvider(ServerProvider):
         crash_dir = Path(server_dir) / "crash-reports" if server_dir else None
         log_path = Path(server_dir) / "logs" / "latest.log" if server_dir else None
 
-        async def _get_docker_logs() -> list[str]:
+        # Ignore stale logs/latest.log or crash reports from previous runs before this boot
+        boot_cutoff: datetime | None = None
+        raw_start = meta.get("start_time")
+        if isinstance(raw_start, (int, float)) and raw_start > 0:
+            with contextlib.suppress(OSError, OverflowError, ValueError):
+                boot_cutoff = datetime.fromtimestamp(float(raw_start), tz=UTC)
+        if boot_cutoff is None:
+            boot_cutoff = datetime.now(UTC) - timedelta(seconds=5)
+
+        async def _get_docker_logs(_since: datetime | None = None) -> list[str]:
             if not container_name:
                 return []
             try:
@@ -1213,20 +1658,49 @@ class DockerProvider(ServerProvider):
             crash_dir=crash_dir,
             log_path=log_path,
             get_logs=_get_docker_logs,
+            log_since=boot_cutoff,
+            get_logs_since=_get_docker_logs,
         )
         return result.passed
 
     async def console(self, handle: ServerHandle, tail: int = 100) -> list[str]:
         container_name = self._resolve_container_name(handle)
-        returncode, stdout = await self._docker_command(
+        returncode, output = await self._docker_command(
             "logs", "--tail", str(tail), "--timestamps", container_name
         )
         if returncode != 0:
             raise ProviderError("docker", "console", "Failed to get container logs")
-        return stdout.splitlines() if stdout else []
+        return output.splitlines() if output else []
+
+    def _rcon_disabled_reason(self, handle: ServerHandle) -> str | None:
+        """Return a truthful message when RCON is disabled in server.properties."""
+        meta = handle.metadata or {}
+        if meta.get("rcon_password"):
+            return None
+        server_dir = meta.get("server_dir") or meta.get("root_path")
+        if not server_dir:
+            cached = self._rcon_cache.get(handle.server_id)
+            if isinstance(cached, dict):
+                server_dir = cached.get("server_dir")
+        if not server_dir and handle.server_id:
+            candidate = Path(AppSettings().servers_data_dir).resolve() / handle.server_id
+            if candidate.is_dir():
+                server_dir = str(candidate)
+        if not server_dir:
+            return None
+        props_path = Path(server_dir) / "server.properties"
+        if not props_path.is_file():
+            return None
+        props = self._read_server_properties_file(props_path)
+        enabled = props.get("enable-rcon", "").strip().lower() in ("true", "yes", "1")
+        if not enabled or not props.get("rcon.password", "").strip():
+            return RCON_DISABLED_MESSAGE
+        return None
 
     async def execute_command(self, handle: ServerHandle, command: str) -> str:
-        container_name = self._resolve_container_name(handle)
+        disabled = self._rcon_disabled_reason(handle)
+        if disabled:
+            raise ProviderError("docker", "execute_command", disabled)
         rcon_creds = await self._resolve_rcon_credentials(handle)
         if rcon_creds:
             host, port, password = rcon_creds
@@ -1251,22 +1725,43 @@ class DockerProvider(ServerProvider):
                 ) from exc
             except Exception as exc:
                 logger.warning(
-                    "RCON command execution failed for %s: %s; attempting fallback",
+                    "RCON command execution failed for %s on %s:%d: %s",
                     handle.server_id,
+                    host,
+                    port,
                     exc,
                 )
+                container_alive = False
+                with contextlib.suppress(Exception):
+                    container_alive = await self.status(handle) == ServerRuntimeStatus.RUNNING
+                if container_alive:
+                    raise ProviderError(
+                        "docker",
+                        "execute_command",
+                        "Server console is still starting up (RCON is not ready yet). "
+                        "Wait for 'Done!' in the logs and try again.",
+                    ) from exc
+                raise ProviderError(
+                    "docker",
+                    "execute_command",
+                    "Server container is not running or RCON is unavailable.",
+                ) from exc
 
-        # Fallback Method per Spec §5.5: docker exec {container_name} rcon-cli "{command}"
-        returncode, stdout = await self._docker_command(
-            "exec", container_name, "rcon-cli", "--", command
-        )
-        if returncode != 0:
+        container_alive = False
+        with contextlib.suppress(Exception):
+            container_alive = await self.status(handle) == ServerRuntimeStatus.RUNNING
+        if container_alive:
             raise ProviderError(
                 "docker",
                 "execute_command",
-                f"Failed to execute command on container {container_name}: {stdout.strip()}",
+                "Server console is still starting up (RCON is not ready yet). "
+                "Wait for 'Done!' in the logs and try again.",
             )
-        return stdout
+        raise ProviderError(
+            "docker",
+            "execute_command",
+            "RCON is not enabled or server container is not running.",
+        )
 
     async def write_exec_input(
         self,
@@ -1278,7 +1773,13 @@ class DockerProvider(ServerProvider):
         return await self.execute_command(handle, clean)
 
     async def destroy(self, handle: ServerHandle) -> None:
-        self._rcon_cache.pop(handle.server_id, None)
+        cached = self._rcon_cache.pop(handle.server_id, None)
+        self._rcon_info.pop(handle.server_id, None)
+        server_dir = (handle.metadata or {}).get("server_dir") or (
+            cached.get("server_dir") if isinstance(cached, dict) else None
+        )
+        if server_dir:
+            _remove_persisted_rcon_port(server_dir)
         container_name = self._resolve_container_name(handle)
         containers_to_remove: set[str] = {container_name}
 
@@ -1453,24 +1954,44 @@ class DockerProvider(ServerProvider):
     async def _ensure_image(self, image: str) -> None:
         await self.ensure_image(image)
 
-    async def _docker_exec(self, *args: str, log_failure: bool = True) -> tuple[int, str]:
+    async def _docker_exec(
+        self,
+        *args: str,
+        log_failure: bool = True,
+        merge_stderr: bool = False,
+        timeout: float | None = 60.0,
+    ) -> tuple[int, str]:
         """Execute docker CLI command with tokenized arguments without shell interpolation."""
         cmd = ["docker"]
         if self._docker_host:
             cmd.extend(["-H", self._docker_host])
         cmd.extend(args)
 
+        effective_merge_stderr = merge_stderr or (bool(args) and args[0] == "logs")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT if effective_merge_stderr else asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
-        out_msg = stdout.decode("utf-8", errors="replace")
-        err_msg = stderr.decode("utf-8", errors="replace")
+        try:
+            if timeout is not None and (not args or args[0] != "pull"):
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            else:
+                stdout, stderr = await proc.communicate()
+        except TimeoutError:
+            with contextlib.suppress(Exception):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
+            redacted_cmd = _redact_docker_args(cmd)
+            logger.warning("Docker command timed out after %.1fs: %s", timeout or 0, " ".join(redacted_cmd))
+            return 124, f"Docker command timed out after {timeout:.0f}s"
+
+        out_msg = stdout.decode("utf-8", errors="replace") if stdout else ""
+        err_msg = stderr.decode("utf-8", errors="replace") if stderr else ""
         if proc.returncode != 0 and log_failure:
             redacted_cmd = _redact_docker_args(cmd)
-            redacted_err = _redact_secrets_in_text(err_msg)
+            redacted_err = _redact_secrets_in_text(err_msg or out_msg)
             logger.warning(
                 "Docker command failed: %s (code %d): %s",
                 " ".join(redacted_cmd),
@@ -1510,15 +2031,15 @@ class DockerProvider(ServerProvider):
         if cpu_cores > 0:
             lines.append(f"-XX:ActiveProcessorCount={cpu_cores}")
 
-        extra_flags: list[str] = []
-        if launch_config and launch_config.jvm_flags:
-            extra_flags.extend(launch_config.jvm_flags)
-        elif cfg and cfg.get("java_args"):
-            extra_flags.extend(cfg["java_args"])
+        extra_flags = _resolve_jvm_flags(launch_config, cfg) or []
 
         for flag in extra_flags:
-            if flag not in lines and not any(
-                flag.startswith(p) for p in ("-Xms", "-Xmx", "-XX:ActiveProcessorCount")
+            if (
+                flag not in lines
+                and not flag.startswith("@")
+                and not any(
+                    flag.startswith(p) for p in ("-Xms", "-Xmx", "-XX:ActiveProcessorCount")
+                )
             ):
                 lines.append(flag)
 

@@ -8,37 +8,38 @@ import {
   useDeleteServer,
   useRetryProvisioningServer,
 } from "@/server_manager/hooks/useServers";
-import { STATUS_MAP } from "@/server_manager/types";
+import { useHostResources } from "@/server_manager/hooks/useHostResources";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/States";
-import { TableSkeleton } from "@/components/Skeleton";
+import { Skeleton, TableSkeleton } from "@/components/Skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Pagination } from "@/components/ui/Pagination";
-import { ViewModeToggle, type ViewMode } from "@/components/ui/ViewModeToggle";
-import { ServerIcon } from "@/server_manager/components/ServerIcon";
+import { type ViewMode } from "@/components/ui/ViewModeToggle";
 import { toast } from "@/stores/toastStore";
-import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
+import { FleetOverviewStrip } from "@/server_manager/components/servers/FleetOverviewStrip";
+import { ServersToolbar } from "@/server_manager/components/servers/ServersToolbar";
+import { ServerCard } from "@/server_manager/components/servers/ServerCard";
+import { ServerListTable } from "@/server_manager/components/servers/ServerListTable";
+import { useFleetMetrics } from "@/server_manager/components/servers/useFleetMetrics";
+import {
+  STATUS_FILTERS,
+  filterAndSortServers,
+  readInitialViewMode,
+  useFleetPermissions,
+  type SortKey,
+} from "@/server_manager/components/servers/serversUtils";
 import type { ServerResponse } from "@/server_manager/types";
 
-type SortKey = "name" | "status" | "version";
-
-const STATUS_FILTERS = [
-  "all",
-  "running",
-  "stopped",
-  "starting",
-  "provisioning",
-  "provisioning_failed",
-  "stopping",
-  "crashed",
-  "broken",
+const VALID_SORT_KEYS: readonly SortKey[] = [
+  "name",
+  "status",
+  "players",
+  "memory",
+  "version",
   "created",
-  "restoring",
 ];
 
 const PAGE_SIZE = 15;
@@ -51,8 +52,44 @@ function getNow(): number {
   return Date.now();
 }
 
+function CardsSkeletonGrid() {
+  return (
+    <div
+      data-testid="cards-skeleton"
+      className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3"
+    >
+      {Array.from({ length: 6 }).map((_, idx) => (
+        <div
+          key={idx}
+          className="rounded-2xl border border-border-subtle bg-surface-card p-5 space-y-4"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3.5">
+              <Skeleton className="h-[52px] w-[52px] rounded-xl" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+          <Skeleton className="h-9 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <div className="flex justify-between pt-2 border-t border-border-subtle">
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-6 w-20" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ServersPage() {
   const { data: servers, isLoading, error, refetch: refetchServers } = useServersList();
+  const { data: hostBudget } = useHostResources();
+  const permissions = useFleetPermissions();
+
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
@@ -61,68 +98,62 @@ export function ServersPage() {
   const navigate = useNavigate();
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const statusParam = searchParams.get("status");
-  const statusFilter = statusParam && STATUS_FILTERS.includes(statusParam) ? statusParam : "all";
+  const search = searchParams.get("q") ?? "";
+  const rawStatus = searchParams.get("status") ?? "all";
+  const statusFilter = (STATUS_FILTERS as readonly string[]).includes(rawStatus)
+    ? rawStatus
+    : "all";
+  const loaderFilter = searchParams.get("loader") ?? "all";
+  const rawMode = searchParams.get("mode") ?? "all";
+  const modeFilter = rawMode === "simple" || rawMode === "advanced" ? rawMode : "all";
+  const rawSort = searchParams.get("sort") as SortKey | null;
+  const sortKey: SortKey =
+    rawSort && VALID_SORT_KEYS.includes(rawSort) ? rawSort : "name";
+  const rawPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
+  const requestedPage = Number.isNaN(rawPage) || rawPage < 1 ? 1 : rawPage;
 
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [copiedPortId, setCopiedPortId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readInitialViewMode());
+  const [copiedAddressId, setCopiedAddressId] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
 
-  const startingServers = useMemo(
-    () => (servers ?? []).filter((s) => s.status === "starting"),
-    [servers]
-  );
-
-  const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
   const [deleteTarget, setDeleteTarget] = useState<ServerResponse | null>(null);
   const [deletingIds, setDeletingIds] = useState<Record<string, boolean>>({});
   const deletingRef = useRef<Set<string>>(new Set());
   const [stopTarget, setStopTarget] = useState<ServerResponse | null>(null);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const filterRef = useRef<HTMLDivElement>(null);
-
-  const isBusy =
-    startServer.isPending ||
-    stopServer.isPending ||
-    restartServer.isPending ||
-    retryProvisioning.isPending;
+  const [busyServerIds, setBusyServerIds] = useState<Set<string>>(() => new Set());
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
   const [now, setNow] = useState<number>(() => getNow());
 
-  const hasActiveCooldown = useMemo(
-    () => Object.values(startCooldowns).some((until) => until > now),
-    [startCooldowns, now]
+  const serverList = useMemo(() => servers ?? [], [servers]);
+  const fleetMetrics = useFleetMetrics(serverList, hostBudget);
+
+  const startingServers = useMemo(
+    () => serverList.filter((s) => s.status === "starting"),
+    [serverList],
   );
 
-  const handleStatusFilterChange = (nextStatus: string) => {
-    setCurrentPage(1);
-    const newParams = new URLSearchParams(searchParams);
-    if (nextStatus === "all") {
-      newParams.delete("status");
-    } else {
-      newParams.set("status", nextStatus);
-    }
-    setSearchParams(newParams);
-  };
-
-  useEffect(() => {
-    if (!isFilterOpen) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setIsFilterOpen(false);
-    }
-    function handleClickOutside(e: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
-        setIsFilterOpen(false);
+  const availableLoaders = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of serverList) {
+      if (s.server_type) {
+        set.add(s.server_type.toLowerCase());
       }
     }
-    window.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isFilterOpen]);
+    return Array.from(set).sort();
+  }, [serverList]);
+
+  const fallbackAllocatedRamMb = useMemo(
+    () =>
+      serverList
+        .filter((s) => s.status === "running" || s.status === "starting")
+        .reduce((sum, s) => sum + (s.max_memory_mb ?? 2048), 0),
+    [serverList],
+  );
+
+  const hasActiveCooldown = useMemo(
+    () => Object.values(startCooldowns).some((until) => until > now),
+    [startCooldowns, now],
+  );
 
   useEffect(() => {
     if (!hasActiveCooldown) return;
@@ -132,31 +163,103 @@ export function ServersPage() {
     return () => window.clearInterval(timer);
   }, [hasActiveCooldown]);
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const list = (servers ?? []).filter((s) => {
-      if (statusFilter !== "all" && s.status !== statusFilter) return false;
-      if (query && !s.name.toLowerCase().includes(query)) return false;
-      return true;
-    });
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
-    return [...list].sort((a, b) => {
-      if (sortKey === "status") return (a.status ?? "").localeCompare(b.status ?? "");
-      if (sortKey === "version") return (a.minecraft_version ?? "").localeCompare(b.minecraft_version ?? "");
-      return a.name.localeCompare(b.name);
-    });
-  }, [servers, search, statusFilter, sortKey]);
+  const updateParams = (updates: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (!value || value === "all" || (key === "sort" && value === "name") || (key === "page" && value === "1")) {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+    }
+    setSearchParams(next);
+  };
+
+  const filtered = useMemo(
+    () =>
+      filterAndSortServers(serverList, {
+        search,
+        statusFilter,
+        loaderFilter,
+        modeFilter,
+        sortKey,
+        metricsByServerId: fleetMetrics.metricsByServerId,
+      }),
+    [
+      serverList,
+      search,
+      statusFilter,
+      loaderFilter,
+      modeFilter,
+      sortKey,
+      fleetMetrics.metricsByServerId,
+    ],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(requestedPage, totalPages);
+
+  useEffect(() => {
+    if (requestedPage > totalPages) {
+      const next = new URLSearchParams(searchParams);
+      if (totalPages <= 1) {
+        next.delete("page");
+      } else {
+        next.set("page", String(totalPages));
+      }
+      setSearchParams(next, { replace: true });
+    }
+  }, [requestedPage, totalPages, searchParams, setSearchParams]);
 
   const paginatedServers = useMemo(() => {
     const startIdx = (currentPage - 1) * PAGE_SIZE;
     return filtered.slice(startIdx, startIdx + PAGE_SIZE);
   }, [filtered, currentPage]);
 
+  const hasActiveFilters =
+    search.trim().length > 0 ||
+    statusFilter !== "all" ||
+    loaderFilter !== "all" ||
+    modeFilter !== "all" ||
+    sortKey !== "name";
+
+  const handleClearFilters = () => {
+    updateParams({
+      q: null,
+      status: null,
+      loader: null,
+      mode: null,
+      sort: null,
+      page: null,
+    });
+  };
+
+  const markServerBusy = (serverId: string, busy: boolean) => {
+    setBusyServerIds((prev) => {
+      const next = new Set(prev);
+      if (busy) {
+        next.add(serverId);
+      } else {
+        next.delete(serverId);
+      }
+      return next;
+    });
+  };
+
   const handleStart = (server: ServerResponse, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const currentTime = getNow();
     setNow(currentTime);
     setStartCooldowns((prev) => ({ ...prev, [server.server_id]: currentTime + 30000 }));
+    markServerBusy(server.server_id, true);
 
     startServer.mutate(server.server_id, {
       onSuccess: () => toast("success", "Server starting", `"${server.name}" start command issued.`),
@@ -168,6 +271,7 @@ export function ServersPage() {
         });
         toast("error", "Start failed", errorMessage(err));
       },
+      onSettled: () => markServerBusy(server.server_id, false),
     });
   };
 
@@ -177,20 +281,29 @@ export function ServersPage() {
   }
 
   function handleConfirmStop() {
-    if (!stopTarget) return;
+    if (!stopTarget || stopServer.isPending) return;
     const s = stopTarget;
-    setStopTarget(null);
+    markServerBusy(s.server_id, true);
     stopServer.mutate(s.server_id, {
-      onSuccess: () => toast("info", "Server stopping", `"${s.name}" is stopping.`),
-      onError: (err) => toast("error", "Stop failed", errorMessage(err)),
+      onSuccess: () => {
+        setStopTarget(null);
+        toast("info", "Server stopping", `"${s.name}" is stopping.`);
+      },
+      onError: (err) => {
+        setStopTarget(null);
+        toast("error", "Stop failed", errorMessage(err));
+      },
+      onSettled: () => markServerBusy(s.server_id, false),
     });
   }
 
   function handleRestart(server: ServerResponse, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
+    markServerBusy(server.server_id, true);
     restartServer.mutate(server.server_id, {
       onSuccess: () => toast("info", "Server restarting", `"${server.name}" restart initiated.`),
       onError: (err) => toast("error", "Restart failed", errorMessage(err)),
+      onSettled: () => markServerBusy(server.server_id, false),
     });
   }
 
@@ -238,507 +351,289 @@ export function ServersPage() {
 
   function handleRetryProvisioning(server: ServerResponse, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
+    markServerBusy(server.server_id, true);
     retryProvisioning.mutate(server.server_id, {
-      onSuccess: () => toast("success", "Retry started", `Provisioning retry started for "${server.name}".`),
+      onSuccess: () =>
+        toast("success", "Retry started", `Provisioning retry started for "${server.name}".`),
       onError: (err) => toast("error", "Retry failed", errorMessage(err)),
+      onSettled: () => markServerBusy(server.server_id, false),
     });
   }
 
-  const handleCopyPort = (port: number, serverId: string, e: React.MouseEvent) => {
+  const handleCopyAddress = (address: string, serverId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(String(port));
-    setCopiedPortId(serverId);
-    setTimeout(() => setCopiedPortId(null), 2000);
+    navigator.clipboard?.writeText(address);
+    setCopiedAddressId(serverId);
+    toast("info", "Address copied", `Copied ${address}`);
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopiedAddressId(null);
+    }, 2000);
   };
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       <PageHeader
         title="Servers"
-        description="Manage, monitor, and deploy your Minecraft instances"
+        description="Monitor, launch, and manage your Minecraft instances."
         icon="server"
+        className="mb-0"
+        badge={
+          servers ? (
+            <span
+              data-testid="servers-count-pill"
+              className="inline-flex h-5 items-center rounded-full border border-border-subtle bg-surface-elevated px-2 font-mono text-xs font-semibold text-text-secondary"
+            >
+              {serverList.length}
+            </span>
+          ) : undefined
+        }
         actions={
-          <div className="flex items-center gap-2">
-            <Link to="/servers/import">
-              <Button variant="secondary" size="md" icon="upload">
-                Import
-              </Button>
-            </Link>
-            <Link to="/servers/create">
-              <Button variant="primary" size="md" icon="plus">
-                New Server
-              </Button>
-            </Link>
-          </div>
+          permissions.canCreate || permissions.canImport ? (
+            <div className="flex items-center gap-2">
+              {permissions.canImport && (
+                <Link to="/servers/import">
+                  <Button variant="secondary" size="md" icon="upload">
+                    Import
+                  </Button>
+                </Link>
+              )}
+              {permissions.canCreate && (
+                <Link to="/servers/create">
+                  <Button variant="primary" size="md" icon="plus">
+                    New Server
+                  </Button>
+                </Link>
+              )}
+            </div>
+          ) : undefined
         }
       />
 
       {isLoading ? (
-        <TableSkeleton rows={6} cols={5} />
+        viewMode === "grid" ? (
+          <CardsSkeletonGrid />
+        ) : (
+          <TableSkeleton rows={6} cols={5} />
+        )
       ) : error ? (
-        <ErrorState message={error instanceof Error ? error.message : "Failed to load servers"} />
-      ) : servers && servers.length === 0 ? (
+        <ErrorState
+          message={error instanceof Error ? error.message : "Failed to load servers"}
+          onRetry={() => {
+            void refetchServers();
+          }}
+        />
+      ) : serverList.length === 0 ? (
         <EmptyState
           icon="server"
           title="No servers yet"
-          description="Create or import your first Minecraft server to get started."
-          action={{
-            label: "New Server",
-            onClick: () => {
-              navigate("/servers/create");
-            },
-          }}
+          description="Create a new instance or import an existing Minecraft directory."
+          action={
+            permissions.canCreate || permissions.canImport ? (
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                {permissions.canCreate && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon="plus"
+                    onClick={() => navigate("/servers/create")}
+                  >
+                    Create Server
+                  </Button>
+                )}
+                {permissions.canImport && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon="upload"
+                    onClick={() => navigate("/servers/import")}
+                  >
+                    Import Existing Server
+                  </Button>
+                )}
+              </div>
+            ) : undefined
+          }
         />
       ) : (
         <>
-          {/* Starting servers monitoring banners */}
+          <FleetOverviewStrip
+            totalServers={serverList.length}
+            runningCount={fleetMetrics.runningCount}
+            totalOnlinePlayers={fleetMetrics.totalOnlinePlayers}
+            totalOnlineCapacity={fleetMetrics.totalOnlineCapacity}
+            hostBudget={hostBudget}
+            activeStatusFilter={statusFilter}
+            onToggleRunningFilter={() =>
+              updateParams({
+                status: statusFilter === "running" ? null : "running",
+                page: null,
+              })
+            }
+            fallbackAllocatedRamMb={fallbackAllocatedRamMb}
+          />
+
           {startingServers.map((s) => (
-            <div key={s.server_id} className="mb-4">
-              <StartingMonitorBanner
-                targetName={s.name}
-                startedAt={s.updated_at}
-                timeoutSeconds={s.startup_timeout_seconds ?? 120}
-                onCheckNow={async () => {
-                  await refetchServers();
-                }}
-              />
-            </div>
+            <StartingMonitorBanner
+              key={s.server_id}
+              targetName={s.name}
+              startedAt={s.updated_at}
+              timeoutSeconds={s.startup_timeout_seconds ?? 120}
+              onCheckNow={async () => {
+                await refetchServers();
+              }}
+            />
           ))}
 
-          {/* Search, Filter, Sort & View Mode Toolbar */}
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Icon
-                name="search"
-                size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-              />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Search servers by name..."
-                aria-label="Search servers by name"
-                className="w-full rounded-xl border border-border-default bg-surface-card py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <ViewModeToggle
-                mode={viewMode}
-                onChange={setViewMode}
-                storageKey="onx_servers_view_mode"
-              />
-
-              <div className="relative" ref={filterRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsFilterOpen((prev) => !prev)}
-                  aria-expanded={isFilterOpen}
-                  aria-label="Filter and sort"
-                  title="Filter and sort"
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors shadow-2xs cursor-pointer ${
-                    statusFilter !== "all" || sortKey !== "name"
-                      ? "border-accent-primary bg-accent-primary/10 text-accent-primary font-semibold"
-                      : "border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-                  }`}
-                >
-                  <Icon name="filter" size={16} />
-                  <span>Filters</span>
-                  {(statusFilter !== "all" || sortKey !== "name") && (
-                    <span className="h-2 w-2 rounded-full bg-accent-primary" />
-                  )}
-                </button>
-
-                {isFilterOpen && (
-                  <div
-                    role="dialog"
-                    aria-label="Filter and sort options"
-                    className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border-subtle bg-surface-card p-4 shadow-xl text-text-primary"
-                  >
-                    <div className="space-y-4">
-                      <div>
-                        <label
-                          htmlFor="status-filter"
-                          className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary"
-                        >
-                          Filter by status
-                        </label>
-                        <select
-                          id="status-filter"
-                          value={statusFilter}
-                          onChange={(e) => handleStatusFilterChange(e.target.value)}
-                          className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus"
-                        >
-                          {STATUS_FILTERS.map((s) => (
-                            <option key={s} value={s}>
-                              {s === "all" ? "All statuses" : STATUS_MAP[s]?.label ?? s}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="border-t border-border-subtle pt-3">
-                        <label
-                          htmlFor="sort-key"
-                          className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary"
-                        >
-                          Sort by
-                        </label>
-                        <select
-                          id="sort-key"
-                          value={sortKey}
-                          onChange={(e) => {
-                            setSortKey(e.target.value as SortKey);
-                            setCurrentPage(1);
-                          }}
-                          className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus"
-                        >
-                          <option value="name">Sort by name</option>
-                          <option value="status">Sort by status</option>
-                          <option value="version">Sort by version</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <ServersToolbar
+            search={search}
+            onSearchChange={(val) => updateParams({ q: val || null, page: null })}
+            statusFilter={statusFilter}
+            onStatusFilterChange={(val) => updateParams({ status: val, page: null })}
+            loaderFilter={loaderFilter}
+            onLoaderFilterChange={(val) => updateParams({ loader: val, page: null })}
+            availableLoaders={availableLoaders}
+            modeFilter={modeFilter}
+            onModeFilterChange={(val) => updateParams({ mode: val, page: null })}
+            sortKey={sortKey}
+            onSortKeyChange={(val) => updateParams({ sort: val, page: null })}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            totalCount={serverList.length}
+            filteredCount={filtered.length}
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={handleClearFilters}
+          />
 
           {filtered.length === 0 ? (
             <EmptyState
               icon="search"
               title="No matching servers"
               description="No servers match your current search and filters."
+              action={
+                hasActiveFilters
+                  ? {
+                      label: "Clear filters",
+                      icon: "x",
+                      onClick: handleClearFilters,
+                    }
+                  : undefined
+              }
             />
           ) : viewMode === "grid" ? (
-            /* Mode A: Grid / Showcase Card Mode */
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {paginatedServers.map((s) => {
-                  const isDeleting =
-                    Boolean(deletingIds[s.server_id]) || deleteTarget?.server_id === s.server_id;
-                  return (
-                    <div
-                      key={s.server_id}
-                      onClick={() => {
-                        if (isDeleting) return;
-                        navigate(`/servers/${s.server_id}/console`);
-                      }}
-                      className={`group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all duration-150 ${
-                        isDeleting
-                          ? "opacity-60 pointer-events-none"
-                          : "hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
-                      }`}
-                    >
-                      <div>
-                        {/* Card Header Row */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-start gap-3">
-                            <ServerIcon serverId={s.server_id} name={s.name} size={40} />
-                            <div className="min-w-0">
-                              <Link
-                                to={`/servers/${s.server_id}/console`}
-                                title={s.name}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (isDeleting) e.preventDefault();
-                                }}
-                                className="block truncate text-base font-bold text-text-primary group-hover:text-accent-primary"
-                              >
-                                {s.name}
-                              </Link>
-                              {/* Loader + version chip under the name, along with copyable port chip */}
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                <div className="inline-flex items-center gap-1.5 rounded-md bg-surface-muted px-2 py-0.5">
-                                  <LoaderBadge loader={s.server_type} />
-                                  <span className="font-mono text-[11px] text-text-secondary">
-                                    {s.minecraft_version}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleCopyPort(s.port, s.server_id, e)}
-                                  className="inline-flex shrink-0 items-center gap-1 rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-text-muted hover:text-text-primary"
-                                  title="Click to copy port"
-                                  aria-label={`Copy port ${s.port}`}
-                                >
-                                  <span>:{s.port}</span>
-                                  {copiedPortId === s.server_id && (
-                                    <Icon name="check" size={12} className="text-status-success" />
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
+            (() => {
+              const showQuickDeploy =
+                serverList.length === 1 && !hasActiveFilters && permissions.canCreate;
+              const renderedCardCount = paginatedServers.length + (showQuickDeploy ? 1 : 0);
+              const cardsGridClass =
+                renderedCardCount <= 2
+                  ? "grid grid-cols-1 gap-5 md:grid-cols-2"
+                  : "grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3";
 
-                          <div className="shrink-0">
-                            <StatusBadge status={s.status} />
-                          </div>
-                        </div>
+              return (
+                <div className="space-y-6">
+                  <div data-testid="servers-cards-grid" className={cardsGridClass}>
+                    {paginatedServers.map((s) => {
+                      const isDeleting =
+                        Boolean(deletingIds[s.server_id]) ||
+                        deleteTarget?.server_id === s.server_id;
+                      const isCooldown =
+                        startCooldowns[s.server_id] !== undefined &&
+                        now < startCooldowns[s.server_id];
 
-                        {/* Instance Config Well: 2 columns (Mode & Max Players) */}
-                        <div className="mt-4 grid grid-cols-2 divide-x divide-border-subtle rounded-lg bg-surface-muted/50 p-2.5 text-center">
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Mode</div>
-                            <div className="mt-0.5 font-mono text-xs capitalize text-text-primary">
-                              {s.gamemode || "survival"}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Max Players</div>
-                            <div className="mt-0.5 font-mono text-xs tabular-nums text-text-primary">
-                              {s.max_players || 20}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      return (
+                        <ServerCard
+                          key={s.server_id}
+                          server={s}
+                          telemetry={fleetMetrics.metricsByServerId[s.server_id]}
+                          isDeleting={isDeleting}
+                          isBusy={busyServerIds.has(s.server_id)}
+                          isStartCooldown={isCooldown}
+                          copiedAddressId={copiedAddressId}
+                          canPower={permissions.canPower(s.server_id)}
+                          canFiles={permissions.canFiles(s.server_id)}
+                          onStart={handleStart}
+                          onStop={handleStop}
+                          onRestart={handleRestart}
+                          onRetryProvisioning={handleRetryProvisioning}
+                          onCopyAddress={handleCopyAddress}
+                        />
+                      );
+                    })}
 
-                      {/* Footer & Actions */}
-                      <div className="mt-4 flex items-center justify-between border-t border-border-subtle/60 pt-3">
-                        <span className="text-[11px] text-text-muted" />
-
-                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleStart(s, e)}
-                              disabled={
-                                isBusy ||
-                                (startCooldowns[s.server_id] !== undefined &&
-                                  now < startCooldowns[s.server_id]) ||
-                                s.status === "starting" ||
-                                s.status === "provisioning"
-                              }
-                              aria-label={`Start ${s.name}`}
-                              title="Start"
-                              className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                            >
-                              <Icon name="play" size={16} />
-                            </button>
-                          )}
-
-                          {["running", "starting"].includes(s.status) && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={(e) => handleStop(s, e)}
-                                disabled={isBusy}
-                                aria-label={`Stop ${s.name}`}
-                                title="Stop"
-                                className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                              >
-                                <Icon name="stop" size={16} />
-                              </button>
-                              {s.status === "running" && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleRestart(s, e)}
-                                  disabled={isBusy}
-                                  aria-label={`Restart ${s.name}`}
-                                  title="Restart"
-                                  className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                                >
-                                  <Icon name="restart" size={16} />
-                                </button>
-                              )}
-                            </>
-                          )}
-
-                          <Link
-                            to={`/servers/${s.server_id}/console`}
-                            onClick={(e) => {
-                              if (isDeleting) e.preventDefault();
-                            }}
-                            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
-                            title="Open Console"
-                          >
-                            <Icon name="console" size={16} />
-                          </Link>
-
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteClick(s, e)}
-                            disabled={deleteServer.isPending || isDeleting}
-                            aria-label={`Delete ${s.name}`}
-                            title="Delete"
-                            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                          >
-                            <Icon name="trash" size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {filtered.length > PAGE_SIZE && (
-                <div className="border-t border-border-subtle p-3">
-                  <Pagination
-                    totalItems={filtered.length}
-                    pageSize={PAGE_SIZE}
-                    page={currentPage}
-                    onPageChange={setCurrentPage}
-                  />
-                </div>
-              )}
-            </div>
-          ) : (
-            /* Mode B: List / Horizontal Strip Mode */
-            <div className="overflow-hidden rounded-2xl border border-border-subtle bg-surface-card shadow-2xs">
-              <table className="w-full text-sm text-text-primary border-collapse">
-                <thead>
-                  <tr className="border-b border-border-subtle bg-surface-muted/40 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                    <th scope="col" className="px-4 py-3 text-left">Name</th>
-                    <th scope="col" className="hidden px-4 py-3 text-left sm:table-cell">Software / Version</th>
-                    <th scope="col" className="hidden px-4 py-3 text-left md:table-cell">Port</th>
-                    <th scope="col" className="px-4 py-3 text-left">Status</th>
-                    <th scope="col" className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {paginatedServers.map((s) => {
-                    const isDeleting =
-                      Boolean(deletingIds[s.server_id]) || deleteTarget?.server_id === s.server_id;
-                    return (
-                      <tr
-                        key={s.server_id}
-                        onClick={() => {
-                          if (isDeleting) return;
-                          navigate(`/servers/${s.server_id}/console`);
-                        }}
-                        className={`transition-colors ${
-                          isDeleting
-                            ? "opacity-60 pointer-events-none"
-                            : "hover:bg-surface-hover/50 cursor-pointer"
-                        }`}
+                    {showQuickDeploy && (
+                      <div
+                        data-testid="quick-deploy-card"
+                        className="hidden md:flex flex-col items-center justify-center rounded-2xl border border-dashed border-border-default bg-surface-card/40 p-6 text-center"
                       >
-                        <td className="max-w-0 px-4 py-3">
-                          <Link
-                            to={`/servers/${s.server_id}/console`}
-                            title={s.name}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isDeleting) e.preventDefault();
-                            }}
-                            className="block truncate font-semibold text-accent-primary hover:underline"
-                          >
-                            {s.name}
+                        <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-border-subtle bg-surface-muted text-text-muted">
+                          <Icon name="plus" size={20} />
+                        </div>
+                        <h3 className="text-sm font-semibold text-text-primary">
+                          Deploy Another Instance
+                        </h3>
+                        <p className="mt-1 max-w-[220px] text-xs text-text-muted">
+                          Launch a fresh world or import an existing server directory.
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                          <Link to="/servers/create">
+                            <Button variant="primary" size="xs" icon="plus">
+                              New Server
+                            </Button>
                           </Link>
-                        </td>
-                      <td className="hidden px-4 py-3 text-text-secondary sm:table-cell">
-                        <div className="flex items-center gap-1.5">
-                          <LoaderBadge loader={s.server_type} />
-                          <span>{s.minecraft_version}</span>
+                          {permissions.canImport && (
+                            <Link to="/servers/import">
+                              <Button variant="secondary" size="xs" icon="upload">
+                                Import Existing
+                              </Button>
+                            </Link>
+                          )}
                         </div>
-                      </td>
-                      <td className="hidden px-4 py-3 font-mono text-xs text-text-muted md:table-cell">
-                        {s.port}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={s.status} />
-                      </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleStart(s, e)}
-                              disabled={
-                                isBusy ||
-                                (startCooldowns[s.server_id] !== undefined &&
-                                  now < startCooldowns[s.server_id]) ||
-                                s.status === "starting" ||
-                                s.status === "provisioning"
-                              }
-                              aria-label={`Start ${s.name}`}
-                              title="Start"
-                              className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                            >
-                              <Icon name="play" size={16} />
-                            </button>
-                          )}
-                          {s.status === "provisioning_failed" && s.provisioning_retryable === false && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleRetryProvisioning(s, e)}
-                              disabled={isBusy}
-                              aria-label={`Retry Provisioning ${s.name}`}
-                              title="Retry Provisioning"
-                              className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                            >
-                              <Icon name="restart" size={16} />
-                            </button>
-                          )}
-                          {["running", "starting"].includes(s.status) && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={(e) => handleStop(s, e)}
-                                disabled={isBusy}
-                                aria-label={`Stop ${s.name}`}
-                                title="Stop"
-                                className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                              >
-                                <Icon name="stop" size={16} />
-                              </button>
-                              {s.status === "running" && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleRestart(s, e)}
-                                  disabled={isBusy}
-                                  aria-label={`Restart ${s.name}`}
-                                  title="Restart"
-                                  className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                                >
-                                  <Icon name="restart" size={16} />
-                                </button>
-                              )}
-                            </>
-                          )}
-                          {s.status === "stopping" && (
-                            <span
-                              aria-label={`${s.name} is ${STATUS_MAP[s.status]?.label.toLowerCase()}`}
-                              className="inline-flex h-7 w-7 items-center justify-center text-text-muted"
-                            >
-                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border-default border-t-accent-primary" />
-                            </span>
-                          )}
-                          {s.status === "provisioning" && (
-                            <ProvisioningProgress serverId={s.server_id} className="min-w-[140px]" />
-                          )}
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteClick(s, e)}
-                            disabled={deleteServer.isPending || isDeleting}
-                            aria-label={`Delete ${s.name}`}
-                            title="Delete"
-                            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                          >
-                            <Icon name="trash" size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {filtered.length > PAGE_SIZE && (
+                    <Pagination
+                      totalItems={filtered.length}
+                      pageSize={PAGE_SIZE}
+                      page={currentPage}
+                      onPageChange={(nextPage) => updateParams({ page: String(nextPage) })}
+                    />
+                  )}
+                </div>
+              );
+            })()
+          ) : (
+            <div className="space-y-4">
+              <ServerListTable
+                servers={paginatedServers}
+                metricsByServerId={fleetMetrics.metricsByServerId}
+                deletingIds={deletingIds}
+                deleteTargetId={deleteTarget?.server_id ?? null}
+                busyServerIds={busyServerIds}
+                startCooldowns={startCooldowns}
+                now={now}
+                copiedAddressId={copiedAddressId}
+                canPower={permissions.canPower}
+                canDelete={permissions.canDelete}
+                onStart={handleStart}
+                onStop={handleStop}
+                onRestart={handleRestart}
+                onDelete={handleDeleteClick}
+                onRetryProvisioning={handleRetryProvisioning}
+                onCopyAddress={handleCopyAddress}
+              />
 
               {filtered.length > PAGE_SIZE && (
-                <div className="border-t border-border-subtle p-3">
-                  <Pagination
-                    totalItems={filtered.length}
-                    pageSize={PAGE_SIZE}
-                    page={currentPage}
-                    onPageChange={setCurrentPage}
-                  />
-                </div>
+                <Pagination
+                  totalItems={filtered.length}
+                  pageSize={PAGE_SIZE}
+                  page={currentPage}
+                  onPageChange={(nextPage) => updateParams({ page: String(nextPage) })}
+                />
               )}
             </div>
           )}
@@ -774,11 +669,15 @@ export function ServersPage() {
             ? `Are you sure you want to stop "${stopTarget.name}"? Active players will be safely disconnected.`
             : undefined
         }
-        confirmLabel="Stop Server"
+        confirmLabel={stopServer.isPending ? "Stopping..." : "Stop Server"}
         cancelLabel="Cancel"
         variant="danger"
+        isPending={stopServer.isPending}
         onConfirm={handleConfirmStop}
-        onCancel={() => setStopTarget(null)}
+        onCancel={() => {
+          if (stopServer.isPending) return;
+          setStopTarget(null);
+        }}
       />
     </div>
   );

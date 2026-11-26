@@ -250,6 +250,12 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
             )
 
             if stop_confirmed:
+                if server_dir:
+                    from app.modules.server.infrastructure.providers.docker import (
+                        _remove_persisted_rcon_port,
+                    )
+
+                    _remove_persisted_rcon_port(server_dir)
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)

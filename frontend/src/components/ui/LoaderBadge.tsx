@@ -16,47 +16,72 @@ const LOADER_STYLES: Record<string, LoaderStyle> = {
   paper: {
     label: "Paper",
     icon: "paper",
-    color: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-800/60",
+    color: "bg-status-info-bg text-status-info border-status-info-border",
   },
   purpur: {
     label: "Purpur",
     icon: "purpur",
-    color: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800/60",
+    color: "bg-accent-primary/10 text-text-accent border-accent-primary/25",
+  },
+  folia: {
+    label: "Folia",
+    icon: "folia",
+    color: "bg-status-success-bg text-status-success border-status-success-border",
   },
   fabric: {
     label: "Fabric",
     icon: "fabric",
-    color: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800/60",
+    color: "bg-status-info-bg text-status-info border-status-info-border",
   },
   neoforge: {
     label: "NeoForge",
     icon: "neoforge",
-    color: "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-800/60",
+    color: "bg-status-warning-bg text-status-warning border-status-warning-border",
   },
   forge: {
     label: "Forge",
     icon: "forge",
-    color: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800/60",
+    color: "bg-status-warning-bg text-status-warning border-status-warning-border",
   },
   vanilla: {
     label: "Vanilla",
     icon: "vanilla",
-    color: "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700",
+    color: "bg-surface-elevated text-text-secondary border-border-default",
   },
   spigot: {
     label: "Spigot",
     icon: "spigot",
-    color: "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800/60",
+    color: "bg-status-warning-bg text-status-warning border-status-warning-border",
   },
   bukkit: {
     label: "Bukkit",
     icon: "bukkit",
-    color: "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800/60",
+    color: "bg-status-warning-bg text-status-warning border-status-warning-border",
   },
   quilt: {
     label: "Quilt",
     icon: "quilt",
-    color: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800/60",
+    color: "bg-accent-primary/10 text-text-accent border-accent-primary/25",
+  },
+  velocity: {
+    label: "Velocity",
+    icon: "velocity",
+    color: "bg-accent-primary/10 text-text-accent border-accent-primary/25",
+  },
+  bungeecord: {
+    label: "BungeeCord",
+    icon: "bungeecord",
+    color: "bg-status-info-bg text-status-info border-status-info-border",
+  },
+  waterfall: {
+    label: "Waterfall",
+    icon: "waterfall",
+    color: "bg-status-info-bg text-status-info border-status-info-border",
+  },
+  minestom: {
+    label: "Minestom",
+    icon: "server",
+    color: "bg-surface-elevated text-text-secondary border-border-default",
   },
 };
 
@@ -78,7 +103,7 @@ export function LoaderBadge({ loader, className = "", showIcon = true }: LoaderB
   const style: LoaderStyle = matched ?? {
     label: loader ? loader.charAt(0).toUpperCase() + loader.slice(1) : "Universal",
     icon: "server",
-    color: "bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700",
+    color: "bg-surface-elevated text-text-secondary border-border-default",
   };
 
   return (

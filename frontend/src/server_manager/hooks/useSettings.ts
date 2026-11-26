@@ -21,7 +21,14 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: SettingsUpdateRequest) => api.updateSettings(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings.all }),
+    onSuccess: (data) => {
+      if (data?.settings) {
+        qc.setQueryData(queryKeys.settings.all, (prev: Record<string, unknown> | undefined) =>
+          prev ? { ...prev, ...data.settings } : data.settings,
+        );
+      }
+      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
+    },
   });
 }
 

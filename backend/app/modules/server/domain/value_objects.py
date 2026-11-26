@@ -182,8 +182,16 @@ class ServerProperties:
             raise ValueError(f"Invalid difficulty: {self.difficulty!r}")
         if self.max_players < 1 or self.max_players > 500:
             raise ValueError(f"max_players must be 1-500, got {self.max_players}")
+        if self.spawn_protection < 0 or self.spawn_protection > 1000:
+            raise ValueError(
+                f"spawn_protection must be 0-1000, got {self.spawn_protection}"
+            )
         if self.view_distance < 2 or self.view_distance > 32:
             raise ValueError(f"view_distance must be 2-32, got {self.view_distance}")
+        if self.simulation_distance < 2 or self.simulation_distance > 32:
+            raise ValueError(
+                f"simulation_distance must be 2-32, got {self.simulation_distance}"
+            )
 
 
 class ServerType(str, Enum):  # noqa: UP042
@@ -195,7 +203,6 @@ class ServerType(str, Enum):  # noqa: UP042
     NEOFORGE = "neoforge"
     QUILT = "quilt"
     SPIGOT = "spigot"
-    BUKKIT = "bukkit"
 
     @classmethod
     def known_types(cls) -> list[str]:
@@ -212,7 +219,6 @@ class ServerType(str, Enum):  # noqa: UP042
             "neoforge": "NeoForge",
             "quilt": "Quilt",
             "spigot": "Spigot",
-            "bukkit": "Bukkit",
         }
         return mapping.get(value, value.capitalize())
 
@@ -363,9 +369,15 @@ def build_server_handle(
         server.runtime.port
         if hasattr(server, "runtime") and server.runtime and server.runtime.port
         else (
-            server.port.value
-            if hasattr(server, "port") and hasattr(server.port, "value")
-            else getattr(server, "port", 25565)
+            server.properties.port.value
+            if hasattr(server, "properties")
+            and hasattr(server.properties, "port")
+            and hasattr(server.properties.port, "value")
+            else (
+                server.port.value
+                if hasattr(server, "port") and hasattr(server.port, "value")
+                else getattr(server, "port", 25565)
+            )
         )
     )
     pid_val = (

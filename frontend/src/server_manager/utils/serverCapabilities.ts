@@ -15,6 +15,11 @@ const PLUGIN_SERVER_TYPES = new Set([
   "purpur",
   "spigot",
   "bukkit",
+  "folia",
+  "velocity",
+  "bungeecord",
+  "waterfall",
+  "minestom",
 ]);
 
 const KNOWN_SERVER_TYPES = new Set([
@@ -25,7 +30,7 @@ const KNOWN_SERVER_TYPES = new Set([
 
 export function getServerCapabilities(serverType?: string | null): ServerCapabilities {
   if (!serverType) {
-    return { supportsMods: true, supportsPlugins: true };
+    return { supportsMods: false, supportsPlugins: false };
   }
 
   const st = serverType.trim().toLowerCase();

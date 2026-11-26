@@ -6,6 +6,7 @@ import type { PluginVersionResponse } from "@/types";
 export interface VersionListProps {
   versions: PluginVersionResponse[];
   selectedVersion?: PluginVersionResponse | null;
+  recommendedVersionId?: string | null;
   notice?: string;
   noticeKind?: string;
   onSelectVersion: (version: PluginVersionResponse) => void;
@@ -14,6 +15,7 @@ export interface VersionListProps {
 export function VersionList({
   versions,
   selectedVersion,
+  recommendedVersionId,
   notice,
   noticeKind = "warning",
   onSelectVersion,
@@ -27,7 +29,7 @@ export function VersionList({
       {notice && (
         <div
           className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
-            noticeKind === "warning"
+            noticeKind === "warning" || noticeKind === "incompatible"
               ? "border-status-warning-border bg-status-warning-bg text-status-warning"
               : "border-status-info-border bg-status-info-bg text-status-info"
           }`}
@@ -39,7 +41,10 @@ export function VersionList({
 
       <div className="space-y-2">
         {versions.map((v) => {
-          const isRecommended = selectedVersion?.version_id === v.version_id;
+          const isSelected = selectedVersion?.version_id === v.version_id;
+          const isRecommended = recommendedVersionId
+            ? recommendedVersionId === v.version_id
+            : isSelected;
           const primary = v.files.find((f) => f.primary) ?? v.files[0];
           const { releasePills, snapshots } = groupReleaseVersions(v.game_versions);
           const summaryVersions = releasePills.length > 0 ? releasePills : snapshots;
@@ -47,14 +52,14 @@ export function VersionList({
           return (
             <div
               key={v.version_id}
-              className={`flex items-center justify-between gap-4 rounded-xl border p-4 transition-colors ${
-                isRecommended
+              className={`flex items-center justify-between gap-4 rounded-xl border p-3.5 transition-colors ${
+                isSelected
                   ? "border-accent-primary bg-accent-primary/10"
                   : "border-border-subtle bg-surface-card hover:bg-surface-hover"
               }`}
             >
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-text-primary">
                     {v.version_number}
                   </span>
@@ -86,12 +91,20 @@ export function VersionList({
 
               <button
                 type="button"
-                aria-label={`Install version ${v.version_number}`}
+                aria-label={
+                  isSelected
+                    ? `Selected version ${v.version_number}`
+                    : `Select version ${v.version_number}`
+                }
                 onClick={() => onSelectVersion(v)}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer ${
+                  isSelected
+                    ? "bg-accent-primary text-accent-contrast-text"
+                    : "border border-border-default bg-surface-elevated text-text-primary hover:bg-surface-hover"
+                }`}
               >
-                <Icon name="plus" size={14} />
-                Install
+                <Icon name={isSelected ? "check" : "plus"} size={14} />
+                {isSelected ? "Selected" : "Select"}
               </button>
             </div>
           );

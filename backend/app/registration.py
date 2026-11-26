@@ -493,7 +493,10 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(ImportServerCommand, ImportServerHandler(event_bus))
 
     command_bus.register(CreateBackupCommand, CreateBackupHandler(event_bus))
-    command_bus.register(RestoreBackupCommand, RestoreBackupHandler(event_bus))
+    command_bus.register(
+        RestoreBackupCommand,
+        RestoreBackupHandler(event_bus, lifecycle_lease=get_lifecycle_lease_manager()),
+    )
     command_bus.register(DeleteBackupCommand, DeleteBackupHandler(event_bus))
     command_bus.register(VerifyBackupCommand, VerifyBackupHandler(event_bus))
 

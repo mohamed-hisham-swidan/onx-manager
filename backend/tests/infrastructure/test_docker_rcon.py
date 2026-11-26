@@ -186,7 +186,9 @@ class TestDockerProviderRCONExecution:
         assert "super_sensitive_password_123" not in err_msg
 
     @pytest.mark.asyncio
-    async def test_docker_execute_command_fallback_when_rcon_unavailable(self) -> None:
+    async def test_docker_execute_command_no_rcon_cli_when_rcon_unavailable(self) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
         provider = DockerProvider()
         handle = ServerHandle(
             provider="docker",
@@ -196,18 +198,23 @@ class TestDockerProviderRCONExecution:
 
         with (
             patch.object(provider, "_resolve_rcon_credentials", AsyncMock(return_value=None)),
+            patch.object(
+                provider, "status", AsyncMock(return_value=ServerRuntimeStatus.RUNNING)
+            ),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+            pytest.raises(ProviderError) as exc_info,
         ):
-            mock_docker.return_value = (0, "Output from rcon-cli\n")
-            out = await provider.execute_command(handle, "help")
+            await provider.execute_command(handle, "help")
 
-        mock_docker.assert_awaited_once_with(
-            "exec", "onx-srv-fallback", "rcon-cli", "--", "help"
-        )
-        assert "Output from rcon-cli" in out
+        mock_docker.assert_not_called()
+        assert "RCON is not ready yet" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_docker_execute_command_fallback_on_rcon_connection_error(self) -> None:
+    async def test_docker_execute_command_rcon_connection_error_returns_friendly_message(
+        self,
+    ) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
         provider = DockerProvider()
         handle = ServerHandle(
             provider="docker",
@@ -228,18 +235,23 @@ class TestDockerProviderRCONExecution:
                 "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
                 return_value=mock_rcon,
             ),
+            patch.object(
+                provider, "status", AsyncMock(return_value=ServerRuntimeStatus.RUNNING)
+            ),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+            pytest.raises(ProviderError) as exc_info,
         ):
-            mock_docker.return_value = (0, "Fallback cli response\n")
-            out = await provider.execute_command(handle, "time set day")
+            await provider.execute_command(handle, "time set day")
 
-        mock_docker.assert_awaited_once_with(
-            "exec", "onx-srv-conn-fail", "rcon-cli", "--", "time set day"
-        )
-        assert "Fallback cli response" in out
+        mock_docker.assert_not_called()
+        err_msg = str(exc_info.value)
+        assert "Server console is still starting up" in err_msg
+        assert "rcon-cli" not in err_msg
 
     @pytest.mark.asyncio
-    async def test_docker_execute_command_double_failure_raises_provider_error(self) -> None:
+    async def test_docker_execute_command_stopped_container_raises_provider_error(self) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
         provider = DockerProvider()
         handle = ServerHandle(
             provider="docker",
@@ -260,18 +272,18 @@ class TestDockerProviderRCONExecution:
                 "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
                 return_value=mock_rcon,
             ),
+            patch.object(
+                provider, "status", AsyncMock(return_value=ServerRuntimeStatus.STOPPED)
+            ),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
             pytest.raises(ProviderError) as exc_info,
         ):
-            mock_docker.return_value = (
-                127,
-                "OCI runtime exec failed: exec: rcon-cli: executable file not found in $PATH",
-            )
             await provider.execute_command(handle, "whitelist reload")
 
+        mock_docker.assert_not_called()
         err_msg = str(exc_info.value)
-        assert "Failed to execute command on container onx-srv-double-fail" in err_msg
-        assert "executable file not found" in err_msg
+        assert "not running" in err_msg
+        assert "rcon-cli" not in err_msg
 
 
 class TestDockerProviderGracefulStop:
@@ -394,3 +406,143 @@ class TestBackupSaveAllWithDockerProvider:
         assert handle_arg.provider == "docker"
         assert handle_arg.server_id == str(server_id)
         assert handle_arg.external_id == "onx-srv-backup-docker"
+
+
+class TestMultiServerDockerRCONIsolation:
+    @pytest.mark.asyncio
+    async def test_multi_server_rcon_ports_avoid_collision_and_route_commands(
+        self, tmp_path
+    ) -> None:
+        import os
+
+        srv1_dir = tmp_path / "srv-1"
+        srv2_dir = tmp_path / "srv-2"
+        srv1_dir.mkdir()
+        srv2_dir.mkdir()
+        (srv1_dir / "server.properties").write_text(
+            "server-port=25565\nenable-rcon=true\nrcon.port=25575\nrcon.password=pw_srv1\n",
+            encoding="utf-8",
+        )
+        (srv2_dir / "server.properties").write_text(
+            "server-port=25566\nenable-rcon=true\nrcon.port=25575\nrcon.password=pw_srv2\n",
+            encoding="utf-8",
+        )
+
+        provider = DockerProvider()
+        captured_creates: list[list[str]] = []
+        busy_ports: set[int] = set()
+        started_containers: set[str] = set()
+
+        async def fake_docker_cmd(*args: str, **_kwargs: object) -> tuple[int, str]:
+            if args[0] == "inspect" and "--format" in args:
+                fmt = args[args.index("--format") + 1]
+                if "{{json .}}" in fmt:
+                    target = args[-1]
+                    if target == "onx-srv-2" and target in started_containers:
+                        return (
+                            0,
+                            '{"NetworkSettings":{"Ports":'
+                            '{"25575/tcp":[{"HostIp":"127.0.0.1","HostPort":"25576"}]}}}',
+                        )
+                    return (1, "")
+                return (0, "12345 172.17.0.2")
+            if args[0] == "create":
+                captured_creates.append(list(args))
+                return (0, "cid-new")
+            if args[0] == "start":
+                started_containers.add(args[1])
+                # Simulate Server 1 binding 25575 once started
+                if args[1] == "onx-srv-1":
+                    busy_ports.add(25575)
+                return (0, "")
+            return (0, "")
+
+        with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", side_effect=fake_docker_cmd),
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(),
+            ),
+            patch(
+                "app.modules.server.infrastructure.providers.docker.is_loopback_port_free",
+                side_effect=lambda p: p not in busy_ports,
+            ),
+        ):
+            res1 = await provider.start(
+                server_id="srv-1",
+                config={"port": 25565, "server_dir": str(srv1_dir)},
+            )
+            res2 = await provider.start(
+                server_id="srv-2",
+                config={"port": 25566, "server_dir": str(srv2_dir)},
+            )
+
+        assert res1.port == 25565
+        assert res1.metadata["rcon_port"] == 25575
+        assert res2.port == 25566
+        assert res2.metadata["rcon_port"] == 25576
+
+        srv2_create = captured_creates[1]
+        srv2_ports = [srv2_create[i + 1] for i, v in enumerate(srv2_create) if v == "-p"]
+        assert "25566:25566" in srv2_ports
+        assert "127.0.0.1:25576:25575" in srv2_ports
+        assert "127.0.0.1:25575:25575" not in srv2_ports
+
+        # Cache must store host port 25576, NOT container port 25575 from server.properties
+        assert provider._rcon_cache["srv-2"]["port"] == 25576
+
+        # Route RCON commands and graceful stop to each server's own host RCON port
+        mock_rcon = AsyncMock()
+        mock_rcon.connect = AsyncMock()
+        mock_rcon.send_command = AsyncMock(return_value="ok")
+        mock_rcon.close = AsyncMock()
+
+        created_clients: list[tuple[str, int, str]] = []
+
+        def make_client(host: str, port: int, password: str, **_kw: object) -> AsyncMock:
+            created_clients.append((host, port, password))
+            return mock_rcon
+
+        with (
+            patch(
+                "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
+                side_effect=make_client,
+            ),
+            patch.object(provider, "_wait_for_container_exit", AsyncMock(return_value=True)),
+        ):
+            await provider.execute_command(
+                ServerHandle(provider="docker", server_id="srv-1", external_id="onx-srv-1"),
+                "list",
+            )
+            await provider.execute_command(
+                ServerHandle(provider="docker", server_id="srv-2", external_id="onx-srv-2"),
+                "list",
+            )
+            await provider.stop(
+                ServerHandle(provider="docker", server_id="srv-2", external_id="onx-srv-2"),
+                force=False,
+            )
+
+        assert ("127.0.0.1", 25575, "pw_srv1") in created_clients
+        assert ("127.0.0.1", 25576, "pw_srv2") in created_clients
+        mock_rcon.send_command.assert_any_await("stop")
+
+        # After simulated backend restart (empty _rcon_cache), inspect still resolves 25576
+        provider._rcon_cache.clear()
+        with (
+            patch.object(provider, "_docker_command", side_effect=fake_docker_cmd),
+        ):
+            creds = await provider.resolve_rcon_endpoint(
+                ServerHandle(
+                    provider="docker",
+                    server_id="srv-2",
+                    external_id="onx-srv-2",
+                    metadata={"server_dir": str(srv2_dir)},
+                )
+            )
+        assert creds == ("127.0.0.1", 25576, "pw_srv2")

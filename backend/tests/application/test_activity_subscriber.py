@@ -121,8 +121,9 @@ async def test_subscriber_records_plugin_and_backup_events():
 
     assert len(repo.logs) == 4
     assert repo.logs[0].event_type == "plugin.installed"
-    assert "essentialsx" in repo.logs[0].summary
+    assert "EssentialsX" in repo.logs[0].summary
     assert repo.logs[1].event_type == "plugin.disabled"
+    assert "essentialsx" in repo.logs[1].summary
     assert repo.logs[2].event_type == "backup.completed"
     assert repo.logs[3].event_type == "backup.restored"
 
@@ -240,3 +241,31 @@ async def test_subscriber_ignores_events_without_server_id():
 
     await subscriber.handle(GlobalEvent(name="global_settings_changed"))
     assert len(repo.logs) == 0
+
+
+@pytest.mark.asyncio
+async def test_subscriber_prefers_plugin_name_and_filename_over_hex_id():
+    from app.modules.plugin.domain.events import PluginEnabledEvent
+
+    repo = InMemoryActivityRepository()
+    subscriber = ActivityEventSubscriber(repo)
+
+    await subscriber.handle(
+        PluginEnabledEvent(
+            plugin_id="03b2ea67c4db450faac98f39f021b318",
+            server_id="srv-plug-1",
+            name="SkinsRestorer 15.12.6",
+            filename="SkinsRestorer.jar",
+        )
+    )
+    await subscriber.handle(
+        PluginDisabledEvent(
+            plugin_id="47dde75b8c0b4008a5e100762fb66824",
+            server_id="srv-plug-1",
+            name="6.2.1",
+            filename="TAB v6.2.1.jar",
+        )
+    )
+
+    assert repo.logs[0].summary == "Plugin/mod 'SkinsRestorer 15.12.6' enabled"
+    assert repo.logs[1].summary == "Plugin/mod 'TAB v6.2.1' disabled"

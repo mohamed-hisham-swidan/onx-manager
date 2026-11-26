@@ -275,7 +275,11 @@ async def _get_server_state(
                 tmux_pid = await provider.get_runtime_pid(handle)
         except Exception as exc:
             logger.debug("State check failed for %s: %s", sid, exc)
-        if tmux_pid:
+        if getattr(provider, "name", "") == "docker":
+            # Docker container PIDs live in the host/VM PID namespace, not the backend's
+            # PID namespace (DooD / Docker Desktop). Container liveness is authoritative.
+            pid_alive = has_tmux
+        elif tmux_pid:
             pid_alive = platform_pid_alive(tmux_pid)
 
     start_age_seconds: float | None = None

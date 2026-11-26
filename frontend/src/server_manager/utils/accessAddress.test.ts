@@ -87,4 +87,43 @@ describe("resolveAccessAddress", () => {
       kind: null,
     });
   });
+
+  it("filters Docker bridge IPs (172.16-31.x.x) and wildcard 0.0.0.0 to browser host fallback", () => {
+    expect(
+      resolveAccessAddress(
+        { deployment_host: "172.17.0.5", deployment_port: 25565, port: 25565 },
+        null,
+      ),
+    ).toEqual({
+      address: "localhost:25565",
+      kind: "local",
+    });
+
+    expect(
+      resolveAccessAddress(
+        { deployment_host: "0.0.0.0", deployment_port: null, port: 25570 },
+        null,
+      ),
+    ).toEqual({
+      address: "localhost:25570",
+      kind: "local",
+    });
+  });
+
+  it("uses server.public_address when exposure query is absent", () => {
+    expect(
+      resolveAccessAddress(
+        {
+          deployment_host: "172.17.0.5",
+          deployment_port: 25565,
+          public_address: "play.example.gg:25565",
+          port: 25565,
+        },
+        null,
+      ),
+    ).toEqual({
+      address: "play.example.gg:25565",
+      kind: "cloudflare",
+    });
+  });
 });

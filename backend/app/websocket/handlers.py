@@ -339,10 +339,14 @@ class WSConnectionHandler:
                     return
 
                 provider_name = server.runtime.provider or default_provider_for_platform()
+                handle_meta: dict[str, Any] = {}
+                if server.deployment and server.deployment.root_path:
+                    handle_meta["server_dir"] = server.deployment.server_directory()
                 handle = ServerHandle(
                     provider=provider_name,
                     server_id=server_id,
                     external_id=server.runtime.external_id,
+                    metadata=handle_meta,
                 )
                 try:
                     provider = provider_factory.get(provider_name)

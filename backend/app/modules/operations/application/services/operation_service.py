@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -29,6 +30,32 @@ from app.modules.operations.infrastructure.repository import SQLOperationReposit
 
 logger = logging.getLogger(__name__)
 
+_PROCESS_START_UTC = datetime.now(UTC)
+
+
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _operation_is_stale_orphan(
+    op: Operation, executor: OperationExecutor, now: datetime
+) -> bool:
+    if executor.has_live_task(op.id):
+        return False
+    if executor.was_task_registered_and_exited(op.id):
+        return True
+    created_utc = _ensure_utc(op.created_at)
+    if created_utc is not None and created_utc < _PROCESS_START_UTC:
+        return True
+    ref_utc = _ensure_utc(op.started_at) or created_utc
+    if ref_utc is not None:
+        max_age = float(op.timeout_seconds or 1800)
+        if (now - ref_utc).total_seconds() > max_age:
+            return True
+    return False
+
 # Mutating live server operations that require exclusive access per server (§15.1)
 LIVE_MUTATING_TYPES = {
     "START_SERVER",
@@ -54,6 +81,15 @@ class OperationService:
     ) -> None:
         self._event_bus = event_bus
         self._executor = executor or OperationExecutor(event_bus)
+        self._target_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_target_lock(self, target_type: str, target_id: str) -> asyncio.Lock:
+        key = f"{target_type}:{target_id}"
+        lock = self._target_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._target_locks[key] = lock
+        return lock
 
     @property
     def executor(self) -> OperationExecutor:
@@ -71,32 +107,38 @@ class OperationService:
         initial_steps: list[dict[str, Any]] | None = None,
         session: AsyncSession | None = None,
     ) -> Operation:
-        if session is not None:
-            return await self._create_operation_with_session(
-                session,
-                type,
-                target_type,
-                target_id,
-                actor_id,
-                idempotency_key,
-                timeout_seconds,
-                metadata,
-                initial_steps,
-            )
-        async with database.session_factory() as sess:
-            op = await self._create_operation_with_session(
-                sess,
-                type,
-                target_type,
-                target_id,
-                actor_id,
-                idempotency_key,
-                timeout_seconds,
-                metadata,
-                initial_steps,
-            )
-            await sess.commit()
-            return op
+        async def _do_create() -> Operation:
+            if session is not None:
+                return await self._create_operation_with_session(
+                    session,
+                    type,
+                    target_type,
+                    target_id,
+                    actor_id,
+                    idempotency_key,
+                    timeout_seconds,
+                    metadata,
+                    initial_steps,
+                )
+            async with database.session_factory() as sess:
+                op = await self._create_operation_with_session(
+                    sess,
+                    type,
+                    target_type,
+                    target_id,
+                    actor_id,
+                    idempotency_key,
+                    timeout_seconds,
+                    metadata,
+                    initial_steps,
+                )
+                await sess.commit()
+                return op
+
+        if target_id:
+            async with self._get_target_lock(target_type, target_id):
+                return await _do_create()
+        return await _do_create()
 
     async def _create_operation_with_session(
         self,
@@ -135,12 +177,49 @@ class OperationService:
             active_ops = await repo.get_active_for_target(target_type, target_id)
             # Filter out RUN_TEST operations if any
             blocking_ops = [op for op in active_ops if op.type != "RUN_TEST"]
-            if blocking_ops:
+            now = datetime.now(UTC)
+            still_blocking: list[Operation] = []
+            for blocking_op in blocking_ops:
+                if _operation_is_stale_orphan(blocking_op, self._executor, now):
+                    logger.warning(
+                        "Reconciling stale orphaned active operation %s (%s) "
+                        "on server %s before locking",
+                        blocking_op.id,
+                        blocking_op.type,
+                        target_id,
+                    )
+                    blocking_op.fail(
+                        failure_code="PROCESS_TERMINATED",
+                        error_message="Interrupted by server restart or lost worker task",
+                        at=now,
+                    )
+                    blocking_op.next_event_seq()
+                    saved_stale = await repo.save(blocking_op)
+                    if self._event_bus:
+                        evt = OperationFailedEvent(
+                            operation_id=saved_stale.id,
+                            event_seq=saved_stale.last_event_seq,
+                            target_type=saved_stale.target_type,
+                            target_id=saved_stale.target_id,
+                            server_id=saved_stale.target_id
+                            if saved_stale.target_type == "server"
+                            else None,
+                            type=saved_stale.type,
+                            failure_code=saved_stale.failure_code or "PROCESS_TERMINATED",
+                            error_message=saved_stale.error_message or "",
+                        )
+                        await self._event_bus.publish(evt)
+                else:
+                    still_blocking.append(blocking_op)
+
+            if still_blocking:
+                blocker = still_blocking[0]
                 raise OperationConcurrencyConflictError(
                     target_id=target_id,
-                    op_type=type,
+                    active_op_id=blocker.id,
+                    op_type=blocker.type,
                     message=(
-                        f"Mutating operation '{blocking_ops[0].type}' is already active "
+                        f"Mutating operation '{blocker.type}' is already active "
                         f"on server '{target_id}'"
                     ),
                 )
@@ -231,6 +310,32 @@ class OperationService:
             await sess.commit()
             return op
 
+    async def _release_applying_upgrade_row(
+        self,
+        session: AsyncSession,
+        op: Operation,
+    ) -> None:
+        if op.type != "SERVER_UPGRADE":
+            return
+        upgrade_id = (op.metadata or {}).get("upgrade_id")
+        if not upgrade_id:
+            return
+        try:
+            from app.modules.versioning.infrastructure.models import ServerUpgradeModel
+
+            row = await session.get(ServerUpgradeModel, str(upgrade_id))
+            if row is not None and str(row.status) == "applying":
+                row.status = "planned" if not row.journal_id else "cancelled"
+                row.error_code = None
+                row.error_message = "Upgrade cancelled by operator"
+                row.updated_at = _utcnow()
+        except Exception:
+            logger.debug(
+                "Best-effort upgrade status reset skipped for operation %s",
+                op.id,
+                exc_info=True,
+            )
+
     async def _request_cancellation_with_session(
         self,
         session: AsyncSession,
@@ -249,6 +354,7 @@ class OperationService:
                 op.cancel()
                 op.next_event_seq()
                 op = await repo.save(op)
+                await self._release_applying_upgrade_row(session, op)
 
             if self._event_bus:
                 evt = OperationCancelledEvent(
@@ -315,6 +421,7 @@ class OperationService:
         op.cancel()
         op.next_event_seq()
         saved = await repo.save(op)
+        await self._release_applying_upgrade_row(session, saved)
 
         if self._event_bus:
             evt = OperationCancelledEvent(
@@ -355,6 +462,7 @@ class OperationService:
         op.retry()
         op.next_event_seq()
         saved = await repo.save(op)
+        self._executor.schedule_timeout_watch(saved.id, saved.timeout_seconds)
 
         if self._event_bus:
             evt = OperationStartedEvent(
@@ -701,13 +809,28 @@ class OperationService:
         step_id: str | None = None,
         session: AsyncSession | None = None,
     ) -> None:
-        op = await self.get_operation(operation_id, session=session)
-        op.next_event_seq()
+        now_ts = _utcnow().timestamp()
+        log_entry = {
+            "level": level or "info",
+            "line": message,
+            "step_id": step_id,
+            "timestamp": now_ts,
+        }
         if session is not None:
+            op = await self.get_operation(operation_id, session=session)
+            op.next_event_seq()
+            logs = list(op.metadata.get("logs") or [])
+            logs.append(log_entry)
+            op.metadata["logs"] = logs[-200:]
             repo = SQLOperationRepository(session)
             await repo.save(op)
         else:
             async with database.session_factory() as sess:
+                op = await self.get_operation(operation_id, session=sess)
+                op.next_event_seq()
+                logs = list(op.metadata.get("logs") or [])
+                logs.append(log_entry)
+                op.metadata["logs"] = logs[-200:]
                 repo = SQLOperationRepository(sess)
                 await repo.save(op)
                 await sess.commit()
@@ -720,6 +843,7 @@ class OperationService:
                 step_id=step_id,
                 level=level,
                 message=message,
+                timestamp=now_ts,
             )
             await self._event_bus.publish(evt)
 

@@ -61,12 +61,29 @@ class AsyncRCONClient:
             raise RCONError(
                 f"RCON response mismatch (expected request-id {req_id}, got {resp_id} type {ptype})"
             )
+        # Handle fragmented multi-packet responses (> ~4096 bytes) by draining any
+        # immediately available continuation packets with the same req_id.
+        if len(body.encode("utf-8")) >= 4000 and self._reader is not None:
+            chunks = [body]
+            while True:
+                try:
+                    cont_id, cont_type, cont_body = await asyncio.wait_for(
+                        self._read_packet(), timeout=0.05
+                    )
+                except TimeoutError:
+                    break
+                if cont_id != req_id or cont_type != PACKET_RESPONSE:
+                    break
+                chunks.append(cont_body)
+                if len(cont_body.encode("utf-8")) < 4000:
+                    break
+            return "".join(chunks)
         return body
 
     async def _send_packet(self, req_id: int, ptype: int, body: str) -> None:
         if self._writer is None:
             raise RCONError("Not connected")
-        body_bytes = body.encode("utf-8") + b"\x00"
+        body_bytes = body.encode("utf-8")
         length = 10 + len(body_bytes)
         data = struct.pack("<iii", length, req_id, ptype) + body_bytes + b"\x00\x00"
         self._writer.write(data)
@@ -77,10 +94,12 @@ class AsyncRCONClient:
             raise RCONError("Not connected")
         raw = await asyncio.wait_for(self._reader.readexactly(12), timeout=self._timeout)
         length, req_id, ptype = struct.unpack("<iii", raw)
+        if length < 10 or length > 1024 * 1024:
+            raise RCONError(f"Invalid RCON packet length: {length}")
         body_bytes = await asyncio.wait_for(
             self._reader.readexactly(length - 8), timeout=self._timeout
         )
-        body = body_bytes[:-2].decode("utf-8", errors="replace")
+        body = body_bytes[:-2].decode("utf-8", errors="replace").rstrip("\x00")
         return req_id, ptype, body
 
     async def close(self) -> None:

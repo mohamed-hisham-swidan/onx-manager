@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
+import { toast } from "@/stores/toastStore";
 import {
   isModpackSupportedLoader,
   isPaperFamilyLoader,
@@ -28,6 +28,8 @@ const DEFAULT_ALLOWED_HOSTS = [
   "github.com",
   "objects.githubusercontent.com",
 ];
+
+const TIMEOUT_QUICK_CHIPS = [300, 600, 900] as const;
 
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -58,18 +60,20 @@ function ToggleRow({
   label,
   description,
   checked,
+  disabled = false,
   onChange,
 }: {
   id: string;
   label: string;
   description: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border-subtle last:border-b-0">
       <div className="space-y-1">
-        <label htmlFor={id} className="text-sm font-semibold text-text-primary">
+        <label htmlFor={id} className="text-sm font-medium text-text-primary">
           {label}
         </label>
         <p className="text-xs text-text-muted leading-relaxed">{description}</p>
@@ -80,14 +84,15 @@ function ToggleRow({
         role="switch"
         aria-checked={checked}
         aria-label={label}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 ${
+        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-hidden focus:ring-2 focus:ring-border-focus disabled:opacity-45 disabled:cursor-not-allowed ${
           checked ? "bg-accent-primary" : "bg-border-default"
         }`}
       >
         <span
           aria-hidden="true"
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-accent-contrast-text shadow-xs transition duration-200 ease-in-out ${
             checked ? "translate-x-5" : "translate-x-0"
           }`}
         />
@@ -99,9 +104,11 @@ function ToggleRow({
 export function ServerP55SettingsCard({
   serverId,
   serverType,
+  readOnly = false,
 }: {
   serverId: string;
   serverType?: string;
+  readOnly?: boolean;
 }) {
   const showModpackOptionalToggle =
     serverType === undefined || isModpackSupportedLoader(serverType);
@@ -118,33 +125,86 @@ export function ServerP55SettingsCard({
   });
 
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
+  const [rawTimeout, setRawTimeout] = useState<string | null>(null);
   const [customHost, setCustomHost] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [customHostError, setCustomHostError] = useState<string | null>(null);
+  const [showDefaultHosts, setShowDefaultHosts] = useState(false);
 
   const data = settingsQuery.data ?? null;
-  const current = draft ?? (data ? fromResponse(data) : null);
+  const baseline = useMemo(() => (data ? fromResponse(data) : null), [data]);
+  const current = draft ?? baseline;
 
-  if (!hasSettingsApi || !current) {
+  if (!hasSettingsApi || !current || !baseline) {
     return null;
   }
 
-  const timeout = current.health_gate_boot_timeout_seconds;
-  const timeoutInvalid = timeout < 300 || timeout > 900;
+  const parsedTimeoutForValidation =
+    rawTimeout !== null
+      ? rawTimeout.trim() === ""
+        ? null
+        : Number(rawTimeout)
+      : current.health_gate_boot_timeout_seconds;
+
+  const timeoutInvalid =
+    parsedTimeoutForValidation !== null &&
+    (!Number.isFinite(parsedTimeoutForValidation) ||
+      parsedTimeoutForValidation < 300 ||
+      parsedTimeoutForValidation > 900);
+
+  const effectiveTimeoutForDirty =
+    rawTimeout !== null &&
+    rawTimeout.trim() !== "" &&
+    Number.isFinite(Number(rawTimeout))
+      ? Math.round(Number(rawTimeout))
+      : current.health_gate_boot_timeout_seconds;
+
+  const isDirty =
+    effectiveTimeoutForDirty !== baseline.health_gate_boot_timeout_seconds ||
+    current.install_optional_server_files !==
+      baseline.install_optional_server_files ||
+    current.allow_experimental_paper_builds !==
+      baseline.allow_experimental_paper_builds ||
+    current.download_host_allowlist.length !==
+      baseline.download_host_allowlist.length ||
+    current.download_host_allowlist.some(
+      (host, idx) => host !== baseline.download_host_allowlist[idx],
+    );
+
   const defaultHosts =
     data?.default_allowed_hosts && data.default_allowed_hosts.length > 0
       ? data.default_allowed_hosts
       : DEFAULT_ALLOWED_HOSTS;
 
   function update(patch: Partial<SettingsDraft>) {
+    if (readOnly) return;
     setDraft({ ...current!, ...patch });
-    setNotice(null);
-    setError(null);
+  }
+
+  function handleTimeoutChange(value: string) {
+    if (readOnly) return;
+    setRawTimeout(value);
+    if (value.trim() !== "") {
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        update({ health_gate_boot_timeout_seconds: Math.round(num) });
+      }
+    }
+  }
+
+  function handleTimeoutBlur() {
+    if (rawTimeout === null) return;
+    if (rawTimeout.trim() === "" || isNaN(Number(rawTimeout))) {
+      setRawTimeout(null);
+      return;
+    }
+    const clamped = Math.min(900, Math.max(300, Math.round(Number(rawTimeout))));
+    update({ health_gate_boot_timeout_seconds: clamped });
+    setRawTimeout(null);
   }
 
   function handleAddHost() {
+    if (readOnly) return;
     const candidate = customHost.trim().toLowerCase();
     if (!candidate) return;
     if (!HOSTNAME_PATTERN.test(candidate)) {
@@ -165,6 +225,7 @@ export function ServerP55SettingsCard({
   }
 
   function handleRemoveHost(host: string) {
+    if (readOnly) return;
     update({
       download_host_allowlist: current!.download_host_allowlist.filter(
         (item) => item !== host,
@@ -172,129 +233,182 @@ export function ServerP55SettingsCard({
     });
   }
 
+  function handleReset() {
+    setDraft(null);
+    setRawTimeout(null);
+    setCustomHostError(null);
+  }
+
   async function handleSave() {
-    if (typeof api.updateServerP55Settings !== "function") return;
-    if (timeoutInvalid) {
-      setError("Health Gate boot timeout must be between 300 and 900 seconds.");
+    if (readOnly || typeof api.updateServerP55Settings !== "function") return;
+    let effectiveTimeout = current!.health_gate_boot_timeout_seconds;
+    if (rawTimeout !== null) {
+      if (rawTimeout.trim() === "" || isNaN(Number(rawTimeout))) {
+        effectiveTimeout = baseline!.health_gate_boot_timeout_seconds;
+      } else {
+        effectiveTimeout = Math.round(Number(rawTimeout));
+      }
+      setRawTimeout(null);
+    }
+    if (effectiveTimeout < 300 || effectiveTimeout > 900) {
+      toast(
+        "error",
+        "Invalid boot timeout",
+        "Health Gate boot timeout must be between 300 and 900 seconds.",
+      );
       return;
     }
+
     const body: ServerP55SettingsUpdateRequest = {
-      health_gate_boot_timeout_seconds: current!.health_gate_boot_timeout_seconds,
+      health_gate_boot_timeout_seconds: effectiveTimeout,
       install_optional_server_files: current!.install_optional_server_files,
       allow_experimental_paper_builds: current!.allow_experimental_paper_builds,
       download_host_allowlist: current!.download_host_allowlist,
     };
     setIsSaving(true);
-    setNotice(null);
-    setError(null);
     try {
       const saved = await api.updateServerP55Settings(serverId, body);
       setDraft(fromResponse(saved));
-      setNotice("Modpack & upgrade settings saved.");
+      toast("success", "Upgrade settings saved", "Modpack & upgrade settings saved.");
       await queryClient.invalidateQueries({
         queryKey: queryKeys.p55.serverSettings(serverId),
       });
     } catch (err) {
-      setError(errorMessage(err));
+      toast("error", "Save failed", errorMessage(err));
     } finally {
       setIsSaving(false);
     }
   }
 
+  const displayedTimeout =
+    rawTimeout !== null
+      ? rawTimeout
+      : String(
+          Number.isFinite(current.health_gate_boot_timeout_seconds)
+            ? current.health_gate_boot_timeout_seconds
+            : 300,
+        );
+
   return (
     <section
       data-testid="server-p55-settings-card"
-      className="rounded-2xl border border-border-default bg-surface-card shadow-xs"
+      className="rounded-xl border border-border-subtle bg-surface-card overflow-hidden"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3 p-5 border-b border-border-subtle">
-        <div className="space-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-border-subtle bg-surface-muted/40">
+        <div className="space-y-0.5">
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
-              <Icon name="modrinth" size={16} />
-            </span>
-            <h3 className="text-base font-bold text-text-primary">
+            <h3 className="text-sm font-semibold text-text-primary">
               {showModpackOptionalToggle
-                ? "Modpack & Upgrade Settings"
-                : "1-Click Upgrade Settings"}
+                ? "Modpack & Change Version Settings"
+                : "Change Version Settings"}
             </h3>
+            {isDirty && !readOnly && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-status-warning-bg px-2 py-0.5 text-[10px] font-medium text-status-warning">
+                <span className="h-1.5 w-1.5 rounded-full bg-status-warning" />
+                Unsaved
+              </span>
+            )}
           </div>
-          <p className="text-xs text-text-muted max-w-2xl">
+          <p className="text-xs text-text-muted">
             {showModpackOptionalToggle
-              ? "Tune the 1-Click Safe Upgrade Health Gate, optional server mod handling, and trusted download hosts for this server."
-              : showPaperExperimentalToggle
-                ? "Tune the 1-Click Safe Upgrade Health Gate and experimental Paper builds for this server."
-                : "Tune the 1-Click Safe Upgrade Health Gate and trusted download hosts for this server."}
+              ? "Safe upgrade timeout, optional mods, and trusted download hosts."
+              : "Safe upgrade timeout and trusted download hosts."}
           </p>
         </div>
-        <Button
-          type="button"
-          data-testid="save-p55-settings-btn"
-          size="sm"
-          variant="primary"
-          icon="save"
-          loading={isSaving}
-          disabled={timeoutInvalid}
-          onClick={handleSave}
-        >
-          Save Modpack & Upgrade Settings
-        </Button>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!isDirty || isSaving || readOnly}
+            onClick={handleReset}
+          >
+            Reset
+          </Button>
+          <Button
+            type="button"
+            data-testid="save-p55-settings-btn"
+            size="sm"
+            variant="primary"
+            icon="save"
+            loading={isSaving}
+            disabled={!isDirty || timeoutInvalid || readOnly}
+            onClick={handleSave}
+          >
+            Save Upgrade Settings
+          </Button>
+        </div>
       </div>
 
-      {notice && (
-        <div className="px-5 pt-4">
-          <Banner variant="success" title={notice} />
-        </div>
-      )}
-      {error && (
-        <div className="px-5 pt-4">
-          <Banner variant="danger" title={error} />
-        </div>
-      )}
+      <div className="px-5 py-4 border-b border-border-subtle space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <label
+              htmlFor="p55-health-timeout"
+              className="text-sm font-medium text-text-primary"
+            >
+              Health Gate Boot Timeout
+            </label>
+            <p className="text-xs text-text-muted">
+              Max boot wait before restoring the pre-upgrade server (300–900s).
+            </p>
+          </div>
 
-      <div className="px-5 py-4 border-b border-border-subtle space-y-2">
-        <label
-          htmlFor="p55-health-timeout"
-          className="text-sm font-semibold text-text-primary"
-        >
-          Health Gate Boot Timeout
-        </label>
-        <p className="text-xs text-text-muted leading-relaxed">
-          How long the 4-step race-free Health Gate waits for a heavy modpack to boot
-          before restoring the pre-upgrade server. Default 300 seconds (5 min); maximum
-          900 seconds (15 min).
-        </p>
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <input
-            id="p55-health-timeout"
-            type="number"
-            min={300}
-            max={900}
-            step={30}
-            value={Number.isFinite(timeout) ? timeout : 300}
-            onChange={(event) =>
-              update({
-                health_gate_boot_timeout_seconds:
-                  event.target.value === "" ? 0 : Number(event.target.value),
-              })
-            }
-            className="w-32 rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
-          />
-          <span className="text-xs text-text-muted">seconds (300–900)</span>
-          {timeoutInvalid && (
-            <span className="text-xs font-medium text-status-danger">
-              Must be between 300 and 900 seconds.
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="p55-health-timeout"
+              type="number"
+              min={300}
+              max={900}
+              step={30}
+              disabled={readOnly}
+              value={displayedTimeout}
+              onChange={(event) => handleTimeoutChange(event.target.value)}
+              onBlur={handleTimeoutBlur}
+              className="w-28 rounded-lg border border-border-subtle bg-surface-page px-3 py-1.5 font-mono text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+            />
+            <span className="text-xs text-text-muted">sec</span>
+            <div className="flex items-center gap-1">
+              {TIMEOUT_QUICK_CHIPS.map((secs) => (
+                <button
+                  key={secs}
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => {
+                    setRawTimeout(null);
+                    update({ health_gate_boot_timeout_seconds: secs });
+                  }}
+                  className={`rounded-md border px-2 py-1 text-[11px] font-medium cursor-pointer disabled:opacity-45 ${
+                    current.health_gate_boot_timeout_seconds === secs &&
+                    rawTimeout === null
+                      ? "border-accent-primary bg-accent-primary/12 text-accent-primary"
+                      : "border-border-subtle bg-surface-muted text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {secs}s
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
+        {timeoutInvalid && (
+          <p className="text-xs font-medium text-status-danger">
+            Must be between 300 and 900 seconds.
+          </p>
+        )}
       </div>
 
       {showModpackOptionalToggle && (
         <ToggleRow
           id="p55-install-optional"
           label="Install Optional Server Files"
-          description="Include entries marked env.server = optional when inspecting modpacks. Disable to keep optional server-side mods out by default."
+          description="Include entries marked env.server = optional when inspecting modpacks."
           checked={current.install_optional_server_files}
-          onChange={(checked) => update({ install_optional_server_files: checked })}
+          disabled={readOnly}
+          onChange={(checked) =>
+            update({ install_optional_server_files: checked })
+          }
         />
       )}
 
@@ -302,26 +416,30 @@ export function ServerP55SettingsCard({
         <ToggleRow
           id="p55-experimental-paper"
           label="Allow Experimental Paper Builds"
-          description="When no STABLE Paper Fill v3 build exists for the target Minecraft version, permit falling back to an EXPERIMENTAL build."
+          description="Fallback to an experimental Paper build if no stable build exists."
           checked={current.allow_experimental_paper_builds}
-          onChange={(checked) => update({ allow_experimental_paper_builds: checked })}
+          disabled={readOnly}
+          onChange={(checked) =>
+            update({ allow_experimental_paper_builds: checked })
+          }
         />
       )}
 
       <div className="px-5 py-4 space-y-3">
-        <div className="space-y-1">
-          <h4 className="text-sm font-semibold text-text-primary">
+        <div className="space-y-0.5">
+          <h4 className="text-sm font-medium text-text-primary">
             Extra Allowed Download Hosts
           </h4>
-          <p className="text-xs text-text-muted leading-relaxed">
-            Custom lowercase domain hostnames trusted in addition to the panel
-            defaults. IP literals, schemes, ports, and wildcards are rejected.
+          <p className="text-xs text-text-muted">
+            Trusted custom hostnames added to the panel default allowlist.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-1.5">
           {current.download_host_allowlist.length === 0 ? (
-            <span className="text-xs text-text-muted">No custom hosts configured.</span>
+            <span className="text-xs text-text-muted">
+              No custom hosts configured.
+            </span>
           ) : (
             current.download_host_allowlist.map((host) => (
               <span
@@ -332,8 +450,9 @@ export function ServerP55SettingsCard({
                 <button
                   type="button"
                   aria-label={`Remove ${host}`}
+                  disabled={readOnly}
                   onClick={() => handleRemoveHost(host)}
-                  className="rounded-full p-0.5 hover:bg-accent-primary/20 cursor-pointer"
+                  className="rounded-full p-0.5 hover:bg-accent-primary/20 cursor-pointer disabled:opacity-40"
                 >
                   <Icon name="x" size={10} />
                 </button>
@@ -352,6 +471,7 @@ export function ServerP55SettingsCard({
             </label>
             <input
               id="p55-custom-host"
+              disabled={readOnly}
               value={customHost}
               onChange={(event) => {
                 setCustomHost(event.target.value);
@@ -364,31 +484,52 @@ export function ServerP55SettingsCard({
                 }
               }}
               placeholder="mirror.example.com"
-              className="w-64 rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+              className="w-64 rounded-lg border border-border-subtle bg-surface-page px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus disabled:opacity-50"
             />
           </div>
-          <Button type="button" size="sm" variant="secondary" icon="plus" onClick={handleAddHost}>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            disabled={readOnly}
+            onClick={handleAddHost}
+          >
             Add Host
           </Button>
         </div>
         {customHostError && (
-          <p className="text-xs font-medium text-status-danger">{customHostError}</p>
+          <p className="text-xs font-medium text-status-danger">
+            {customHostError}
+          </p>
         )}
 
-        <div className="pt-1 space-y-1.5">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
-            Panel Default Hosts (read-only)
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {defaultHosts.map((host) => (
-              <span
-                key={host}
-                className="inline-flex items-center rounded-full border border-border-default bg-surface-elevated px-2.5 py-0.5 font-mono text-[11px] text-text-muted"
-              >
-                {host}
-              </span>
-            ))}
-          </div>
+        <div className="pt-1">
+          <button
+            type="button"
+            aria-expanded={showDefaultHosts}
+            onClick={() => setShowDefaultHosts((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
+          >
+            <Icon
+              name={showDefaultHosts ? "chevron-down" : "chevron-right"}
+              size={13}
+            />
+            <span>View {defaultHosts.length} default hosts</span>
+          </button>
+
+          {showDefaultHosts && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {defaultHosts.map((host) => (
+                <span
+                  key={host}
+                  className="inline-flex items-center rounded-full border border-border-subtle bg-surface-muted px-2.5 py-0.5 font-mono text-[11px] text-text-muted"
+                >
+                  {host}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </section>

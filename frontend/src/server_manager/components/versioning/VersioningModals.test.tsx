@@ -4,10 +4,8 @@ import {
   CreateBranchModal,
   CreateCommitModal,
   InspectCommitModal,
-  ViewLogsModal,
-  BotSettingsModal,
 } from "./VersioningModals";
-import type { ServerCommit, ServerTestRun } from "@/server_manager/types";
+import type { ServerCommit } from "@/server_manager/types";
 
 const mockCommit: ServerCommit = {
   id: "abcdef1234567890",
@@ -26,23 +24,6 @@ const mockCommit: ServerCommit = {
     env_vars: {},
     java_args: "",
   },
-};
-
-const mockTestRun: ServerTestRun = {
-  id: "run-12345678",
-  server_id: "srv-1",
-  commit_id: "abcdef1234567890",
-  node_id: "node-1",
-  status: "PASSED",
-  ephemeral_port: null,
-  log_output: "Server started on port 25565",
-  failure_reason: null,
-  created_at: new Date().toISOString(),
-  expires_at: null,
-  bot_count: 0,
-  duration_minutes: 2,
-  placement_mode: "auto",
-  bot_tech: "internal",
 };
 
 describe("VersioningModals accessibility and migration contracts", () => {
@@ -185,90 +166,6 @@ describe("VersioningModals accessibility and migration contracts", () => {
 
       unmount();
       expect(document.body.style.overflow).toBe("");
-    });
-  });
-
-  describe("ViewLogsModal", () => {
-    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape and close button", () => {
-      const onClose = vi.fn();
-      const { unmount } = render(<ViewLogsModal testRun={mockTestRun} onClose={onClose} />);
-
-      const dialog = screen.getByRole("dialog", { name: /Test Run Console Output/i });
-      expect(dialog).toBeInTheDocument();
-      expect(document.body.style.overflow).toBe("hidden");
-
-      const closeButtons = screen.getAllByRole("button", { name: "Close" });
-      expect(closeButtons.length).toBeGreaterThanOrEqual(1);
-
-      fireEvent.click(closeButtons[0]);
-      expect(onClose).toHaveBeenCalledTimes(1);
-
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onClose).toHaveBeenCalledTimes(2);
-
-      unmount();
-      expect(document.body.style.overflow).toBe("");
-    });
-  });
-
-  describe("BotSettingsModal", () => {
-    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape", () => {
-      const onClose = vi.fn();
-      const { unmount } = render(
-        <BotSettingsModal
-          isOpen={true}
-          botCount={5}
-          onBotCountChange={vi.fn()}
-          duration={2}
-          onDurationChange={vi.fn()}
-          tech="auto"
-          onTechChange={vi.fn()}
-          placement="sidecar"
-          onPlacementChange={vi.fn()}
-          retention="until_health_gate"
-          onRetentionChange={vi.fn()}
-          onSubmit={vi.fn()}
-          onClose={onClose}
-        />
-      );
-
-      const dialog = screen.getByRole("dialog", { name: "Bot Verification Server Defaults" });
-      expect(dialog).toBeInTheDocument();
-      expect(document.body.style.overflow).toBe("hidden");
-
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onClose).toHaveBeenCalled();
-
-      unmount();
-      expect(document.body.style.overflow).toBe("");
-    });
-
-    it("ignores Escape and disables cancel button while pending", () => {
-      const onClose = vi.fn();
-      render(
-        <BotSettingsModal
-          isOpen={true}
-          botCount={5}
-          onBotCountChange={vi.fn()}
-          duration={2}
-          onDurationChange={vi.fn()}
-          tech="auto"
-          onTechChange={vi.fn()}
-          placement="sidecar"
-          onPlacementChange={vi.fn()}
-          retention="until_health_gate"
-          onRetentionChange={vi.fn()}
-          onSubmit={vi.fn()}
-          onClose={onClose}
-          isPending={true}
-        />
-      );
-
-      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
-      expect(cancelBtn).toBeDisabled();
-
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onClose).not.toHaveBeenCalled();
     });
   });
 });

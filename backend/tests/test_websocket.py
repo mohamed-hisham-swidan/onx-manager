@@ -520,6 +520,29 @@ class TestEventDispatcher:
         channels = dispatcher._resolve_channels(event)
         assert "server:*" in channels
 
+    def test_forge_provision_progress_in_allowlist_and_channels(self) -> None:
+        from app.modules.server.domain.events import ForgeProvisionProgressEvent
+        from app.modules.shared.value_objects import ServerId
+        from app.websocket.dispatcher import WS_DISPATCH_ALLOWLIST
+
+        assert "ForgeProvisionProgressEvent" in WS_DISPATCH_ALLOWLIST
+
+        eb = EventBus()
+        reg = ConnectionRegistry()
+        buf = OfflineMessageBuffer()
+        dispatcher = EventDispatcher(reg, buf, eb)
+
+        event = ForgeProvisionProgressEvent(
+            server_id=ServerId("srv-prov-1"),
+            stage="downloading_libraries",
+            percent=42,
+            message="Downloading...",
+        )
+        channels = dispatcher._resolve_channels(event)
+        assert "provision:srv-prov-1" in channels
+        assert "server:srv-prov-1" in channels
+        assert "server:*" in channels
+
 
 class TestMetricsBatcher:
     @pytest.mark.asyncio

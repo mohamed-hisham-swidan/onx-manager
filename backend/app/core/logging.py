@@ -5,6 +5,7 @@ import sys
 import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -43,7 +44,23 @@ def _add_timestamp(
     return TimeStamper(fmt="iso")(logger, method_name, event_dict)
 
 
-def configure_logging(*, json_output: bool = False, log_level: str = "INFO") -> None:
+def _clear_rotated_log_files(log_path: Path) -> None:
+    """Remove rotated sibling log files (e.g. panel.log.1) on fresh startup."""
+    try:
+        for rotated in log_path.parent.glob(f"{log_path.name}.*"):
+            if rotated.is_file():
+                rotated.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def configure_logging(
+    *,
+    json_output: bool = False,
+    log_level: str = "INFO",
+    log_file: str | Path | None = None,
+    clear_log_file: bool = True,
+) -> None:
     shared_processors: list[Callable[..., dict[str, Any]]] = [
         structlog.contextvars.merge_contextvars,
         _add_timestamp,
@@ -66,22 +83,46 @@ def configure_logging(*, json_output: bool = False, log_level: str = "INFO") -> 
         cache_logger_on_first_use=True,
     )
 
-    handler = logging.StreamHandler(sys.stdout)
     formatter = structlog.stdlib.ProcessorFormatter(
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             renderer,
         ],
     )
-    handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler._onx_configured = True  # type: ignore[attr-defined]
+    stream_handler.setFormatter(formatter)
+
+    handlers: list[logging.Handler] = [stream_handler]
+    if log_file is not None:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if clear_log_file:
+            _clear_rotated_log_files(log_path)
+        file_mode = "w" if clear_log_file else "a"
+        file_handler = logging.FileHandler(log_path, mode=file_mode, encoding="utf-8")
+        file_handler._onx_configured = True  # type: ignore[attr-defined]
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
 
     root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
+    for existing in list(root_logger.handlers):
+        if getattr(existing, "_onx_configured", False):
+            root_logger.removeHandler(existing)
+            existing.close()
+    for h in handlers:
+        root_logger.addHandler(h)
     root_logger.setLevel(log_level.upper())
 
     for log_name in ("uvicorn", "uvicorn.access", "sqlalchemy.engine"):
-        logging.getLogger(log_name).handlers.clear()
-        logging.getLogger(log_name).addHandler(handler)
+        sub_logger = logging.getLogger(log_name)
+        for existing in list(sub_logger.handlers):
+            if getattr(existing, "_onx_configured", False):
+                existing.close()
+        sub_logger.handlers.clear()
+        for h in handlers:
+            sub_logger.addHandler(h)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

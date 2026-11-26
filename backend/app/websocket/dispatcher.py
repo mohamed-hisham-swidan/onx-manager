@@ -31,6 +31,7 @@ WS_DISPATCH_ALLOWLIST: list[str] = [
     "ServerDeletedEvent",
     "ServerDiscoveredEvent",
     "ServerVanishedEvent",
+    "ForgeProvisionProgressEvent",
     # Backup
     "BackupStartedEvent",
     "BackupCompletedEvent",
@@ -164,7 +165,7 @@ class EventDispatcher(EventHandler):
 
     def _resolve_channels(self, event: DomainEvent) -> set[str]:
         channels: set[str] = set()
-        event_type = event.event_type
+        event_type = event.event_type or type(event).__name__
 
         server_id = ""
         if hasattr(event, "server_id"):
@@ -182,6 +183,8 @@ class EventDispatcher(EventHandler):
             channels.add("monitoring:*")
             if server_id:
                 channels.add(f"monitoring:{server_id}")
+        if "Provision" in event_type and server_id:
+            channels.add(f"provision:{server_id}")
 
         if "Operation" in event_type and hasattr(event, "operation_id"):
             channels.add(f"operation:{event.operation_id}")

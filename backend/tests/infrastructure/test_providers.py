@@ -19,10 +19,6 @@ from app.modules.server.infrastructure.providers.base import (
     ServerRuntimeStatus,
     provider_factory,
 )
-from app.modules.server.infrastructure.providers.circuit_breaker_wrapper import (
-    CircuitBreakerProviderWrapper,
-)
-from app.modules.server.infrastructure.providers.cloud import CloudProviderStub
 from app.modules.server.infrastructure.providers.docker import DockerProvider
 from app.modules.server.infrastructure.providers.remote import SSHProvider
 
@@ -72,157 +68,6 @@ class TestDeploymentResult:
         assert result.metadata["key"] == "val"
 
 
-class TestCircuitBreakerWrapper:
-    @pytest.mark.asyncio
-    async def test_wraps_provider(self) -> None:
-        inner = DockerProvider()
-        wrapped = CircuitBreakerProviderWrapper(inner)
-        assert wrapped.provider_type == "docker"
-        assert wrapped.wrapped is inner
-        assert wrapped.breaker.name == "provider:docker"
-
-    @pytest.mark.asyncio
-    async def test_ping_returns_false_on_open(self) -> None:
-        inner = DockerProvider()
-        wrapped = CircuitBreakerProviderWrapper(inner)
-        import time as t
-
-        wrapped.breaker._state = wrapped.breaker._state.__class__.OPEN
-        wrapped.breaker._failure_count = 5
-        wrapped.breaker._last_failure_time = t.time()
-        result = await wrapped.ping()
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_status_returns_unknown_on_open(self) -> None:
-        inner = DockerProvider()
-        handle = ServerHandle(provider="test", server_id="x", external_id="y")
-        wrapped = CircuitBreakerProviderWrapper(inner)
-        import time as t
-
-        wrapped.breaker._state = wrapped.breaker._state.__class__.OPEN
-        wrapped.breaker._failure_count = 5
-        wrapped.breaker._last_failure_time = t.time()
-        result = await wrapped.status(handle)
-        assert result == ServerRuntimeStatus.UNKNOWN
-
-    @pytest.mark.asyncio
-    async def test_start_forwards_all_four_arguments(self) -> None:
-        inner = MagicMock(spec=ServerProvider)
-        inner.start = AsyncMock(
-            return_value=DeploymentResult(
-                status=ServerRuntimeStatus.RUNNING,
-                address="127.0.0.1",
-                port=25565,
-                pid=123,
-            )
-        )
-        inner.provider_type = "mock"
-        wrapped = CircuitBreakerProviderWrapper(inner)
-
-        deployment = ServerDeployment(
-            location_type=LocationType.LOCAL,
-            root_path="/tmp/test",
-        )
-        lc = LaunchConfiguration(
-            java_executable="java",
-            startup_command=None,
-            startup_jar="server.jar",
-        )
-        config = {"port": 25565}
-
-        result = await wrapped.start(
-            server_id="srv-1",
-            config=config,
-            deployment=deployment,
-            launch_config=lc,
-        )
-
-        assert result.status == ServerRuntimeStatus.RUNNING
-        assert result.pid == 123
-        inner.start.assert_awaited_once_with(
-            server_id="srv-1",
-            config=config,
-            deployment=deployment,
-            launch_config=lc,
-        )
-
-    @pytest.mark.asyncio
-    async def test_start_defaults_optional_arguments(self) -> None:
-        inner = MagicMock(spec=ServerProvider)
-        inner.start = AsyncMock(
-            return_value=DeploymentResult(
-                status=ServerRuntimeStatus.RUNNING,
-                address="127.0.0.1",
-                port=25565,
-                pid=456,
-            )
-        )
-        inner.provider_type = "mock"
-        wrapped = CircuitBreakerProviderWrapper(inner)
-
-        result = await wrapped.start(server_id="srv-2")
-
-        assert result.status == ServerRuntimeStatus.RUNNING
-        inner.start.assert_awaited_once_with(
-            server_id="srv-2",
-            config=None,
-            deployment=None,
-            launch_config=None,
-        )
-
-
-class TestCloudProviderStub:
-    @pytest.mark.asyncio
-    async def test_stub_returns_false_ping(self) -> None:
-        stub = CloudProviderStub()
-        assert await stub.ping() is False
-
-    @pytest.mark.asyncio
-    async def test_stub_raises_start(self) -> None:
-        stub = CloudProviderStub()
-        with pytest.raises(NotImplementedError):
-            await stub.start("test", {})
-
-    @pytest.mark.asyncio
-    async def test_stub_raises_start_with_four_kwargs(self) -> None:
-        stub = CloudProviderStub()
-        deployment = ServerDeployment(
-            location_type=LocationType.LOCAL,
-            root_path="/tmp/cloud",
-        )
-        lc = LaunchConfiguration(
-            java_executable="java",
-            startup_command=None,
-            startup_jar="server.jar",
-        )
-        with pytest.raises(NotImplementedError, match="CloudProvider.start requires a provisioned VM"):
-            await stub.start(
-                server_id="test",
-                config={"port": 25565},
-                deployment=deployment,
-                launch_config=lc,
-            )
-
-    @pytest.mark.asyncio
-    async def test_provision_vm(self) -> None:
-        from app.modules.server.infrastructure.providers.cloud import (
-            CloudProviderType,
-            CloudVMConfig,
-        )
-
-        stub = CloudProviderStub()
-        config = CloudVMConfig(
-            provider=CloudProviderType.AWS,
-            region="us-east-1",
-            instance_type="t3.medium",
-            image="ami-123",
-        )
-        instance = await stub.provision_vm(config)
-        assert instance.instance_id == "stub-instance"
-        assert instance.public_ip == "127.0.0.1"
-
-
 class TestProviderTypes:
     @pytest.mark.asyncio
     async def test_docker_provider_type(self) -> None:
@@ -232,10 +77,6 @@ class TestProviderTypes:
     async def test_ssh_provider_type(self) -> None:
         provider = SSHProvider(host="localhost")
         assert provider.provider_type == "ssh"
-
-    @pytest.mark.asyncio
-    async def test_cloud_provider_type(self) -> None:
-        assert CloudProviderStub().provider_type == "cloud"
 
 
 class TestProviderCapabilities:
@@ -267,18 +108,12 @@ class TestProviderCapabilities:
                 pass
 
         assert DummyProvider().capabilities() == []
-        assert CloudProviderStub().capabilities() == []
 
     def test_docker_provider_capabilities(self) -> None:
         capabilities = DockerProvider().capabilities()
         assert capabilities == ["process", "console", "exec"]
         assert "docker" not in capabilities
         assert "logs" not in capabilities
-
-    def test_circuit_breaker_wrapper_delegates_capabilities(self) -> None:
-        inner = DockerProvider()
-        wrapped = CircuitBreakerProviderWrapper(inner)
-        assert wrapped.capabilities() == ["process", "console", "exec"]
 
 
 def _make_docker_command_fake(pid_ip: str = "1234\n"):

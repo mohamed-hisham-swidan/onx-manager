@@ -4,7 +4,6 @@ import pytest
 import yaml
 from httpx import ASGITransport, AsyncClient
 
-from app.core.circuit_breaker import CircuitBreaker
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
 from app.core.saga import SagaOrchestrator, SagaStep
 from app.core.settings_store import (
@@ -95,20 +94,6 @@ class TestSettingsPersistenceStore:
 
 
 class TestConsumerHotReload:
-    def test_circuit_breaker_max_failures_hot_reload(self):
-        cb = CircuitBreaker("test-cb")
-        assert cb.max_failures == 5
-
-        update_settings({"circuit_breaker_max_failures": 2})
-        assert cb.max_failures == 2
-
-    def test_circuit_breaker_timeout_seconds_hot_reload(self):
-        cb = CircuitBreaker("test-cb")
-        assert cb.timeout_seconds == 30.0
-
-        update_settings({"circuit_breaker_timeout_seconds": 15})
-        assert cb.timeout_seconds == 15.0
-
     @pytest.mark.asyncio
     async def test_event_bus_retry_attempts_hot_reload(self):
         eb = EventBus()
@@ -159,6 +144,8 @@ class TestConsumerHotReload:
             "cleanup_idempotency": True,
             "cleanup_events": False,
             "cleanup_task_queue": False,
+            "cleanup_metrics": False,
+            "cleanup_refresh_tokens": False,
         }
 
         # Run with default live setting (24h)
@@ -283,5 +270,57 @@ class TestSettingsAPIEndpoints:
                     "Failed to update metrics batcher or scheduler interval" in rec.message
                     for rec in caplog.records
                 )
+
+    def test_coerce_clamps_engine_bounds_and_validates_log_level(self):
+        live, _ = update_settings(
+            {
+                "rate_limit_per_minute": 0,
+                "idempotency_ttl_hours": -5,
+                "circuit_breaker_max_failures": 999,
+                "circuit_breaker_timeout_seconds": 0,
+                "event_bus_retry_attempts": -2,
+                "saga_timeout_seconds": 1,
+                "log_level": "  warning ",
+                "app_name": "   ",
+            }
+        )
+        assert live.rate_limit_per_minute == 10
+        assert live.idempotency_ttl_hours == 1
+        assert live.circuit_breaker_max_failures == 100
+        assert live.circuit_breaker_timeout_seconds == 1
+        assert live.event_bus_retry_attempts == 0
+        assert live.saga_timeout_seconds == 10
+        assert live.log_level == "WARNING"
+        assert live.app_name == "onx-manager"
+
+        live_invalid_lvl, _ = update_settings({"log_level": "NOT_A_LEVEL"})
+        assert live_invalid_lvl.log_level == "INFO"
+
+    @pytest.mark.asyncio
+    async def test_get_settings_includes_defaults_and_partial_patch_clamps(self):
+        from app.core.settings_store import get_ui_setting_defaults
+        from app.modules.auth.infrastructure.jwt import create_access_token
+
+        app_instance = create_app()
+        token = create_access_token(user_id="u1", permissions=["admin:full"])
+        headers = {"Authorization": f"Bearer {token}"}
+        transport = ASGITransport(app=app_instance)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            res_get = await client.get("/api/v1/settings", headers=headers)
+            assert res_get.status_code == 200
+            data = res_get.json()
+            assert data["defaults"] == get_ui_setting_defaults()
+            assert data["defaults"]["metrics_interval_seconds"] == 5.0
+            assert data["defaults"]["rate_limit_per_minute"] == 60
+
+            res_patch = await client.patch(
+                "/api/v1/settings",
+                json={"rate_limit_per_minute": -10},
+                headers=headers,
+            )
+            assert res_patch.status_code == 200
+            patch_data = res_patch.json()
+            assert patch_data["settings"]["rate_limit_per_minute"] == 10
+            assert patch_data["requires_restart"] == []
 
 

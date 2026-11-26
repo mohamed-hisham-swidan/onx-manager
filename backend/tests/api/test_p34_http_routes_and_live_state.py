@@ -699,3 +699,62 @@ async def test_secrets_file_replacement_and_metadata_fields(client: AsyncClient,
         assert "plaintext" not in item
         assert "key_name" in item
         assert "placeholder" in item
+
+
+@pytest.mark.asyncio
+async def test_live_state_world_writable_false_and_content_error_codes(
+    client: AsyncClient, advanced_server
+):
+    import uuid
+
+    from app.modules.versioning.infrastructure.models import ServerDynamicClassCModel
+
+    root, header = advanced_server
+    # Add a world/* file to dynamic Class C: list_live_state must mark writable=False
+    # to align with write_live_state_content's world/* 403 guard.
+    world_dir = root / "world"
+    world_dir.mkdir(parents=True, exist_ok=True)
+    (world_dir / "custom.json").write_text('{"ok": true}\n', encoding="utf-8")
+    async with database.session_factory() as session:
+        session.add(
+            ServerDynamicClassCModel(
+                id=str(uuid.uuid4()),
+                server_id=SERVER_ID,
+                relpath="world/custom.json",
+                reason="test",
+            )
+        )
+        await session.commit()
+
+    res = await client.get(
+        f"/api/v1/servers/{SERVER_ID}/files/live-state",
+        params={"path": "/world"},
+        headers=header,
+    )
+    assert res.status_code == 200, res.text
+    by_path = {item["path"]: item for item in res.json()["items"]}
+    assert "/world/custom.json" in by_path
+    assert by_path["/world/custom.json"]["writable"] is False
+
+    # Symlink escape in read_live_state_content -> 403
+    outside = root.parent / "outside-secret.json"
+    outside.write_text('{"secret": 1}\n', encoding="utf-8")
+    wl = root / "whitelist.json"
+    wl.unlink()
+    os.symlink(outside, wl)
+    res_sym = await client.get(
+        f"/api/v1/servers/{SERVER_ID}/files/live-state/content",
+        params={"path": "/whitelist.json"},
+        headers=header,
+    )
+    assert res_sym.status_code == 403
+
+    # Directory target in read_live_state_content -> 400
+    wl.unlink()
+    wl.mkdir()
+    res_dir = await client.get(
+        f"/api/v1/servers/{SERVER_ID}/files/live-state/content",
+        params={"path": "/whitelist.json"},
+        headers=header,
+    )
+    assert res_dir.status_code == 400

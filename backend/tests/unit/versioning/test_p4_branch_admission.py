@@ -87,7 +87,9 @@ async def test_default_cap_second_raises(db_engine) -> None:
                 commit_sha="b" * 40,
                 engine=db_engine,
             )
-        assert "stop an active branch run" in str(ei.value)
+        assert "Branch 'b1' is already running" in str(ei.value)
+        assert "Stop 'b1' first" in str(ei.value)
+        assert "srv-1" not in str(ei.value)
 
 
 @_POSIX_ONLY

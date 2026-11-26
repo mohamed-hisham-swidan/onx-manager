@@ -44,7 +44,7 @@ async function renderAndOpenModal() {
   renderComponent();
   // Wait for initial queries to settle
   await waitFor(() => expect(mockListInvites).toHaveBeenCalled());
-  const btn = await screen.findByRole("button", { name: /create invitation/i });
+  const btn = await screen.findByRole("button", { name: /new invite/i });
   fireEvent.click(btn);
 }
 
@@ -125,10 +125,11 @@ describe("InvitationsSection", () => {
       });
     });
 
-    it("3. Member sees 2 global roles (Member, Viewer)", async () => {
+    it("3. User with user:write and member role sees 2 global roles (Member, Viewer)", async () => {
       mockGetMe.mockResolvedValue({
         user_id: "u3",
         roles: ["member"],
+        permissions: ["user:write"],
       });
       await renderAndOpenModal();
 
@@ -142,21 +143,16 @@ describe("InvitationsSection", () => {
       });
     });
 
-    it("4. Viewer sees 2 global roles (Member, Viewer)", async () => {
+    it("4. Unauthorized viewer without user:write sees Permission Required state", async () => {
       mockGetMe.mockResolvedValue({
         user_id: "u4",
         roles: ["viewer"],
+        permissions: [],
       });
-      await renderAndOpenModal();
+      renderComponent();
 
-      const select = await screen.findByLabelText(/global access role/i);
-      await waitFor(() => {
-        const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
-        expect(options).toEqual([
-          "Member (Standard)",
-          "Viewer (Limited)",
-        ]);
-      });
+      expect(await screen.findByText("Permission Required")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /new invite/i })).not.toBeInTheDocument();
     });
   });
 
@@ -214,7 +210,7 @@ describe("InvitationsSection", () => {
       await waitFor(() => {
         expect(mockCreateInvite).toHaveBeenCalledWith({
           email: undefined,
-          global_role: "owner",
+          global_role: "member",
           server_id: "srv-1",
           server_role: "dev",
           expires_in_hours: 48,
@@ -222,7 +218,7 @@ describe("InvitationsSection", () => {
       });
     });
 
-    it("9. Creating a global-only invitation does NOT send server_id or server_role", async () => {
+    it("9. Creating a global-only invitation defaults global_role to member (never owner) and omits server fields", async () => {
       await renderAndOpenModal();
 
       await waitFor(() => {
@@ -234,10 +230,33 @@ describe("InvitationsSection", () => {
       await waitFor(() => {
         expect(mockCreateInvite).toHaveBeenCalledWith({
           email: undefined,
-          global_role: "owner",
+          global_role: "member",
           expires_in_hours: 48,
         });
       });
+    });
+
+    it("9b. Resolves server_id UUID to human server name in invitations table", async () => {
+      mockListInvites.mockResolvedValue([
+        {
+          invite_id: "inv-1",
+          token_prefix: "onx_inv1",
+          creator_id: "u1",
+          email: null,
+          global_role: "member",
+          server_id: "srv-1",
+          server_role: "admin",
+          status: "ACTIVE",
+          max_uses: 1,
+          use_count: 0,
+          expires_at: null,
+          used_at: null,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ]);
+
+      renderComponent();
+      expect(await screen.findByText("Survival Server (admin)")).toBeInTheDocument();
     });
   });
 
@@ -294,7 +313,7 @@ describe("InvitationsSection", () => {
       await waitFor(() => {
         expect(mockCreateInvite).toHaveBeenCalledWith({
           email: undefined,
-          global_role: "owner",
+          global_role: "member",
           expires_in_hours: 48,
         });
       });

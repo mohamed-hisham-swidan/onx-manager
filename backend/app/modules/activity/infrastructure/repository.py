@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.modules.activity.domain.entities import ServerActivityLog
@@ -90,13 +90,24 @@ class SQLActivityRepository(ActivityRepository):
     ) -> tuple[list[ServerActivityLog], int]:
         filters: list[Any] = [ServerActivityLogModel.server_id == server_id]
         if event_type:
-            filters.append(ServerActivityLogModel.event_type == event_type)
+            if event_type.endswith("."):
+                filters.append(ServerActivityLogModel.event_type.like(f"{event_type}%"))
+            else:
+                filters.append(ServerActivityLogModel.event_type == event_type)
         if from_date is not None:
             filters.append(ServerActivityLogModel.timestamp >= from_date)
         if to_date is not None:
             filters.append(ServerActivityLogModel.timestamp <= to_date)
         if branch_name is not None:
-            filters.append(ServerActivityLogModel.branch_name == branch_name)
+            if branch_name == "main":
+                filters.append(
+                    or_(
+                        ServerActivityLogModel.branch_name == "main",
+                        ServerActivityLogModel.branch_name.is_(None),
+                    )
+                )
+            else:
+                filters.append(ServerActivityLogModel.branch_name == branch_name)
 
         async with self._get_session() as s:
             count_stmt = select(func.count()).select_from(ServerActivityLogModel).where(*filters)

@@ -96,7 +96,10 @@ class PluginVersionResponse(BaseResponse):
     loaders: list[str] = []
     files: list[PluginFileResponse] = []
     dependencies: list[str] = []
+    required_dependencies: list[str] = []
+    changelog: str | None = None
     date_published: str = ""
+    version_type: str = "release"
 
 
 class PluginVersionsResponse(BaseResponse):

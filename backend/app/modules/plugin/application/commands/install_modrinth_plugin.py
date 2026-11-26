@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 
@@ -12,13 +11,18 @@ from app.core.exceptions import (
     CorruptedDownloadError,
     DownloadError,
     DownloadTimeoutError,
+    InvalidJarError,
+    InvalidPluginJarError,
     InvalidValueError,
     ProviderError,
 )
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.plugin.application.services.version_selector import (
+    LOADER_COMPATIBILITY,
     VersionSelection,
+    compatible_loaders_for_server,
+    is_version_loader_compatible,
     select_best_version,
 )
 from app.modules.plugin.domain.aggregate import Plugin
@@ -27,7 +31,7 @@ from app.modules.plugin.infrastructure.addon_fs import (
     get_addon_dir_name,
     sanitize_addon_filename,
 )
-from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_metadata
+from app.modules.plugin.infrastructure.jar_metadata_parser import validate_addon_jar
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
@@ -147,7 +151,24 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                     error_code="INVALID_FILENAME",
                 )
 
-            if self._fs.exists(dest):
+            disabled_dest = f"{dest}.disabled"
+            repo: PluginRepository = SQLPluginRepository(uow.session)
+            existing_rows = [
+                p
+                for p in await repo.list_all_by_server(server_id)
+                if p.filename == safe_filename
+            ]
+            pending_rows = [p for p in existing_rows if p.pending_deletion]
+            if pending_rows and len(pending_rows) == len(existing_rows):
+                # Re-installing a plugin that was queued for deletion on a stopped server:
+                # remove the stale file and pending DB rows cleanly.
+                for stale_path in (dest, disabled_dest):
+                    if self._fs.exists(stale_path):
+                        self._fs.delete(stale_path)
+                for p in pending_rows:
+                    await repo.delete(p.plugin_id)
+
+            if self._fs.exists(dest) or self._fs.exists(disabled_dest):
                 return CommandResult(
                     success=False,
                     error=(
@@ -176,6 +197,39 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 )
 
             try:
+                meta = validate_addon_jar(
+                    plugin_file.filename,
+                    content,
+                    server_type=server_type,
+                )
+            except (InvalidJarError, InvalidPluginJarError) as e:
+                return CommandResult(
+                    success=False,
+                    error=(
+                        f"Downloaded addon '{plugin_file.filename}' is incompatible with "
+                        f"'{server_type}': {e.message}"
+                    ),
+                    error_code="NO_COMPATIBLE_VERSION",
+                )
+
+            allowed_loaders = compatible_loaders_for_server(server_type)
+            meta_loader = meta.loader.strip().lower() if meta and meta.loader else None
+            if (
+                meta_loader
+                and server_type.strip().lower() in LOADER_COMPATIBILITY
+                and allowed_loaders
+                and meta_loader not in allowed_loaders
+            ):
+                return CommandResult(
+                    success=False,
+                    error=(
+                        f"Downloaded addon '{plugin_file.filename}' targets loader "
+                        f"'{meta_loader}', which is incompatible with '{server_type}'."
+                    ),
+                    error_code="NO_COMPATIBLE_VERSION",
+                )
+
+            try:
                 self._fs.ensure_dir(plugin_dir)
                 self._fs.write_binary_atomic(dest, content)
             except OSError as e:
@@ -192,20 +246,48 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 parsed_version = PluginVersion(0, 0, 0)
                 version_raw = version.version_number
 
+            project_info = None
             icon_url = None
             try:
                 project_info = await provider.get_project(command.project_id)
-                icon_url = project_info.icon_url or None
+                icon_url = getattr(project_info, "icon_url", None) or None
             except Exception as e:
-                logger.warning("Failed to fetch project info to get icon_url: %s", e)
+                logger.warning("Failed to fetch project info: %s", e)
 
-            meta = None
-            with contextlib.suppress(Exception):
-                meta = parse_jar_metadata(content)
+            raw_title = getattr(project_info, "title", None) if project_info else None
+            raw_author = getattr(project_info, "author", None) if project_info else None
+            raw_desc = getattr(project_info, "description", None) if project_info else None
+
+            plugin_name = (
+                (raw_title.strip() if isinstance(raw_title, str) and raw_title.strip() else "")
+                or version.name
+                or command.project_id
+            )
+            plugin_author = (
+                raw_author.strip() if isinstance(raw_author, str) and raw_author.strip() else ""
+            )
+            plugin_description = (
+                raw_desc.strip() if isinstance(raw_desc, str) and raw_desc.strip() else ""
+            )
 
             project_type = "mod" if addon_dir_name == "mods" else "plugin"
+            normalized_ver_loaders = {
+                str(ldr).strip().lower()
+                for ldr in (version.loaders or ())
+                if str(ldr).strip()
+            }
+            matched_ver_loader = next(
+                (ldr for ldr in allowed_loaders if ldr in normalized_ver_loaders),
+                None,
+            )
             loader = (
-                (meta.loader if meta else None)
+                matched_ver_loader
+                or (
+                    meta.loader
+                    if meta and meta_loader and (not allowed_loaders or meta_loader in allowed_loaders)
+                    else None
+                )
+                or (meta.loader if meta else None)
                 or (version.loaders[0] if version.loaders else None)
             )
             mod_id = meta.mod_id if meta else None
@@ -215,13 +297,13 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             plugin = Plugin.install(
                 plugin_id=plugin_id,
                 server_id=server_id,
-                name=version.name or command.project_id,
+                name=plugin_name,
                 version=parsed_version,
-                description="",
-                author="",
+                description=plugin_description,
+                author=plugin_author,
                 website="",
                 source=provider.name,
-                filename=plugin_file.filename,
+                filename=safe_filename,
                 external_project_id=command.project_id,
                 external_version_id=version.version_id,
                 external_url=plugin_file.url,
@@ -233,7 +315,6 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 mod_id=mod_id,
                 is_disabled_on_disk=False,
             )
-            repo: PluginRepository = SQLPluginRepository(uow.session)
             await repo.save(plugin)
             for event in plugin.collect_events():
                 uow.add_event(event)
@@ -242,7 +323,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
         data: dict = {
             "plugin_id": str(plugin_id),
             "version": version.version_number,
-            "filename": plugin_file.filename,
+            "filename": safe_filename,
             "source": provider.name,
             "notice": selection.notice,
             "notice_kind": selection.notice_kind,
@@ -272,7 +353,48 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                     notice="Requested version does not belong to this project.",
                     notice_kind="incompatible",
                 )
-            return VersionSelection(selected=version, available=(version,))
+            if not is_version_loader_compatible(server_type, version.loaders):
+                return VersionSelection(
+                    selected=None,
+                    available=(version,),
+                    notice=(
+                        f"Version '{version.version_number}' targets "
+                        f"{', '.join(version.loaders)} and is not compatible with "
+                        f"server loader '{server_type}'."
+                    ),
+                    notice_kind="incompatible",
+                )
+            from app.modules.plugin.application.services.version_selector import (
+                _game_version_matches,
+                is_mc26_incompatible_for_server,
+            )
+
+            if is_mc26_incompatible_for_server(minecraft_version, version.game_versions):
+                return VersionSelection(
+                    selected=None,
+                    available=(version,),
+                    notice=(
+                        f"Version '{version.version_number}' requires Minecraft 26.x (Java 25) "
+                        f"and cannot run on Minecraft {minecraft_version}."
+                    ),
+                    notice_kind="incompatible",
+                )
+            notice = ""
+            notice_kind = ""
+            if version.game_versions and not any(
+                _game_version_matches(minecraft_version, gv) for gv in version.game_versions
+            ):
+                notice = (
+                    f"Selected version '{version.version_number}' does not explicitly list "
+                    f"Minecraft {minecraft_version} compatibility."
+                )
+                notice_kind = "version_mismatch"
+            return VersionSelection(
+                selected=version,
+                available=(version,),
+                notice=notice,
+                notice_kind=notice_kind,
+            )
 
         try:
             page = await provider.get_project_versions(project_id)

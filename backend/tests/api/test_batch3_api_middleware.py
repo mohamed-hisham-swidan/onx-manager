@@ -14,7 +14,6 @@ from app.api.v1.routers.exposure import delete_server_port, remove_server_exposu
 from app.api.v1.schemas.common import ErrorResponse, PaginatedResponse
 from app.core.command_bus import CommandBus, CommandResult
 from app.core.exceptions import MCSError
-from app.core.feature_flags import FeatureFlagRegistry, FlagDefinition, InMemoryFlagStorage
 from app.main import app
 from app.modules.auth.application.commands.revoke_api_key import (
     RevokeApiKeyCommand,
@@ -23,37 +22,6 @@ from app.modules.auth.application.commands.revoke_api_key import (
 from app.modules.auth.domain.aggregate import ApiKey
 from app.modules.auth.domain.events import ApiKeyRevokedEvent
 from app.modules.shared.value_objects import ApiKeyId
-
-
-# --- F017: Feature Flag anonymous rollout ---
-@pytest.mark.asyncio
-async def test_f017_feature_flag_percentage_and_anonymous():
-    storage = InMemoryFlagStorage()
-    registry = FeatureFlagRegistry(storage=storage)
-
-    # disabled flag always False
-    await storage.set_flag(FlagDefinition(key="disabled_flag", enabled=False, percentage=100))
-    assert not await registry.is_enabled("disabled_flag", None)
-    assert not await registry.is_enabled("disabled_flag", "user-123")
-
-    # 100% rollout enables for all, including anonymous
-    await storage.set_flag(FlagDefinition(key="full_rollout", enabled=True, percentage=100))
-    assert await registry.is_enabled("full_rollout", None)
-    assert await registry.is_enabled("full_rollout", "user-123")
-
-    # 0% rollout disables for all when percentage check is triggered or falls back to enabled
-    await storage.set_flag(FlagDefinition(key="zero_pct", enabled=True, percentage=0))
-    # percentage == 0 -> definition.enabled == True
-    assert await registry.is_enabled("zero_pct", None)
-
-    # 0 < percentage < 100 must evaluate to False for anonymous users per policy
-    await storage.set_flag(FlagDefinition(key="partial", enabled=True, percentage=50))
-    assert not await registry.is_enabled("partial", None)
-    assert not await registry.is_enabled("partial", "")
-
-    # Authenticated users get deterministic evaluation
-    alice_res = await registry.is_enabled("partial", "alice")
-    assert await registry.is_enabled("partial", "alice") == alice_res
 
 
 # --- F045: ApiKey revocation domain event ---

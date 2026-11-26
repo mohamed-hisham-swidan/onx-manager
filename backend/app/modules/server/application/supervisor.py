@@ -58,7 +58,17 @@ class RuntimeSupervisor:
         self._started_at = time.monotonic()
         self._last_heartbeat = time.time()
         self._start_duration: float | None = None
-        self._ready_at_wall: float | None = None
+        persisted_running_start = (
+            server.runtime.running_start_time
+            if (
+                server.status == ServerStatus.RUNNING
+                and server.runtime is not None
+                and server.runtime.running_start_time is not None
+            )
+            else None
+        )
+        self._initial_ready_at_wall: float | None = persisted_running_start
+        self._ready_at_wall: float | None = persisted_running_start
         self._running_persisted: bool = False
         self._stop_event = asyncio.Event()
 
@@ -99,7 +109,7 @@ class RuntimeSupervisor:
         self._stop_event.clear()
         self._started_at = time.monotonic()
         self._start_duration = None
-        self._ready_at_wall = None
+        self._ready_at_wall = self._initial_ready_at_wall
         self._last_heartbeat = time.time()
         self._active = True
         self._task = asyncio.create_task(
@@ -286,7 +296,7 @@ class RuntimeSupervisor:
             if ready:
                 elapsed = time.monotonic() - self._started_at
                 self._start_duration = elapsed
-                self._ready_at_wall = time.time()
+                self._ready_at_wall = self._initial_ready_at_wall or time.time()
                 self._last_heartbeat = time.time()
                 logger.info(
                     'Server "%s" ready after %.1fs — sid=%s',
@@ -323,8 +333,10 @@ class RuntimeSupervisor:
                     len(diag.last_log_lines or []),
                     self._server_id,
                 )
-                diag.failure_code = FailureCode.STARTUP_TIMEOUT
-                diag.failure_reason = "Process died during startup verification"
+                if not diag.failure_code:
+                    diag.failure_code = FailureCode.STARTUP_TIMEOUT
+                if not diag.failure_reason:
+                    diag.failure_reason = "Process died during startup verification"
                 await self._handle_crash(diag)
                 return
             await asyncio.sleep(2)

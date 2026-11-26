@@ -1,20 +1,18 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useState, useEffect, useCallback, useMemo, useContext } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { QueryClientContext } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { createAuthenticatedApi } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
 import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
-import { TestRunModal } from "@/server_manager/components/TestRunModal";
 import { BranchProtectionModal } from "@/server_manager/components/BranchProtectionModal";
-import { TestDefinitionsModal } from "@/server_manager/components/TestDefinitionsModal";
-import { TestEvidenceModal } from "@/server_manager/components/TestEvidenceModal";
 import { MaterializationBrowserModal } from "@/server_manager/components/MaterializationBrowserModal";
 import { ImportReviewModal } from "@/server_manager/components/ImportReviewModal";
 import { ManageBranchesModal } from "@/server_manager/components/ManageBranchesModal";
 import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
 import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
-import { StorageHealthBanner } from "@/server_manager/components/versioning/StorageHealthBanner";
 import { BranchToolbar } from "@/server_manager/components/versioning/BranchToolbar";
 import {
   GitHubSyncPanel,
@@ -27,10 +25,7 @@ import {
   RotateGitHubCredentialsModal,
 } from "@/server_manager/components/versioning/GitHubModals";
 import { BranchRunPanel } from "@/server_manager/components/versioning/BranchRunPanel";
-import {
-  ModpackInstallWizardModal,
-  SafeUpgradeWizardModal,
-} from "@/server_manager/components/p55";
+import { ModpackInstallWizardModal } from "@/server_manager/components/p55";
 import {
   BranchConsoleActivityModal,
   BranchPortSetModal,
@@ -39,32 +34,24 @@ import {
   StopBranchRunModal,
 } from "@/server_manager/components/versioning/BranchRunModals";
 import { CommitTimeline } from "@/server_manager/components/versioning/CommitTimeline";
-import { TestRunList } from "@/server_manager/components/versioning/TestRunList";
 import {
   CreateBranchModal,
   CreateCommitModal,
   InspectCommitModal,
-  ViewLogsModal,
-  BotSettingsModal,
   MergeBranchModal,
   ClassCVaultModal,
 } from "@/server_manager/components/versioning/VersioningModals";
 import type {
   BranchRuntimeStatus,
-  ClassCSnapshot,
   DataTemplate,
-  DynamicClassCEntry,
   GitHubConnectionStatusResponse,
   PendingSettingsBranchInfo,
   PortSet,
-  PreflightStatus,
   RefreshStateResponse,
   ScanLiveChangesResponse,
-  SecretMetadata,
   ServerBranch,
   ServerCommit,
   ServerTag,
-  ServerTestRun,
 } from "@/server_manager/types";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -130,6 +117,8 @@ function classifyGitHubSyncError(
 export function ServerVersioningPage() {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { serverId } = useParams<{ serverId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useContext(QueryClientContext);
   const branchCtx = useServerBranchContext();
 
   const [branches, setBranches] = useState<ServerBranch[]>([]);
@@ -148,8 +137,6 @@ export function ServerVersioningPage() {
   const [showDestroyContainerConfirm, setShowDestroyContainerConfirm] = useState(false);
   const [isDestroyingContainer, setIsDestroyingContainer] = useState(false);
   const [commits, setCommits] = useState<ServerCommit[]>([]);
-  const [testRuns, setTestRuns] = useState<ServerTestRun[]>([]);
-  const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
   const [tags, setTags] = useState<ServerTag[]>([]);
   const [liveChanges, setLiveChanges] = useState<ScanLiveChangesResponse | null>(null);
 
@@ -167,29 +154,44 @@ export function ServerVersioningPage() {
   const [isNewBranchOpen, setIsNewBranchOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [isP55ModpackWizardOpen, setIsP55ModpackWizardOpen] = useState(false);
-  const [isP55SafeUpgradeWizardOpen, setIsP55SafeUpgradeWizardOpen] = useState(false);
+  const navigate = useNavigate();
 
   const [isNewCommitOpen, setIsNewCommitOpen] = useState(false);
   const [newCommitMessage, setNewCommitMessage] = useState("");
   const [commitForceBypass, setCommitForceBypass] = useState(false);
   const [commitForceReason, setCommitForceReason] = useState("");
 
-  const [testModalCommitId, setTestModalCommitId] = useState<string | null>(null);
-
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsBotCount, setSettingsBotCount] = useState(10);
-  const [settingsDuration, setSettingsDuration] = useState(15);
-  const [settingsTech, setSettingsTech] = useState("auto");
-  const [settingsPlacement, setSettingsPlacement] = useState("sidecar");
-  const [settingsRetention, setSettingsRetention] = useState("until_health_gate");
 
   const [refreshState, setRefreshState] = useState<RefreshStateResponse | null>(null);
-  const [, setClassCSnapshots] = useState<ClassCSnapshot[]>([]);
-  const [, setDynamicClassC] = useState<DynamicClassCEntry[]>([]);
-  const [, setSecrets] = useState<SecretMetadata[]>([]);
 
   const [isMergeBranchOpen, setIsMergeBranchOpen] = useState(false);
-  const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(
+    () => searchParams.get("openVault") === "true",
+  );
+  const [p3ActionPending, setP3ActionPending] = useState<string | null>(null);
+  const [discardPendingBusy, setDiscardPendingBusy] = useState(false);
+
+  const openVaultParam = searchParams.get("openVault");
+  const [prevOpenVaultParam, setPrevOpenVaultParam] = useState(openVaultParam);
+  if (openVaultParam !== prevOpenVaultParam) {
+    setPrevOpenVaultParam(openVaultParam);
+    if (openVaultParam === "true") {
+      setIsVaultModalOpen(true);
+    }
+  }
+
+  useEffect(() => {
+    if (openVaultParam !== "true") return;
+    setSearchParams(
+      (prev) => {
+        if (!prev.has("openVault")) return prev;
+        const next = new URLSearchParams(prev);
+        next.delete("openVault");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [openVaultParam, setSearchParams]);
 
   // P4 branch runs, port sets & data templates state
   const [dataTemplates, setDataTemplates] = useState<DataTemplate[]>([]);
@@ -212,13 +214,10 @@ export function ServerVersioningPage() {
   const [isWebhookDeliveriesOpen, setIsWebhookDeliveriesOpen] = useState(false);
 
   const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
-  const [viewLogTestRun, setViewLogTestRun] = useState<ServerTestRun | null>(null);
 
   // Advanced feature modal controls
   const [isProtectionModalOpen, setIsProtectionModalOpen] = useState(false);
   const [protectionModalBranch, setProtectionModalBranch] = useState<ServerBranch | null>(null);
-  const [isTestDefinitionsOpen, setIsTestDefinitionsOpen] = useState(false);
-  const [evidenceModalTestId, setEvidenceModalTestId] = useState<string | null>(null);
   const [isMaterializationOpen, setIsMaterializationOpen] = useState(false);
   const [isLiveChangesOpen, setIsLiveChangesOpen] = useState(false);
   const [isManageBranchesOpen, setIsManageBranchesOpen] = useState(false);
@@ -228,7 +227,6 @@ export function ServerVersioningPage() {
   // Mutation pending guards for modals
   const [isBranchPending, setIsBranchPending] = useState(false);
   const [isCommitPending, setIsCommitPending] = useState(false);
-  const [isSettingsPending, setIsSettingsPending] = useState(false);
   const [serverType, setServerType] = useState<string | null>(null);
 
   const currentBranchObj = useMemo(
@@ -267,20 +265,14 @@ export function ServerVersioningPage() {
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData, templatesData, runtimeData, githubStatusData, serverDetailData] =
+        const [branchesData, commitsData, tagsData, liveData, refreshStateData, templatesData, runtimeData, githubStatusData, serverDetailData] =
           await Promise.all([
             api.getServerBranches(serverId),
             api.getServerCommits(serverId, undefined, undefined, selectedBranch),
-            api.getBotSettings(serverId),
-            api.getPreflightStatus(serverId),
-            api.getServerTestRuns?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.getServerTags?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.getLiveChanges?.(serverId, selectedBranch || "main")?.catch(() => null) ??
               Promise.resolve(null),
             api.getRefreshState?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
-            api.listClassCSnapshots?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
-            api.listDynamicClassC?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
-            api.listSecrets?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.listDataTemplates?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             selectedBranch && selectedBranch !== "main"
               ? (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ?? Promise.resolve(null))
@@ -292,27 +284,14 @@ export function ServerVersioningPage() {
         if (!isMounted) return;
         setBranches(branchesData);
         setCommits(commitsData);
-        setPreflight(preflightData);
-        setTestRuns(testRunsData);
         setTags(tagsData);
         setLiveChanges(liveData);
         setRefreshState(refreshStateData);
-        setClassCSnapshots(Array.isArray(snapshotsData) ? snapshotsData : []);
-        setDynamicClassC(Array.isArray(dynamicData) ? dynamicData : []);
-        setSecrets(Array.isArray(secretsData) ? secretsData : []);
         setDataTemplates(Array.isArray(templatesData) ? templatesData : []);
         setBranchRuntime(runtimeData ?? null);
         setGithubStatus(githubStatusData ?? null);
         setServerType(serverDetailData?.server_type ?? null);
         setPendingSettingsBranch(serverDetailData?.pending_settings_branch ?? null);
-
-        if (settingsData) {
-          setSettingsBotCount(settingsData.effective_bot_count);
-          setSettingsDuration(settingsData.effective_duration_minutes);
-          setSettingsTech(settingsData.effective_bot_tech);
-          setSettingsPlacement(settingsData.effective_placement_mode);
-          if (settingsData.previous_tree_retention) setSettingsRetention(settingsData.previous_tree_retention);
-        }
 
         if (
           branchesData.length > 0 &&
@@ -337,25 +316,6 @@ export function ServerVersioningPage() {
       isMounted = false;
     };
   }, [serverId, selectedBranch, api, refreshKey]);
-
-  // Polling: refresh test runs every 3 seconds only while active runs exist
-  const hasActiveRuns = useMemo(
-    () => testRuns.some((r) => r.status === "RUNNING" || r.status === "PENDING"),
-    [testRuns]
-  );
-
-  useEffect(() => {
-    if (!hasActiveRuns || !serverId) return;
-    const interval = setInterval(async () => {
-      try {
-        const runs = await api.getServerTestRuns(serverId);
-        setTestRuns(runs);
-      } catch {
-        // Silent catch on background polling error
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [hasActiveRuns, serverId, api]);
 
   // Poll branch runtime every 5s only while the selected branch is starting/running.
   useEffect(() => {
@@ -422,52 +382,6 @@ export function ServerVersioningPage() {
       setError(err instanceof Error ? err.message : "Failed to create commit.");
     } finally {
       setIsCommitPending(false);
-    }
-  };
-
-  const handleDiscard = async (testId: string) => {
-    if (!serverId) return;
-    try {
-      await api.discardTest(serverId, testId);
-      setActionSuccess("Test run discarded.");
-      setTestRuns((prev) =>
-        prev.map((t) => (t.id === testId ? { ...t, status: "CANCELLED" } : t))
-      );
-      refresh();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to discard test run.");
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    if (!serverId) return;
-    setIsSettingsPending(true);
-    try {
-      await api.updateBotSettings(serverId, {
-        bot_count: settingsBotCount,
-        duration_minutes: settingsDuration,
-        bot_tech: settingsTech,
-        placement_mode: settingsPlacement,
-        previous_tree_retention: settingsRetention,
-      });
-      setIsSettingsModalOpen(false);
-      setActionSuccess("Bot verification settings updated.");
-      refresh();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to update settings.");
-    } finally {
-      setIsSettingsPending(false);
-    }
-  };
-
-  const onTestStarted = (testId: string) => {
-    setActionSuccess(`Isolated test launched (ID: ${testId.slice(0, 8)}).`);
-    if (serverId && testId) {
-      api.getTestStatus(serverId, testId).then((t: ServerTestRun) => {
-        setTestRuns((prev) => [t, ...prev.filter((item) => item.id !== t.id)]);
-      }).catch(() => {
-        refresh();
-      });
     }
   };
 
@@ -542,28 +456,19 @@ export function ServerVersioningPage() {
           <div className="flex flex-wrap items-center gap-2.5">
             <Icon name="backup" size={24} className="text-accent-primary" />
             <h1 className="text-2xl font-bold text-text-primary">
-              Versions & Isolated Testing
+              Versions &amp; Sandboxes
             </h1>
-            <StorageHealthBanner preflight={preflight} />
           </div>
           <p className="mt-1 text-sm text-text-muted">
-            Git-inspired server snapshots, config commits, and isolated bot-verified dry-runs.
+            Git-inspired server snapshots, config commits, and isolated branch sandboxes.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setIsSettingsModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
-          >
-            <Icon name="settings" size={14} />
-            Verification Defaults
-          </button>
-          <button
-            type="button"
             onClick={() => setIsNewCommitOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-xs font-semibold text-white hover:bg-accent-hover shadow-xs transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover shadow-xs transition-colors cursor-pointer"
           >
             <Icon name="plus" size={14} />
             Create Snapshot Commit
@@ -576,20 +481,24 @@ export function ServerVersioningPage() {
         <button
           type="button"
           aria-label="Live Refresh"
+          disabled={Boolean(p3ActionPending)}
           onClick={async () => {
-            if (!serverId) return;
+            if (!serverId || p3ActionPending) return;
+            setP3ActionPending("refresh");
             try {
-              await api.refreshServer(serverId, { retention_policy: settingsRetention });
+              await api.refreshServer(serverId, { retention_policy: "until_health_gate" });
               setActionSuccess("Live Refresh completed");
               refresh();
             } catch (e) {
               setError(e instanceof Error ? e.message : "Live Refresh failed");
+            } finally {
+              setP3ActionPending(null);
             }
           }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
         >
           <Icon name="activity" size={13} />
-          <span>Live Refresh</span>
+          <span>{p3ActionPending === "refresh" ? "Refreshing..." : "Live Refresh"}</span>
           {refreshState?.active_journal?.phase || refreshState?.latest_journal?.phase ? (
             <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
               {refreshState?.active_journal?.phase || refreshState?.latest_journal?.phase}
@@ -599,10 +508,11 @@ export function ServerVersioningPage() {
         <button
           type="button"
           aria-label="Rollback"
-          disabled={!refreshState?.can_rollback}
+          disabled={!refreshState?.can_rollback || Boolean(p3ActionPending)}
           title={!refreshState?.can_rollback ? "No active or rollback-eligible refresh journal" : undefined}
           onClick={async () => {
-            if (!serverId) return;
+            if (!serverId || p3ActionPending) return;
+            setP3ActionPending("rollback");
             try {
               await api.rollbackRefresh(serverId, {
                 journal_id: refreshState?.active_journal?.journal_id ?? refreshState?.latest_journal?.journal_id,
@@ -612,60 +522,69 @@ export function ServerVersioningPage() {
               refresh();
             } catch (e) {
               setError(e instanceof Error ? e.message : "Rollback failed");
+            } finally {
+              setP3ActionPending(null);
             }
           }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
         >
           <Icon name="restart" size={13} />
-          <span>Rollback</span>
+          <span>{p3ActionPending === "rollback" ? "Rolling back..." : "Rollback"}</span>
         </button>
         <button
           type="button"
           aria-label="Confirm Upgrade"
-          disabled={!refreshState?.can_confirm_upgrade}
+          disabled={!refreshState?.can_confirm_upgrade || Boolean(p3ActionPending)}
           onClick={async () => {
-            if (!serverId) return;
+            if (!serverId || p3ActionPending) return;
+            setP3ActionPending("confirm");
             try {
               await api.confirmUpgrade(serverId, { journal_id: refreshState?.latest_journal?.journal_id });
               setActionSuccess("Upgrade confirmed");
               refresh();
             } catch (e) {
               setError(e instanceof Error ? e.message : "Confirm upgrade failed");
+            } finally {
+              setP3ActionPending(null);
             }
           }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
         >
           <Icon name="check" size={13} />
-          <span>Confirm Upgrade</span>
+          <span>{p3ActionPending === "confirm" ? "Confirming..." : "Confirm Upgrade"}</span>
         </button>
         {(refreshState?.latest_journal?.class_c_snapshot_id || refreshState?.can_confirm_upgrade) && (
           <button
             type="button"
             aria-label="Release Pins"
+            disabled={Boolean(p3ActionPending)}
             onClick={async () => {
-              if (!serverId) return;
+              if (!serverId || p3ActionPending) return;
+              setP3ActionPending("release");
               try {
                 await api.releaseRefreshPins(serverId, { journal_id: refreshState?.latest_journal?.journal_id });
                 setActionSuccess("Pins released");
                 refresh();
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Release pins failed");
+              } finally {
+                setP3ActionPending(null);
               }
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
           >
             <Icon name="lock" size={13} />
-            <span>Release Pins</span>
+            <span>{p3ActionPending === "release" ? "Releasing..." : "Release Pins"}</span>
           </button>
         )}
         <button
           type="button"
-          aria-label="Class-C & Secret Vault"
+          aria-label="Live Data & Secret Vault"
           onClick={() => setIsVaultModalOpen(true)}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
         >
           <Icon name="lock" size={13} />
-          <span>Class-C & Secret Vault</span>
+          <span>Live Data & Secret Vault</span>
         </button>
         <button
           type="button"
@@ -690,11 +609,15 @@ export function ServerVersioningPage() {
         <button
           type="button"
           data-testid="versioning-open-safe-upgrade-wizard-btn"
-          onClick={() => setIsP55SafeUpgradeWizardOpen(true)}
+          onClick={() =>
+            navigate(
+              `/servers/${serverId}/settings?tab=lifecycle&action=change-version`,
+            )
+          }
           className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
         >
           <Icon name="restart" size={13} />
-          <span>1-Click Safe Upgrade Wizard</span>
+          <span>Change Version</span>
         </button>
       </div>
 
@@ -713,7 +636,7 @@ export function ServerVersioningPage() {
                 3-Step Safe Testing &amp; Promotion Workflow
               </h2>
               <p className="text-xs text-text-muted">
-                Follow this automated cycle to preview changes safely without risking your production world.
+                Snapshot, branch, test, then merge to main.
               </p>
             </div>
           </div>
@@ -767,10 +690,10 @@ export function ServerVersioningPage() {
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
                     3
                   </span>
-                  <span>Step 3: Automated Bot Dry-Run (Verify)</span>
+                  <span>Step 3: Branch Sandbox &amp; Live Promotion</span>
                 </div>
                 <p className="text-xs text-text-muted leading-relaxed">
-                  Spawn a safe test environment with simulated players to audit TPS and crashes.
+                  Launch a branch container with isolated ports and data templates, verify it live, then merge into main.
                 </p>
               </div>
             </div>
@@ -839,8 +762,10 @@ export function ServerVersioningPage() {
             </button>
             <button
               type="button"
+              disabled={discardPendingBusy}
               onClick={async () => {
-                if (!serverId) return;
+                if (!serverId || discardPendingBusy) return;
+                setDiscardPendingBusy(true);
                 try {
                   await api.discardPendingSettings(serverId);
                   setPendingSettingsBranch(null);
@@ -848,11 +773,13 @@ export function ServerVersioningPage() {
                   refresh();
                 } catch (err: unknown) {
                   setError(err instanceof Error ? err.message : "Failed to discard pending settings.");
+                } finally {
+                  setDiscardPendingBusy(false);
                 }
               }}
-              className="rounded-lg border border-status-danger-border bg-surface-card px-3 py-1.5 font-medium text-status-danger hover:bg-status-danger-bg cursor-pointer"
+              className="rounded-lg border border-status-danger-border bg-surface-card px-3 py-1.5 font-medium text-status-danger hover:bg-status-danger-bg disabled:opacity-50 cursor-pointer"
             >
-              Discard Pending
+              {discardPendingBusy ? "Discarding..." : "Discard Pending"}
             </button>
           </div>
         </div>
@@ -877,9 +804,9 @@ export function ServerVersioningPage() {
           <button
             type="button"
             onClick={() => setIsLiveChangesOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-status-warning hover:bg-status-warning/90 rounded-lg transition-colors shadow-xs shrink-0 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text bg-status-warning hover:bg-status-warning/90 rounded-lg transition-colors shadow-xs shrink-0 cursor-pointer"
           >
-            Review & Commit Changes
+            Review &amp; Commit Changes
           </button>
         </div>
       )}
@@ -968,52 +895,18 @@ export function ServerVersioningPage() {
         onCancel={() => setShowDestroyContainerConfirm(false)}
       />
 
-      {/* 12-Column Split Workspace (Commit Graph + Isolated Bot Testing) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        <div className="lg:col-span-7 h-full">
-          <CommitTimeline
-            commits={filteredCommits}
-            tags={tags}
-            selectedBranch={selectedBranch}
-            isLoading={isLoading}
-            onTagCommit={(commitId) => setTagModalCommitId(commitId)}
-            onDiff={(from, to) => setDiffParams({ from, to })}
-            onInspect={(commit) => setInspectCommit(commit)}
-            onRunTest={(commitId) => setTestModalCommitId(commitId)}
-          />
-        </div>
-
-        <div className="lg:col-span-5 h-full">
-          <TestRunList
-            testRuns={testRuns}
-            serverId={serverId}
-            onTestProfiles={() => setIsTestDefinitionsOpen(true)}
-            onEvidence={(testId) => setEvidenceModalTestId(testId)}
-            onLogs={(run) => setViewLogTestRun(run)}
-            onDiscard={handleDiscard}
-            onRunTest={(commitId) => setTestModalCommitId(commitId)}
-            onCheckNow={async (run) => {
-              if (serverId) {
-                const updated = await api.getTestStatus?.(serverId, run.id);
-                if (updated) {
-                  setTestRuns((prev) => [updated, ...prev.filter((item) => item.id !== updated.id)]);
-                }
-              }
-            }}
-          />
-        </div>
-      </div>
-
-      {/* TestRunModal */}
-      {testModalCommitId && (
-        <TestRunModal
-          isOpen={Boolean(testModalCommitId)}
-          onClose={() => setTestModalCommitId(null)}
-          serverId={serverId!}
-          commitId={testModalCommitId}
-          onTestStarted={onTestStarted}
+      {/* Commit History Workspace */}
+      <div className="w-full">
+        <CommitTimeline
+          commits={filteredCommits}
+          tags={tags}
+          selectedBranch={selectedBranch}
+          isLoading={isLoading}
+          onTagCommit={(commitId) => setTagModalCommitId(commitId)}
+          onDiff={(from, to) => setDiffParams({ from, to })}
+          onInspect={(commit) => setInspectCommit(commit)}
         />
-      )}
+      </div>
 
       {/* Create Branch Modal */}
       <CreateBranchModal
@@ -1049,35 +942,19 @@ export function ServerVersioningPage() {
         onClose={() => setInspectCommit(null)}
       />
 
-      {/* Test Run Log Modal */}
-      <ViewLogsModal
-        testRun={viewLogTestRun}
-        onClose={() => setViewLogTestRun(null)}
-      />
-
-      {/* Bot Settings Modal */}
-      <BotSettingsModal
-        isOpen={isSettingsModalOpen}
-        botCount={settingsBotCount}
-        onBotCountChange={setSettingsBotCount}
-        duration={settingsDuration}
-        onDurationChange={setSettingsDuration}
-        tech={settingsTech}
-        onTechChange={setSettingsTech}
-        placement={settingsPlacement}
-        onPlacementChange={setSettingsPlacement}
-        retention={settingsRetention}
-        onRetentionChange={setSettingsRetention}
-        onSubmit={handleSaveSettings}
-        onClose={() => setIsSettingsModalOpen(false)}
-        isPending={isSettingsPending}
-      />
-
       <MergeBranchModal
         isOpen={isMergeBranchOpen}
         serverId={serverId!}
         branches={branches}
         selectedBranch={selectedBranch}
+        onMerged={() => {
+          refresh();
+          if (serverId) {
+            void queryClient?.invalidateQueries({ queryKey: queryKeys.servers.all });
+            void queryClient?.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId) });
+            void queryClient?.invalidateQueries({ queryKey: queryKeys.versioning.branches(serverId) });
+          }
+        }}
         onClose={() => setIsMergeBranchOpen(false)}
       />
 
@@ -1095,26 +972,6 @@ export function ServerVersioningPage() {
           serverId={serverId!}
           branch={protectionModalBranch}
           onProtectionUpdated={refresh}
-        />
-      )}
-
-      {/* Test Definitions Profile Modal */}
-      {isTestDefinitionsOpen && (
-        <TestDefinitionsModal
-          isOpen={isTestDefinitionsOpen}
-          onClose={() => setIsTestDefinitionsOpen(false)}
-          serverId={serverId!}
-          onDefinitionsChanged={refresh}
-        />
-      )}
-
-      {/* Diagnostic Test Evidence Modal */}
-      {evidenceModalTestId && (
-        <TestEvidenceModal
-          isOpen={Boolean(evidenceModalTestId)}
-          onClose={() => setEvidenceModalTestId(null)}
-          serverId={serverId!}
-          testId={evidenceModalTestId}
         />
       )}
 
@@ -1317,22 +1174,12 @@ export function ServerVersioningPage() {
         />
       )}
 
-      {serverId && (
-        <>
-          {supportsModpacks && (
-            <ModpackInstallWizardModal
-              serverId={serverId}
-              isOpen={isP55ModpackWizardOpen}
-              onClose={() => setIsP55ModpackWizardOpen(false)}
-            />
-          )}
-          <SafeUpgradeWizardModal
-            serverId={serverId}
-            isOpen={isP55SafeUpgradeWizardOpen}
-            onClose={() => setIsP55SafeUpgradeWizardOpen(false)}
-            serverMode="advanced"
-          />
-        </>
+      {serverId && supportsModpacks && (
+        <ModpackInstallWizardModal
+          serverId={serverId}
+          isOpen={isP55ModpackWizardOpen}
+          onClose={() => setIsP55ModpackWizardOpen(false)}
+        />
       )}
     </div>
   );

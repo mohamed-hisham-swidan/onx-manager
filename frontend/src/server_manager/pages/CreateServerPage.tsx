@@ -15,9 +15,11 @@ import {
   type Step,
   type WizardData,
 } from "@/server_manager/components/wizard/types";
-import { SoftwareInfo } from "@/server_manager/types";
+import { SoftwareInfo, type ProvisioningSnapshot } from "@/server_manager/types";
 import { Icon } from "@/components/ui/Icon";
 import { ModpackInstallWizardModal } from "@/server_manager/components/p55";
+import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
+import { useProvisionProgressStore } from "@/stores/provisionProgressStore";
 import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
 
 export function CreateServerPage() {
@@ -40,6 +42,7 @@ export function CreateServerPage() {
   const versionsLoading = versionsState.serverType !== data.serverType;
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
+  const [createdSnapshot, setCreatedSnapshot] = useState<ProvisioningSnapshot | null>(null);
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
   const [advancedEnabled, setAdvancedEnabled] = useState(false);
   const [creationMode, setCreationMode] = useState<"standard" | "modpack">("standard");
@@ -177,7 +180,12 @@ export function CreateServerPage() {
         motd: data.motd,
         gamemode: data.gamemode,
         difficulty: data.difficulty,
-        spawn_protection: Number(data.spawnProtection) || 16,
+        spawn_protection:
+          data.spawnProtection === ""
+            ? 16
+            : Number.isFinite(Number(data.spawnProtection))
+              ? Number(data.spawnProtection)
+              : 16,
         pvp: data.pvp,
         enable_command_block: data.enableCommandBlock,
         online_mode: data.onlineMode,
@@ -189,6 +197,19 @@ export function CreateServerPage() {
       });
       const newServerId = result.server_id as string;
       setCreatedId(newServerId);
+      const rawSnap = result.provisioning_progress as ProvisioningSnapshot | undefined;
+      if (rawSnap && typeof rawSnap === "object") {
+        setCreatedSnapshot(rawSnap);
+        useProvisionProgressStore.getState().setSnapshot(newServerId, rawSnap);
+      } else {
+        setCreatedSnapshot(null);
+        useProvisionProgressStore.getState().setProgress(newServerId, {
+          stage: "success",
+          percent: 100,
+          message: "Server created and ready to start",
+          timestamp: Date.now(),
+        });
+      }
 
       if (data.selectedAddons.length > 0 && api.installFromMarketplace) {
         setInstallingAddons(true);
@@ -357,7 +378,7 @@ export function CreateServerPage() {
                     <span
                       className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition-all ${
                         isActive
-                          ? "border-accent-primary bg-accent-primary text-white ring-4 ring-accent-primary/20"
+                          ? "border-accent-primary bg-accent-primary text-accent-contrast-text ring-4 ring-accent-primary/20"
                           : isCompleted
                             ? "border-accent-primary bg-accent-primary/15 text-accent-primary group-hover:bg-accent-primary/25"
                             : "border-border-default bg-surface-page text-text-muted"
@@ -519,28 +540,58 @@ export function CreateServerPage() {
           statusMessage={addonInstallStatus}
           onCreate={handleCreate}
           onBack={() => setStep(hasAddonsStep ? "addons" : "properties")}
+          onEditStep={(targetStep) => setStep(targetStep)}
         />
       )}
 
       {step === "done" && (
-        <div className="text-center py-12 bg-surface-card rounded-xl border border-border-default p-8 shadow-xs">
-          <Icon name="check" size={36} className="mx-auto mb-4 text-status-success" />
-          <h3 className="text-lg font-semibold text-text-primary mb-2">
-            {modpackInstalled ? "Server & Modpack Ready" : "Server Created"}
-          </h3>
-          <p className="text-sm text-text-muted mb-6">
-            {creationMode === "modpack"
-              ? modpackInstalled
-                ? `${data.name} is set up and your modpack has been installed.`
-                : `${data.name} has been provisioned. Install your .mrpack or CurseForge modpack below.`
-              : installedAddonTitles.length > 0
-                ? `${data.name} is ready with ${installedAddonTitles.length} installed (${installedAddonTitles.join(", ")}).`
-                : `${data.name} is being set up. Server JAR has been downloaded and configured.`}
-          </p>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-default bg-surface-card px-5 py-4 shadow-xs">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-status-success-bg text-status-success">
+                <Icon name="check" size={18} />
+              </span>
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">
+                  {modpackInstalled ? "Server & Modpack Ready" : "Server Created"}
+                </h3>
+                <p className="text-xs text-text-muted">
+                  {creationMode === "modpack"
+                    ? modpackInstalled
+                      ? `${data.name} is set up and your modpack has been installed.`
+                      : `${data.name} has been provisioned. Install your .mrpack or CurseForge modpack below.`
+                    : installedAddonTitles.length > 0
+                      ? `${data.name} is ready with ${installedAddonTitles.length} installed (${installedAddonTitles.join(", ")}).`
+                      : `${data.name} provisioning summary and live setup status.`}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {creationMode === "modpack" && (
+                <button
+                  type="button"
+                  data-testid="open-modpack-installer-btn"
+                  onClick={() => setIsModpackWizardOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Icon name="download" size={14} />
+                  {modpackInstalled ? "Re-run Modpack Installer" : "Install Modpack"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate("/servers")}
+                className="px-4 py-2 rounded-lg border border-border-default text-text-secondary text-xs font-medium hover:bg-surface-hover transition-colors cursor-pointer"
+              >
+                Back to List
+              </button>
+            </div>
+          </div>
+
           {failedAddonTitles.length > 0 && (
             <div
               role="alert"
-              className="mx-auto mb-5 max-w-lg rounded-xl border border-status-warning/30 bg-status-warning-bg px-4 py-3 text-left text-xs text-status-warning"
+              className="rounded-xl border border-status-warning/30 bg-status-warning-bg px-4 py-3 text-left text-xs text-status-warning"
             >
               <div className="font-semibold mb-1">
                 Some optional add-ons could not be installed automatically:
@@ -554,33 +605,21 @@ export function CreateServerPage() {
               </ul>
             </div>
           )}
-          <div className="flex flex-wrap justify-center gap-3">
-            {creationMode === "modpack" && (
-              <button
-                type="button"
-                data-testid="open-modpack-installer-btn"
-                onClick={() => setIsModpackWizardOpen(true)}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary text-sm font-semibold transition-colors cursor-pointer"
-              >
-                <Icon name="download" size={16} />
-                {modpackInstalled ? "Re-run Modpack Installer" : "Install Modpack"}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => navigate(`/servers/${createdId}/console`)}
-              className="px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-white text-sm font-semibold transition-colors shadow-xs cursor-pointer"
-            >
-              Go to Server
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/servers")}
-              className="px-5 py-2 rounded-lg border border-border-default text-text-secondary text-sm font-medium hover:bg-surface-hover transition-colors cursor-pointer"
-            >
-              Back to List
-            </button>
-          </div>
+
+          {createdId && (
+            <ProvisioningProgress
+              serverId={createdId}
+              serverName={data.name}
+              serverType={data.serverType}
+              minecraftVersion={data.minecraftVersion}
+              mode={data.mode}
+              port={Number(data.port) || 25565}
+              initialSnapshot={createdSnapshot}
+              enablePollingFallback
+              onOpenConsole={() => navigate(`/servers/${createdId}/console`)}
+            />
+          )}
+
           {createdId && creationMode === "modpack" && (
             <ModpackInstallWizardModal
               serverId={createdId}

@@ -85,7 +85,16 @@ def _check_provider_prerequisites(
     prereqs: dict[str, bool] = {}
     errors: list[str] = []
 
-    if sys.platform == "win32":
+    from app.modules.server.domain.value_objects import default_provider_for_platform
+
+    prov_name = default_provider_for_platform()
+    if prov_name == "docker":
+        docker_ok = shutil.which("docker") is not None
+        prereqs["docker"] = docker_ok
+        if not docker_ok:
+            errors.append("docker CLI not found in PATH")
+        provider_ready = docker_ok
+    elif sys.platform == "win32":
         cmd_ok = bool(shutil.which("cmd") or shutil.which("cmd.exe"))
         ps_ok = bool(shutil.which("powershell") or shutil.which("pwsh"))
         prereqs["cmd"] = cmd_ok
@@ -102,13 +111,9 @@ def _check_provider_prerequisites(
 
     if server_id:
         try:
-            from app.modules.server.domain.value_objects import default_provider_for_platform
-
-            prov_name = default_provider_for_platform()
             provider_factory.get(prov_name)
             prereqs[f"provider_{prov_name}"] = True
         except (ValueError, KeyError):
-            prov_name = default_provider_for_platform()
             prereqs[f"provider_{prov_name}"] = False
             errors.append(f"{prov_name} provider not registered")
 

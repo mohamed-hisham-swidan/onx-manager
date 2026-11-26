@@ -29,26 +29,25 @@ export function parseGameVersion(version: string): ParsedVersion | null {
 }
 
 /**
- * Groups Modrinth game versions into compact, Modrinth-style pills:
- * - a single version in a major.minor line → exact string ("26.2", "1.17.1")
- * - the line includes the bare base release ("1.18", "26.1") → "major.minor.x"
- * - a gap-free contiguous patch run → "1.16.3–1.16.5" range
- * - anything else (gaps, no base) → "major.minor.x"
- * Consecutive base-covered lines of the same major merge into a line range:
- * "1.17.x", "1.18.x", "1.19.x" → "1.17–1.19" (a partially-covered line such
- * as "1.20.x" from gaps is NOT merged, so ranges never overstate coverage).
- * Non-numeric versions (snapshots, pre-releases like "24w14potato",
- * "26.2-rc-1") are kept raw. Order: numeric lines newest-first, then
- * non-numeric strings descending.
+ * Groups Modrinth game versions into accurate, contiguous pills:
+ * - Only groups **actually contiguous** Minecraft release versions within the
+ *   same `major.minor` line into ranges (e.g. `1.21.7–1.21.11`, `1.21.4–1.21.5`,
+ *   `1.21–1.21.1`) so gaps are never falsely collapsed into `1.21.x` or `1.17–1.20`.
+ * - Single isolated versions stay exact (e.g. `1.21.1`, `1.20.4`, `26.2`).
+ * - Non-numeric versions (snapshots, pre-releases like `24w14potato`, `26.2-rc-1`)
+ *   are kept raw after numeric pills, sorted descending.
+ * - Order: numeric pills newest-first by highest covered version, then non-numeric descending.
  */
 export function groupGameVersions(versions: string[]): string[] {
   const groups = new Map<string, Map<number, string>>();
-  const nonNumeric: string[] = [];
+  const nonNumericSet = new Set<string>();
 
   for (const v of versions) {
-    const parsed = parseGameVersion(v);
+    const trimmed = v.trim();
+    if (!trimmed) continue;
+    const parsed = parseGameVersion(trimmed);
     if (!parsed) {
-      nonNumeric.push(v.trim());
+      nonNumericSet.add(trimmed);
       continue;
     }
     const key = `${parsed.major}.${parsed.minor}`;
@@ -58,79 +57,78 @@ export function groupGameVersions(versions: string[]): string[] {
       groups.set(key, group);
     }
     const existing = group.get(parsed.patch);
-    if (existing === undefined || parsed.raw < existing) group.set(parsed.patch, parsed.raw);
+    // Prefer bare "1.21" over "1.21.0" if both appear
+    if (existing === undefined || parsed.raw.length < existing.length) {
+      group.set(parsed.patch, parsed.raw);
+    }
   }
 
-  interface GameLine {
+  interface VersionRun {
     major: number;
     minor: number;
-    kind: "exact" | "range" | "xb" | "xg";
+    endPatch: number;
     display: string;
   }
 
-  const lines: GameLine[] = [];
+  const runs: VersionRun[] = [];
   for (const [key, group] of groups) {
-    const patches = [...group.keys()];
     const [major, minor] = key.split(".").map(Number);
-    if (patches.length === 1) {
-      lines.push({ major, minor, kind: "exact", display: group.get(patches[0])! });
-    } else if (group.has(0)) {
-      lines.push({ major, minor, kind: "xb", display: `${major}.${minor}.x` });
-    } else {
-      const min = Math.min(...patches);
-      const max = Math.max(...patches);
-      const contiguous = max - min + 1 === patches.length;
-      lines.push(
-        contiguous
-          ? { major, minor, kind: "range", display: `${major}.${minor}.${min}${EN_DASH}${major}.${minor}.${max}` }
-          : { major, minor, kind: "xg", display: `${major}.${minor}.x` },
-      );
+    const patches = [...group.keys()].sort((a, b) => a - b);
+    let startIdx = 0;
+    while (startIdx < patches.length) {
+      let endIdx = startIdx;
+      while (
+        endIdx + 1 < patches.length &&
+        patches[endIdx + 1] === patches[endIdx] + 1
+      ) {
+        endIdx += 1;
+      }
+      const startPatch = patches[startIdx];
+      const endPatch = patches[endIdx];
+      const startLabel = group.get(startPatch)!;
+      const endLabel = group.get(endPatch)!;
+      runs.push({
+        major,
+        minor,
+        endPatch,
+        display: startIdx === endIdx ? startLabel : `${startLabel}${EN_DASH}${endLabel}`,
+      });
+      startIdx = endIdx + 1;
     }
   }
 
-  lines.sort((a, b) => a.major - b.major || a.minor - b.minor);
-
-  const pills: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const cur = lines[i];
-    if (cur.kind !== "xb") {
-      pills.push(cur.display);
-      i += 1;
-      continue;
-    }
-    let end = i;
-    while (
-      end + 1 < lines.length &&
-      lines[end + 1].kind === "xb" &&
-      lines[end + 1].major === cur.major &&
-      lines[end + 1].minor === lines[end].minor + 1
-    ) {
-      end += 1;
-    }
-    if (end === i) {
-      pills.push(cur.display);
-    } else {
-      pills.push(
-        `${cur.major}.${cur.minor}${EN_DASH}${lines[end].major}.${lines[end].minor}`,
-      );
-    }
-    i = end + 1;
-  }
-
-  pills.sort((a, b) => {
-    const pa = parseGameVersion(a) ?? parseGameVersion(a.split(EN_DASH)[0]);
-    const pb = parseGameVersion(b) ?? parseGameVersion(b.split(EN_DASH)[0]);
-    if (pa && pb) {
-      if (pa.major !== pb.major) return pb.major - pa.major;
-      if (pa.minor !== pb.minor) return pb.minor - pa.minor;
-      return pb.patch - pa.patch;
-    }
-    return b < a ? -1 : b > a ? 1 : 0;
+  runs.sort((a, b) => {
+    if (a.major !== b.major) return b.major - a.major;
+    if (a.minor !== b.minor) return b.minor - a.minor;
+    return b.endPatch - a.endPatch;
   });
 
-  const sortedNonNumeric = nonNumeric.sort().reverse();
-  return [...pills, ...sortedNonNumeric];
+  const sortedNonNumeric = [...nonNumericSet].sort().reverse();
+  return [...runs.map((r) => r.display), ...sortedNonNumeric];
+}
+
+/**
+ * Returns unique official Minecraft release versions (strictly excluding snapshots,
+ * pre-releases, release candidates, and week builds), sorted newest-first.
+ */
+export function sortReleaseVersionsDesc(versions: string[]): string[] {
+  const seen = new Map<string, ParsedVersion>();
+  for (const v of versions) {
+    const parsed = parseGameVersion(v);
+    if (!parsed) continue;
+    const key = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+    const existing = seen.get(key);
+    if (!existing || parsed.raw.length < existing.raw.length) {
+      seen.set(key, parsed);
+    }
+  }
+  return [...seen.values()]
+    .sort((a, b) => {
+      if (a.major !== b.major) return b.major - a.major;
+      if (a.minor !== b.minor) return b.minor - a.minor;
+      return b.patch - a.patch;
+    })
+    .map((p) => p.raw);
 }
 
 export function isSnapshotOrPreRelease(version: string): boolean {

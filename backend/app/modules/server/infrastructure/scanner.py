@@ -49,8 +49,6 @@ def _detect_server_type(dir_path: Path) -> str:
         return "paper"
     if (dir_path / "spigot.yml").exists():
         return "spigot"
-    if (dir_path / "bukkit.yml").exists():
-        return "bukkit"
     if (dir_path / "libraries" / "net" / "neoforged").exists() or (
         dir_path / "neoforge.jar"
     ).exists():

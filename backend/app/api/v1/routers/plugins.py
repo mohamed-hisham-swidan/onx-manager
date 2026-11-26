@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile
 
 from app.api.deps import (
     get_command_bus,
@@ -22,7 +22,15 @@ from app.api.v1.schemas.plugin import (
     ToggleModStateRequest,
 )
 from app.core.command_bus import CommandBus
+from app.core.config import AppSettings
 from app.core.event_bus import EventBus
+from app.core.exceptions import (
+    DownloadError,
+    MCSError,
+    NotFoundError,
+    RateLimitExceeded,
+    ValidationError,
+)
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.plugin.application import (
@@ -66,8 +74,25 @@ def _to_version_response(v: PluginVersionInfo) -> PluginVersionResponse:
         loaders=v.loaders,
         files=[PluginFileResponse(**f.__dict__) for f in v.files],
         dependencies=v.dependencies,
+        required_dependencies=list(getattr(v, "required_dependencies", []) or []),
+        changelog=getattr(v, "changelog", None),
         date_published=v.date_published,
+        version_type=getattr(v, "version_type", "release") or "release",
     )
+
+
+def _translate_provider_download_error(exc: DownloadError, *, not_found_msg: str) -> None:
+    if exc.status == 404:
+        raise NotFoundError(not_found_msg) from exc
+    if exc.status == 400:
+        raise ValidationError(str(exc)) from exc
+    if exc.status == 429:
+        retry_after = exc.details.get("retry_after") or exc.details.get("ratelimit_reset") or 60
+        raise RateLimitExceeded(
+            message="Upstream marketplace rate limit exceeded",
+            details={"retry_after": retry_after},
+        ) from exc
+    raise exc
 
 
 async def _load_server_aggregate(server_id: str):
@@ -83,6 +108,7 @@ async def _load_server_aggregate(server_id: str):
 )
 async def list_plugins(
     server_id: str,
+    response: Response,
     branch: str | None = Query(default=None),
     command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
@@ -90,13 +116,31 @@ async def list_plugins(
     server = await _load_server_aggregate(server_id)
     if server is not None and server.mode == ServerMode.ADVANCED:
         effective_branch = (branch or "main").strip() or "main"
-        items, _has_uncommitted = list_branch_plugins(server, effective_branch)
+        items, has_uncommitted = list_branch_plugins(server, effective_branch)
+        if has_uncommitted:
+            response.headers["X-ONX-Has-Uncommitted"] = "true"
         return [PluginResponse(**item) for item in items]
 
     await command_bus.send(ReconcilePluginsCommand(server_id=server_id))
     q = ListPluginsQuery(server_id=server_id)
     plugins = await query_bus.ask(q)
     return [PluginResponse(**p.__dict__) for p in plugins]
+
+
+_MOD_FAMILY_LOADERS = frozenset({"fabric", "forge", "neoforge", "quilt"})
+_PLUGIN_FAMILY_LOADERS = frozenset(
+    {
+        "paper",
+        "purpur",
+        "spigot",
+        "bukkit",
+        "folia",
+        "velocity",
+        "bungeecord",
+        "waterfall",
+        "minestom",
+    }
+)
 
 
 @router.get(
@@ -108,21 +152,54 @@ async def list_plugins(
     ],
 )
 async def search_marketplace(
-    server_id: str,  # noqa: ARG001 - path parameter in route prefix
+    server_id: str,
     query: str = Query(default="", max_length=100),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    project_type: str = Query(default="plugin"),
+    project_type: str | None = Query(default=None),
     loader: str = Query(default="", max_length=50),
+    sort: Literal["relevance", "downloads", "follows", "newest", "updated"] = Query(
+        default="relevance"
+    ),
+    game_version: str | None = Query(default=None, max_length=32),
+    compatible_only: bool = Query(default=False),
 ) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
-    page = await provider.search(
-        query,
-        limit=limit,
-        offset=offset,
-        project_type=project_type,
-        loader=loader or None,
+    effective_project_type = (
+        project_type.strip().lower() if project_type and project_type.strip() else None
     )
+    effective_loader = loader.strip() or None
+    effective_game_version = (
+        game_version.strip() if game_version and game_version.strip() else None
+    )
+
+    if compatible_only:
+        server = await _load_server_aggregate(server_id)
+        if server is not None:
+            st = (
+                server.server_type.value.lower()
+                if hasattr(server.server_type, "value")
+                else str(getattr(server, "server_type", "") or "").lower()
+            )
+            server_family = "mod" if st in _MOD_FAMILY_LOADERS else "plugin"
+            effective_project_type = server_family
+            if effective_loader is None and st in (_MOD_FAMILY_LOADERS | _PLUGIN_FAMILY_LOADERS):
+                effective_loader = st
+            if effective_game_version is None and server.minecraft_version:
+                effective_game_version = str(server.minecraft_version)
+
+    try:
+        page = await provider.search(
+            query,
+            limit=limit,
+            offset=offset,
+            project_type=effective_project_type or "plugin",
+            loader=effective_loader,
+            sort=sort,
+            game_version=effective_game_version,
+        )
+    except DownloadError as e:
+        _translate_provider_download_error(e, not_found_msg="Marketplace search failed")
     return PluginSearchResultsResponse(
         items=[PluginSearchResultResponse(**r.__dict__) for r in page.items],
         total_hits=page.total_hits,
@@ -148,13 +225,18 @@ async def get_project_versions(
 ) -> PluginVersionsResponse:
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
     provider = build_plugin_catalog_provider()
-    page = await provider.get_project_versions(project_id)
+    try:
+        page = await provider.get_project_versions(project_id)
+    except DownloadError as e:
+        _translate_provider_download_error(
+            e, not_found_msg=f"Marketplace project '{project_id}' not found"
+        )
     versions = page.items
-    versions_response = [_to_version_response(v) for v in versions]
 
     selected = None
     notice = ""
     notice_kind = ""
+    ordered_versions = versions
     if server is not None:
         selection = select_best_version(
             server_type=server.server_type,
@@ -163,8 +245,12 @@ async def get_project_versions(
         )
         if selection.selected is not None:
             selected = _to_version_response(selection.selected)
+        if selection.available:
+            ordered_versions = list(selection.available)
         notice = selection.notice
         notice_kind = selection.notice_kind
+
+    versions_response = [_to_version_response(v) for v in ordered_versions]
 
     return PluginVersionsResponse(
         project_id=project_id,
@@ -363,10 +449,30 @@ async def upload_mod(
     command_bus: Annotated[CommandBus, Depends(get_command_bus)] = ...,  # type: ignore[assignment]
     event_bus: EventBus = Depends(get_event_bus),
 ) -> dict:
-    content = await file.read()
+    max_mb = AppSettings().files_max_upload_size_mb
+    max_bytes = max_mb * 1024 * 1024 if max_mb > 0 else 0
+    chunk_size = 64 * 1024
+    chunks: list[bytes] = []
+    total_bytes = 0
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if max_bytes > 0 and total_bytes > max_bytes:
+            raise MCSError(
+                message=f"Uploaded plugin exceeds maximum allowed size of {max_mb} MB",
+                code="FILE_TOO_LARGE",
+                http_status=413,
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
     filename = file.filename or "addon.jar"
     server = await _load_server_aggregate(server_id)
-    if server is not None and server.mode == ServerMode.ADVANCED:
+    if server is None:
+        raise NotFoundError(f"Server '{server_id}' not found")
+    if server.mode == ServerMode.ADVANCED:
         effective_branch = (branch or "main").strip() or "main"
         return await upload_branch_addon(
             server=server,

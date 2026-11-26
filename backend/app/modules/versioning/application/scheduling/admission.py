@@ -647,15 +647,30 @@ class RuntimeAdmissionScheduler:
                         )
 
                 if len(server_branch_rows) >= server_cap:
+                    blocking_branches = [
+                        str(r.get("branch_name") or "unknown")
+                        for r in server_branch_rows
+                    ]
+                    if len(blocking_branches) == 1:
+                        limit_msg = (
+                            f"Branch '{blocking_branches[0]}' is already running "
+                            f"(limit: {server_cap} active test branch per server). "
+                            f"Stop '{blocking_branches[0]}' first, then start this branch."
+                        )
+                    else:
+                        joined = ", ".join(f"'{b}'" for b in blocking_branches)
+                        limit_msg = (
+                            f"Branches {joined} are already running "
+                            f"(limit: {server_cap} active test branches per server). "
+                            "Stop an active test branch first, then start this branch."
+                        )
                     raise BranchConcurrencyLimitError(
-                        f"Server '{server_id}' reached active branch run limit "
-                        f"({len(server_branch_rows)}/{server_cap}); "
-                        "stop an active branch run before starting another.",
+                        limit_msg,
                         details={
                             "server_id": server_id,
                             "active_count": len(server_branch_rows),
                             "limit": server_cap,
-                            "active_branches": [r["branch_name"] for r in server_branch_rows],
+                            "active_branches": blocking_branches,
                         },
                     )
 

@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -67,7 +68,7 @@ class ServerCreateRequest(BaseModel):
 class ServerUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=128)
     properties: dict[str, object] = Field(default_factory=dict)
     min_memory_mb: int | None = None
     max_memory_mb: int | None = None
@@ -75,6 +76,18 @@ class ServerUpdateRequest(BaseModel):
     cpu_affinity: str | None = None
     java_args: list[str] | None = None
     startup_timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        trimmed = v.strip()
+        if not trimmed:
+            raise ValueError("Server name must not be empty")
+        if len(trimmed) > 128:
+            raise ValueError("Server name must be at most 128 characters")
+        return trimmed
 
 
 class ServerActionRequest(BaseModel):
@@ -99,6 +112,14 @@ class ServerResponse(BaseResponse):
     provisioning_retryable: bool = False
     startup_timeout_seconds: int | None = None
     mode: str = "simple"
+    max_memory_mb: int | None = None
+    cpu_cores: float | None = None
+    uptime_seconds: int | None = None
+    deployment_host: str | None = None
+    public_address: str | None = None
+    active_branch: str | None = None
+    icon_data_url: str | None = None
+    provisioning_progress: dict[str, Any] | None = None
 
 
 class ServerDetailResponse(ServerResponse):

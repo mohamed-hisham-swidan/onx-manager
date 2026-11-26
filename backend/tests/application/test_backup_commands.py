@@ -502,6 +502,62 @@ class TestVerifyBackupHandler:
         assert result.success is True
         assert result.data["valid"] is False
         assert result.data["artifact_present"] is False
+        assert result.data["artifact_error"]
+
+    @pytest.mark.asyncio
+    async def test_verify_tier1_directory_snapshot_valid_and_tampered(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        from app.modules.backup.infrastructure.tier1_snapshot import (
+            TIER1_MARKER_FILENAME,
+            create_tier1_snapshot,
+        )
+
+        server_dir = tmp_path / "srv-t1"
+        (server_dir / "world").mkdir(parents=True)
+        (server_dir / "world" / "level.dat").write_bytes(b"level-bytes")
+        (server_dir / "server.properties").write_text("motd=T1\n", encoding="utf-8")
+
+        snap = await create_tier1_snapshot(
+            server_id="srv-t1",
+            server_dir=server_dir,
+            snapshots_root=tmp_path / "snapshots",
+            backup_id="vrf-t1-1",
+            force_no_reflink=True,
+        )
+
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            job = BackupJob.create_tier1(
+                backup_id=BackupJobId("vrf-t1-1"),
+                server_id=ServerId("srv-t1"),
+            )
+            job.mark_completed(
+                size_bytes=snap.size_bytes,
+                checksum=snap.checksum,
+                storage_path=snap.snapshot_dir,
+            )
+            await repo.save_job(job)
+            await session.commit()
+
+        handler = VerifyBackupHandler(event_bus)
+        ok_res = await handler.handle(VerifyBackupCommand(backup_id="vrf-t1-1"))
+        assert ok_res.success is True
+        assert ok_res.data["valid"] is True
+        assert ok_res.data["artifact_present"] is True
+        assert ok_res.data["artifact_matches"] is True
+        assert ok_res.data["artifact_error"] is None
+
+        # Remove marker to trigger Tier1SnapshotError diagnostic
+        (tmp_path / "snapshots" / "srv-t1" / "vrf-t1-1" / TIER1_MARKER_FILENAME).unlink()
+        bad_res = await handler.handle(VerifyBackupCommand(backup_id="vrf-t1-1"))
+        assert bad_res.success is True
+        assert bad_res.data["valid"] is False
+        assert bad_res.data["artifact_present"] is True
+        assert bad_res.data["artifact_matches"] is False
+        assert "Missing" in (bad_res.data["artifact_error"] or "") or "Incomplete" in (
+            bad_res.data["artifact_error"] or ""
+        )
 
     @pytest.mark.asyncio
     async def test_verify_nonexistent(self, event_bus: EventBus) -> None:

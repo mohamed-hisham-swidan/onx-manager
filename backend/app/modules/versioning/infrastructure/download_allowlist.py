@@ -57,6 +57,7 @@ DEFAULT_ALLOWED_DOWNLOAD_HOSTS: frozenset[str] = frozenset(
         "maven.minecraftforge.net",
         "fill.papermc.io",
         "fill-data.papermc.io",
+        "api.purpurmc.org",
         "piston-meta.mojang.com",
         "piston-data.mojang.com",
         "libraries.minecraft.net",
@@ -221,6 +222,7 @@ async def _stream_download(
     expected_sha1: str | None,
     expected_sha256: str | None,
     client: aiohttp.ClientSession | None,
+    on_progress: Callable[[int, int | None], Any] | None = None,
 ) -> VerifiedDownloadResult:
     effective_max = min(max_bytes, expected_size) if expected_size is not None else max_bytes
     session = client or get_http_client()
@@ -257,6 +259,14 @@ async def _stream_download(
                 sha512 = hashlib.sha512()
                 sha1 = hashlib.sha1()
                 size = 0
+                raw_cl = resp.headers.get("Content-Length") if hasattr(resp, "headers") else None
+                total_bytes: int | None = expected_size
+                if total_bytes is None and raw_cl is not None:
+                    with contextlib.suppress(ValueError, TypeError):
+                        parsed_cl = int(raw_cl)
+                        if parsed_cl > 0:
+                            total_bytes = parsed_cl
+                last_progress_at = 0.0
                 while True:
                     chunk = await resp.content.read(65536)
                     if not chunk:
@@ -272,6 +282,19 @@ async def _stream_download(
                     sha512.update(chunk)
                     sha1.update(chunk)
                     write_chunk(bytes(chunk))
+                    if on_progress is not None:
+                        now_mono = asyncio.get_running_loop().time()
+                        if now_mono - last_progress_at >= 0.4:
+                            last_progress_at = now_mono
+                            with contextlib.suppress(Exception):
+                                maybe = on_progress(size, total_bytes)
+                                if asyncio.iscoroutine(maybe):
+                                    await maybe
+                if on_progress is not None:
+                    with contextlib.suppress(Exception):
+                        maybe = on_progress(size, total_bytes or size)
+                        if asyncio.iscoroutine(maybe):
+                            await maybe
         except (DownloadError, CorruptedDownloadError):
             raise
         except TimeoutError as exc:
@@ -315,6 +338,7 @@ async def download_verified_to_cas(
     max_redirects: int = MAX_REDIRECT_HOPS,
     max_retries: int = 3,
     client: aiohttp.ClientSession | None = None,
+    on_progress: Callable[[int, int | None], Any] | None = None,
 ) -> VerifiedDownloadResult:
     """Stream a validated download into the CAS, verifying hashes and size."""
     tmp_dir = Path(cas.root) / ".tmp"
@@ -340,6 +364,7 @@ async def download_verified_to_cas(
                         expected_sha1=expected_sha1,
                         expected_sha256=expected_sha256,
                         client=client,
+                        on_progress=on_progress,
                     )
                     break
                 except DownloadError as exc:

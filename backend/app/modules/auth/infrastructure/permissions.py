@@ -41,21 +41,3 @@ class PermissionEvaluator:
             if await self.has_permission(user, permission):
                 result.append(user)
         return result
-
-    def evaluate_abac(
-        self,
-        user: User,
-        resource: str,
-        action: str,
-        resource_owner_id: str | None = None,
-        context: dict | None = None,
-    ) -> bool:
-        if not user.is_active:
-            return False
-        for role in user.roles:
-            if role.has_permission(resource, action):
-                if resource_owner_id is None:
-                    return True
-                if str(user.user_id) == resource_owner_id:
-                    return True
-        return False

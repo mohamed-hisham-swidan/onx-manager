@@ -666,10 +666,12 @@ class RepoLeaseManager:
                 yield token
             finally:
                 stop.set()
-                thread.join(timeout=_MAX_HEARTBEAT_JOIN_SECONDS)
-                with contextlib.suppress(Exception):
-                    await self.release(token)
-                _HELD_REPO_LEASES.reset(reset_token)
+                try:
+                    await asyncio.to_thread(thread.join, _MAX_HEARTBEAT_JOIN_SECONDS)
+                    with contextlib.suppress(Exception):
+                        await asyncio.shield(self.release(token))
+                finally:
+                    _HELD_REPO_LEASES.reset(reset_token)
         finally:
             self._release_flock(fd)
 

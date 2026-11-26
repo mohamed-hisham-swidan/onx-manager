@@ -22,12 +22,18 @@ from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyze
 logger = logging.getLogger(__name__)
 
 DEFAULT_BOOT_MARKERS: tuple[str, ...] = ("Done (",)
+ANSI_ESCAPE_RE: re.Pattern[str] = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 DONE_BOOT_LINE_PATTERN = (
     r"^.*?\bINFO\b.*?: Done \([0-9.,]+s\)! For help, type [\"']help[\"']"
 )
 DONE_BOOT_LINE_RE: re.Pattern[str] = re.compile(
     DONE_BOOT_LINE_PATTERN, re.MULTILINE
 )
+
+
+def strip_ansi_codes(text: str) -> str:
+    """Remove ANSI escape sequences from a log string."""
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 @dataclass(frozen=True)
@@ -44,8 +50,8 @@ class BootSignalResult:
 def matches_boot_done_regex(log_content: str | list[str]) -> bool:
     """Return True if *log_content* matches the cross-loader boot readiness regex."""
     if isinstance(log_content, list):
-        return any(bool(DONE_BOOT_LINE_RE.search(line)) for line in log_content)
-    return bool(DONE_BOOT_LINE_RE.search(log_content))
+        return any(bool(DONE_BOOT_LINE_RE.search(strip_ansi_codes(line))) for line in log_content)
+    return bool(DONE_BOOT_LINE_RE.search(strip_ansi_codes(log_content)))
 
 
 def check_log_markers(
@@ -61,12 +67,14 @@ def check_log_markers(
         return True
     if isinstance(log_content, list):
         for line in log_content:
+            cleaned = strip_ansi_codes(line)
             for marker in markers:
-                if marker in line:
+                if marker in cleaned:
                     return True
         return False
 
-    return any(marker in log_content for marker in markers)
+    cleaned_content = strip_ansi_codes(log_content)
+    return any(marker in cleaned_content for marker in markers)
 
 
 def _mtime_at_or_after(path: Path, since: datetime | None) -> bool:

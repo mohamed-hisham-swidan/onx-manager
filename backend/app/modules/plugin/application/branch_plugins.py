@@ -29,7 +29,10 @@ from app.core.exceptions import (
     CorruptedDownloadError,
     DownloadError,
     DownloadTimeoutError,
+    InvalidJarError,
+    InvalidPluginJarError,
     InvalidValueError,
+    MCSError,
     NotFoundError,
     ProviderError,
     ValidationError,
@@ -39,7 +42,12 @@ from app.core.host_state import (
     check_not_symlink_or_reparse,
     resolve_host_state_layout,
 )
-from app.modules.plugin.application.services.version_selector import select_best_version
+from app.modules.plugin.application.services.version_selector import (
+    LOADER_COMPATIBILITY,
+    compatible_loaders_for_server,
+    is_version_loader_compatible,
+    select_best_version,
+)
 from app.modules.plugin.domain.events import (
     PluginDisabledEvent,
     PluginEnabledEvent,
@@ -50,7 +58,10 @@ from app.modules.plugin.infrastructure.addon_fs import (
     get_addon_dir_name,
     sanitize_addon_filename,
 )
-from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_metadata
+from app.modules.plugin.infrastructure.jar_metadata_parser import (
+    parse_jar_metadata,
+    validate_addon_jar,
+)
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginFile
 from app.modules.server.domain.aggregate import Server
@@ -318,11 +329,15 @@ def _parse_jar_from_cas_or_worktree(
     worktree: Path,
     relpath: str,
     sha256: str,
+    *,
+    preferred_server_type: str | None = None,
 ):
     if cas.has(sha256):
-        with contextlib.suppress(Exception):
-            with cas.open_blob(sha256) as fh:
-                return parse_jar_metadata(fh.read())
+        with contextlib.suppress(Exception), cas.open_blob(sha256) as fh:
+            return parse_jar_metadata(
+                fh.read(),
+                preferred_server_type=preferred_server_type,
+            )
     with contextlib.suppress(Exception):
         fd = open_safe_path_fd(str(worktree), relpath, flags=os.O_RDONLY)
         try:
@@ -332,7 +347,10 @@ def _parse_jar_from_cas_or_worktree(
                 if not chunk:
                     break
                 chunks.append(chunk)
-            return parse_jar_metadata(b"".join(chunks))
+            return parse_jar_metadata(
+                b"".join(chunks),
+                preferred_server_type=preferred_server_type,
+            )
         finally:
             os.close(fd)
     return None
@@ -416,7 +434,13 @@ def list_branch_plugins(
         if not is_committed:
             has_uncommitted = True
 
-        meta = _parse_jar_from_cas_or_worktree(cas, worktree, entry.path, entry.sha256)
+        meta = _parse_jar_from_cas_or_worktree(
+            cas,
+            worktree,
+            entry.path,
+            entry.sha256,
+            preferred_server_type=server.server_type.value,
+        )
         display_name = (meta.name if meta and meta.name else None) or (
             meta.mod_id if meta and meta.mod_id else None
         ) or filename.removesuffix(".jar.disabled").removesuffix(".jar")
@@ -470,7 +494,10 @@ def list_branch_plugins(
         digest = hashlib.sha256(raw_bytes).hexdigest()
         meta = None
         with contextlib.suppress(Exception):
-            meta = parse_jar_metadata(raw_bytes)
+            meta = parse_jar_metadata(
+                raw_bytes,
+                preferred_server_type=server.server_type.value,
+            )
         display_name = (meta.name if meta and meta.name else None) or (
             meta.mod_id if meta and meta.mod_id else None
         ) or filename.removesuffix(".jar.disabled").removesuffix(".jar")
@@ -540,8 +567,33 @@ async def install_branch_modrinth_plugin(
             raise ValidationError(
                 "Requested version does not belong to this project", field="version_id"
             )
+        if not is_version_loader_compatible(server_type, ver.loaders):
+            raise ValidationError(
+                f"Version '{ver.version_number}' targets {', '.join(ver.loaders)} "
+                f"and is not compatible with server loader '{server_type}'",
+                field="version_id",
+            )
+        from app.modules.plugin.application.services.version_selector import (
+            _game_version_matches,
+            is_mc26_incompatible_for_server,
+        )
+
+        if is_mc26_incompatible_for_server(mc_ver, ver.game_versions):
+            raise ValidationError(
+                f"Version '{ver.version_number}' requires Minecraft 26.x (Java 25) "
+                f"and cannot run on Minecraft {mc_ver}",
+                field="version_id",
+            )
         notice = ""
         notice_kind = ""
+        if ver.game_versions and not any(
+            _game_version_matches(mc_ver, gv) for gv in ver.game_versions
+        ):
+            notice = (
+                f"Selected version '{ver.version_number}' does not explicitly list "
+                f"Minecraft {mc_ver} compatibility."
+            )
+            notice_kind = "version_mismatch"
     else:
         try:
             page = await eff_provider.get_project_versions(project_id)
@@ -597,6 +649,39 @@ async def install_branch_modrinth_plugin(
         expected_sha512=plugin_file.sha512 or None,
     )
 
+    try:
+        meta = validate_addon_jar(
+            safe_filename,
+            content,
+            server_type=server_type,
+        )
+    except (InvalidJarError, InvalidPluginJarError) as exc:
+        raise MCSError(
+            message=(
+                f"Downloaded addon '{safe_filename}' is incompatible with "
+                f"'{server_type}': {exc.message}"
+            ),
+            code="NO_COMPATIBLE_VERSION",
+            http_status=422,
+        ) from exc
+
+    allowed_loaders = compatible_loaders_for_server(server_type)
+    meta_loader = meta.loader.strip().lower() if meta and meta.loader else None
+    if (
+        meta_loader
+        and server_type.strip().lower() in LOADER_COMPATIBILITY
+        and allowed_loaders
+        and meta_loader not in allowed_loaders
+    ):
+        raise MCSError(
+            message=(
+                f"Downloaded addon '{safe_filename}' targets loader '{meta_loader}', "
+                f"which is incompatible with '{server_type}'."
+            ),
+            code="NO_COMPATIBLE_VERSION",
+            http_status=422,
+        )
+
     cas = ArtifactCas(eff_layout.cas)
     sha256_digest = cas.put_bytes(content)
 
@@ -626,9 +711,22 @@ async def install_branch_modrinth_plugin(
     updated_lockfile = replace(lockfile, files=lockfile.files + (new_entry,))
     _write_branch_lockfile(worktree, updated_lockfile)
 
-    meta = None
-    with contextlib.suppress(Exception):
-        meta = parse_jar_metadata(content)
+    normalized_ver_loaders = {
+        str(ldr).strip().lower()
+        for ldr in (ver.loaders or ())
+        if str(ldr).strip()
+    }
+    matched_ver_loader = next(
+        (ldr for ldr in allowed_loaders if ldr in normalized_ver_loaders),
+        None,
+    )
+    resolved_loader = (
+        meta.loader
+        if meta and meta_loader and (not allowed_loaders or meta_loader in allowed_loaders)
+        else matched_ver_loader
+        or (meta.loader if meta else None)
+        or (ver.loaders[0] if ver.loaders else None)
+    )
 
     pid = branch_plugin_id(str(server.id), branch_name, relpath)
     if event_bus is not None:
@@ -651,7 +749,7 @@ async def install_branch_modrinth_plugin(
         "source": eff_provider.name,
         "notice": notice,
         "notice_kind": notice_kind,
-        "loader": (meta.loader if meta else None) or (ver.loaders[0] if ver.loaders else None),
+        "loader": resolved_loader,
         "mod_id": meta.mod_id if meta else None,
         "warning": meta.warning if meta else None,
         "checksum": sha256_digest,
@@ -670,6 +768,11 @@ async def upload_branch_addon(
     layout: HostStateLayout | None = None,
 ) -> dict[str, Any]:
     """Ingest uploaded JAR into CAS and register it in branch ``onx-jars.lock.json``."""
+    meta = validate_addon_jar(
+        filename,
+        file_content,
+        server_type=server.server_type.value,
+    )
     eff_layout, _server_root, worktree, lockfile = _resolve_worktree_and_lockfile(
         server, branch_name, layout=layout, require_writable=True
     )
@@ -682,8 +785,6 @@ async def upload_branch_addon(
         raise ConflictError(
             f"A file named '{safe_filename}' already exists on branch '{branch_name}'"
         )
-
-    meta = parse_jar_metadata(file_content)
     cas = ArtifactCas(eff_layout.cas)
     sha256_digest = cas.put_bytes(file_content)
 
@@ -826,17 +927,67 @@ async def toggle_branch_plugin(
             new_files.append(entry)
 
     if toggled is None or updated_entry is None:
-        raise NotFoundError(f"Plugin '{plugin_identifier}' not found on branch '{branch_name}'")
+        addon_dir_name = get_addon_dir_name(server.server_type.value)
+        tracked = {f.path for f in lockfile.files}
+        matched_untracked: tuple[str, Path] | None = None
+        for rel, _raw_bytes in _uncommitted_jars_in_worktree(worktree, addon_dir_name, tracked):
+            bid = branch_plugin_id(server_id, branch_name, rel)
+            if plugin_identifier in (bid, rel, Path(rel).name):
+                matched_untracked = (rel, worktree / rel)
+                break
+
+        if matched_untracked is None:
+            raise NotFoundError(
+                f"Plugin '{plugin_identifier}' not found on branch '{branch_name}'"
+            )
+
+        old_rel, old_disk_path = matched_untracked
+        if enabled and old_rel.lower().endswith(".jar.disabled"):
+            new_rel = old_rel[:-9]
+        elif not enabled and old_rel.lower().endswith(".jar"):
+            new_rel = f"{old_rel}.disabled"
+        else:
+            new_rel = old_rel
+
+        if new_rel != old_rel:
+            new_disk_path = worktree / new_rel
+            old_disk_path.rename(new_disk_path)
+
+        fname = Path(new_rel).name
+        if event_bus is not None:
+            clean_name = fname[:-9] if fname.lower().endswith(".disabled") else fname
+            clean_name = clean_name[:-4] if clean_name.lower().endswith(".jar") else clean_name
+            ev_cls = PluginEnabledEvent if enabled else PluginDisabledEvent
+            await event_bus.publish(
+                ev_cls(
+                    plugin_id=branch_plugin_id(server_id, branch_name, new_rel),
+                    server_id=server_id,
+                    name=clean_name or fname,
+                    filename=fname,
+                    branch_name=branch_name,
+                )
+            )
+        return {
+            "plugin_id": branch_plugin_id(server_id, branch_name, new_rel),
+            "enabled": enabled,
+            "filename": fname,
+            "branch_name": branch_name,
+        }
 
     if toggled.path != updated_entry.path:
         _write_branch_lockfile(worktree, replace(lockfile, files=tuple(new_files)))
 
     if event_bus is not None:
+        fname = Path(updated_entry.path).name
+        clean_name = fname[:-9] if fname.lower().endswith(".disabled") else fname
+        clean_name = clean_name[:-4] if clean_name.lower().endswith(".jar") else clean_name
         ev_cls = PluginEnabledEvent if enabled else PluginDisabledEvent
         await event_bus.publish(
             ev_cls(
                 plugin_id=branch_plugin_id(server_id, branch_name, updated_entry.path),
                 server_id=server_id,
+                name=clean_name or fname,
+                filename=fname,
                 branch_name=branch_name,
             )
         )

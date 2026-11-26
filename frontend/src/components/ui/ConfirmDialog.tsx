@@ -5,6 +5,7 @@ export interface ConfirmDialogProps {
   open: boolean;
   title: string;
   description?: string;
+  children?: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "warning" | "info";
@@ -17,6 +18,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
+  children,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   variant = "danger",
@@ -100,9 +102,9 @@ export function ConfirmDialog({
 
   const confirmColors =
     variant === "danger"
-      ? "bg-status-danger hover:opacity-90 text-white"
+      ? "bg-status-danger hover:opacity-90 text-text-inverse"
       : variant === "warning"
-      ? "bg-status-warning hover:opacity-90 text-black"
+      ? "bg-status-warning hover:opacity-90 text-text-inverse"
       : "bg-accent-primary hover:bg-accent-hover text-accent-contrast-text";
 
   return (
@@ -129,8 +131,10 @@ export function ConfirmDialog({
         </div>
         <h2 className="mb-1 text-base font-semibold text-text-primary">{title}</h2>
         {description && (
-          <p className="mb-5 text-sm text-text-muted">{description}</p>
+          <p className="mb-4 text-sm text-text-muted">{description}</p>
         )}
+        {children && <div className="mb-5">{children}</div>}
+        {!children && description && <div className="mb-1" />}
         <div className="flex justify-end gap-2">
           <button
             ref={cancelButtonRef}

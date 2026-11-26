@@ -21,15 +21,12 @@ from app.modules.versioning.domain.lockfile import LoaderRef
 
 
 class TestDeriveLoaderRefFromParts:
-    def test_vanilla_spigot_bukkit(self) -> None:
+    def test_vanilla_spigot(self) -> None:
         ref_v = derive_loader_ref_from_parts(ServerType.VANILLA, "1.20.4")
         assert ref_v == LoaderRef(id="vanilla", version="1.20.4")
 
         ref_s = derive_loader_ref_from_parts(ServerType.SPIGOT, "1.20.2")
         assert ref_s == LoaderRef(id="spigot", version="1.20.2")
-
-        ref_b = derive_loader_ref_from_parts(ServerType.BUKKIT, "1.19.4")
-        assert ref_b == LoaderRef(id="bukkit", version="1.19.4")
 
     def test_paper_and_purpur_with_startup_jar(self) -> None:
         ref_paper = derive_loader_ref_from_parts(

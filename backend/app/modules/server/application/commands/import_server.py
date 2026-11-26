@@ -200,7 +200,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                     ),
                     group_id=command.group_id,
                     deployment=deployment,
-                    runtime=RuntimeInfo(provider="docker"),
+                    runtime=RuntimeInfo(provider="docker", port=command.port),
                     owner_id=command.creator_id,
                     mode=ServerMode(command.mode),
                 )

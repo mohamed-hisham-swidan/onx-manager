@@ -26,7 +26,9 @@ from app.modules.server.application.branch_settings import (
 )
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
+    extract_provider_crash_lines,
     format_event,
+    persist_crash_evidence,
     progress_phase,
     shutdown_timeline,
     startup_timeline,
@@ -35,6 +37,7 @@ from app.modules.server.application.runtime_ownership import (
     RuntimeOwnershipManager,
     _port_is_listening,
     _wait_for_port_free,
+    resolve_docker_host_rcon_port,
 )
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
@@ -53,7 +56,8 @@ from app.modules.versioning.infrastructure.refresh_journal import (
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.restart_server")
 
-# TODO(STARTING-001-CFG): hardcoded for now; shares the future config system with the OQ-2 15-min supervisor startup timeout
+# TODO(STARTING-001-CFG): hardcoded for now; shares the future config system
+# with the OQ-2 15-min supervisor startup timeout
 _BACKUP_WAIT_CAP_S: float = 30.0
 _GRACEFUL_STOP_TIMEOUT: float = 50.0
 _FORCE_STOP_TIMEOUT: float = 15.0
@@ -94,7 +98,8 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 break
             if time.monotonic() >= backup_deadline:
                 logger.warning(
-                    'Restart backup-wait cap (%.1fs) exceeded for server "%s" — cancelling in-flight backup(s) and proceeding server_id=%s',
+                    'Restart backup-wait cap (%.1fs) exceeded for server "%s" — '
+                    "cancelling in-flight backup(s) and proceeding server_id=%s",
                     _BACKUP_WAIT_CAP_S,
                     sid,
                     sid,
@@ -351,6 +356,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     error_code="NO_DEPLOYMENT",
                 )
 
+            if server.runtime:
+                server.runtime.last_log_lines = []
+                server.runtime.last_crash_time = None
             server.start()
             await repo.save(server)
             for event in server.collect_events():
@@ -386,6 +394,25 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
         with startup_timeline(server_name, sid):
             add_timeline_milestone(None, "Phase 2/2: Start initiated", server_name, sid)
             try:
+                companion_ports: list[dict[str, object]] = []
+                with contextlib.suppress(Exception):
+                    from sqlalchemy import select
+
+                    from app.modules.exposure.infrastructure.models import ServerRegisteredPortModel
+
+                    async with database.session_factory() as p_sess:
+                        rows = (
+                            await p_sess.execute(
+                                select(ServerRegisteredPortModel).where(
+                                    ServerRegisteredPortModel.server_id == sid
+                                )
+                            )
+                        ).scalars().all()
+                        companion_ports = [
+                            {"port": r.port, "protocol": r.protocol}
+                            for r in rows
+                            if getattr(r, "port", None)
+                        ]
                 config = {
                     "java_args": server.java_args.as_list(),
                     "memory_min_mb": server.memory.min_mb,
@@ -394,7 +421,17 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     "cpu_cores": server.cpu.cores,
                     "cpu_affinity": server.cpu.affinity,
                     "minecraft_version": str(server.minecraft_version),
+                    "server_type": server.server_type.value,
+                    "companion_ports": companion_ports,
                 }
+                if provider_type == "docker":
+                    host_rcon_port = await resolve_docker_host_rcon_port(
+                        server=server,
+                        provider=provider,
+                        server_dir=server_dir,
+                    )
+                    if host_rcon_port is not None:
+                        config["rcon_port"] = host_rcon_port
                 await provider.prepare_environment(
                     server_id=sid,
                     config=config,
@@ -445,7 +482,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
                     if still_running:
-                        server.crash(reason="Restart start timed out and runtime cleanup failed")
+                        reason_msg = "Restart start timed out and runtime cleanup failed"
+                        server.crash(reason=reason_msg)
+                        await persist_crash_evidence(uow.session, sid, [f"[ERROR] {reason_msg}"])
                     else:
                         server.mark_stopped()
                     await repo.save(server)
@@ -470,11 +509,19 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     provider_type,
                     sid,
                 )
+                crash_lines = extract_provider_crash_lines(exc)
+                if server_dir:
+                    from app.modules.server.infrastructure.providers.docker import (
+                        _remove_persisted_rcon_port,
+                    )
+
+                    _remove_persisted_rcon_port(server_dir)
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.crash(exit_code=-1, last_log_lines=[str(exc)])
+                    server.crash(exit_code=-1, last_log_lines=crash_lines)
                     await repo.save(server)
+                    await persist_crash_evidence(uow.session, sid, crash_lines)
                     for event in server.collect_events():
                         uow.add_event(event)
                     await uow.commit()

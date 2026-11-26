@@ -5,6 +5,7 @@ from pydantic import Field
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
+from app.core.exceptions import PermissionDenied
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import generate_api_key, hash_api_key
 from app.modules.auth.domain.aggregate import ApiKey
@@ -16,6 +17,8 @@ class CreateApiKeyCommand(Command):
     user_id: str
     name: str
     permissions: list[str] = Field(default_factory=list)
+    caller_permissions: list[str] | None = None
+    caller_roles: list[str] | None = None
 
 
 class CreateApiKeyHandler(CommandHandler[CreateApiKeyCommand]):
@@ -31,6 +34,21 @@ class CreateApiKeyHandler(CommandHandler[CreateApiKeyCommand]):
         for p in command.permissions:
             with contextlib.suppress(ValueError):
                 perms.append(Permission.parse(p))
+
+        if command.caller_permissions is not None or command.caller_roles is not None:
+            caller_perms = set(command.caller_permissions or [])
+            caller_roles = set(command.caller_roles or [])
+            is_unrestricted = (
+                "owner" in caller_roles
+                or "admin:full" in caller_perms
+                or "global.*" in caller_perms
+            )
+            if not is_unrestricted:
+                for p_raw in command.permissions:
+                    if p_raw not in caller_perms:
+                        raise PermissionDenied(
+                            f"Cannot grant API key permission '{p_raw}' not held by caller"
+                        )
 
         api_key = ApiKey(
             api_key_id=ApiKeyId(uuid.uuid4().hex),

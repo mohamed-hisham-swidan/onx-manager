@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServerConsole } from "./ServerConsole";
 import { notifyConsoleListeners } from "@/hooks/useWebSocket";
 import { useWSStore } from "@/stores/wsStore";
-import { ConnectionState } from "@/websocket/types";
+import { ChannelStatus, ConnectionState } from "@/websocket/types";
 import type { CrashReportSummary } from "@/server_manager/types";
 
 const mockGetServerConsole = vi.fn();
@@ -39,6 +39,7 @@ vi.mock("@/server_manager/hooks/useServerMetrics", () => ({
 function renderConsole(
   props: {
     serverId?: string;
+    serverName?: string;
     serverStatus?: string;
     tps?: number | null;
     players?: number;
@@ -46,6 +47,8 @@ function renderConsole(
     host?: string | null;
     port?: number | null;
     compactHeader?: boolean;
+    canConsole?: boolean;
+    uptimeSeconds?: number | null;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -58,6 +61,7 @@ function renderConsole(
     <QueryClientProvider client={queryClient}>
       <ServerConsole
         serverId={props.serverId ?? "srv-1"}
+        serverName={props.serverName}
         serverStatus={props.serverStatus ?? "running"}
         tps={props.tps}
         players={props.players}
@@ -65,8 +69,26 @@ function renderConsole(
         host={props.host}
         port={props.port}
         compactHeader={props.compactHeader}
+        canConsole={props.canConsole}
+        uptimeSeconds={props.uptimeSeconds}
       />
     </QueryClientProvider>,
+  );
+}
+
+async function findConsoleLine(expectedText: string) {
+  return screen.findByText(
+    (_content, element) =>
+      element?.hasAttribute("data-log-level") === true &&
+      element.textContent === expectedText,
+  );
+}
+
+function queryConsoleLine(expectedText: string) {
+  return screen.queryByText(
+    (_content, element) =>
+      element?.hasAttribute("data-log-level") === true &&
+      element.textContent === expectedText,
   );
 }
 
@@ -146,18 +168,57 @@ describe("ServerConsole Component", () => {
     expect(badge).toHaveTextContent("3");
   });
 
-  it("sends command and appends to local command history", async () => {
+  it("sends command, appends to console, and supports ArrowUp/ArrowDown history", async () => {
     const user = userEvent.setup();
     renderConsole();
 
-    const input = screen.getByPlaceholderText("Enter a command...");
-    const sendBtn = screen.getByRole("button", { name: "Send" });
+    const input = screen.getByTestId("console-command-input");
+    const sendBtn = screen.getByTestId("console-send-btn");
 
     await user.type(input, "tps");
     await user.click(sendBtn);
 
     expect(mockSendServerCommand).toHaveBeenCalledWith("srv-1", { command: "tps" });
-    expect(await screen.findByText("> tps")).toBeInTheDocument();
+    expect(await findConsoleLine("> tps")).toBeInTheDocument();
+
+    await user.type(input, "list");
+    await user.click(sendBtn);
+    expect(await findConsoleLine("> list")).toBeInTheDocument();
+
+    // Navigate command history with ArrowUp / ArrowDown preserving unsent draft
+    await user.type(input, "draft");
+    await user.keyboard("{ArrowUp}");
+    expect(input).toHaveValue("list");
+    await user.keyboard("{ArrowUp}");
+    expect(input).toHaveValue("tps");
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveValue("list");
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveValue("draft");
+  });
+
+  it("disables command bar when server is offline or lacking console permission", () => {
+    const { rerender } = renderConsole({ serverStatus: "stopped" });
+    expect(screen.getByTestId("console-command-input")).toBeDisabled();
+    expect(screen.getByTestId("quick-cmd-list")).toBeDisabled();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ServerConsole serverId="srv-1" serverStatus="running" canConsole={false} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("console-command-input")).toBeDisabled();
+  });
+
+  it("supports quick command chips", async () => {
+    const user = userEvent.setup();
+    renderConsole();
+
+    await user.click(screen.getByTestId("quick-cmd-list"));
+    expect(mockSendServerCommand).toHaveBeenCalledWith("srv-1", { command: "list" });
+
+    await user.click(screen.getByTestId("quick-cmd-say"));
+    expect(screen.getByTestId("console-command-input")).toHaveValue("say ");
   });
 
   it("renders command RCON output lines below the echoed command and strips Minecraft § formatting", async () => {
@@ -168,11 +229,11 @@ describe("ServerConsole Component", () => {
     const user = userEvent.setup();
     renderConsole();
 
-    const input = screen.getByPlaceholderText("Enter a command...");
+    const input = screen.getByTestId("console-command-input");
     await user.type(input, "plugins");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(screen.getByTestId("console-send-btn"));
 
-    expect(await screen.findByText("> plugins")).toBeInTheDocument();
+    expect(await findConsoleLine("> plugins")).toBeInTheDocument();
     expect(await screen.findByText("Plugins (2): VeinMiner, TAB")).toBeInTheDocument();
     expect(await screen.findByText("TPS from last 1m: 20.0")).toBeInTheDocument();
   });
@@ -182,29 +243,29 @@ describe("ServerConsole Component", () => {
     const user = userEvent.setup();
     renderConsole();
 
-    const input = screen.getByPlaceholderText("Enter a command...");
+    const input = screen.getByTestId("console-command-input");
     await user.type(input, "list");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(screen.getByTestId("console-send-btn"));
 
-    expect(await screen.findByText("> list")).toBeInTheDocument();
-    expect(await screen.findByText("[ERROR] RCON connection refused")).toBeInTheDocument();
+    expect(await findConsoleLine("> list")).toBeInTheDocument();
+    expect(await findConsoleLine("[ERROR] RCON connection refused")).toBeInTheDocument();
   });
 
-  it("clears local command history on Clear button click", async () => {
+  it("clears both HTTP history and local command output on Clear button click", async () => {
     const user = userEvent.setup();
     renderConsole();
 
-    const input = screen.getByPlaceholderText("Enter a command...");
-    const sendBtn = screen.getByRole("button", { name: "Send" });
+    expect(await screen.findByText(/Done \(2\.4s\)!/)).toBeInTheDocument();
 
+    const input = screen.getByTestId("console-command-input");
     await user.type(input, "list");
-    await user.click(sendBtn);
-    expect(await screen.findByText("> list")).toBeInTheDocument();
+    await user.click(screen.getByTestId("console-send-btn"));
+    expect(await findConsoleLine("> list")).toBeInTheDocument();
 
-    const clearBtn = screen.getByRole("button", { name: "Clear" });
-    await user.click(clearBtn);
+    await user.click(screen.getByTestId("console-clear-btn"));
 
-    expect(screen.queryByText("> list")).not.toBeInTheDocument();
+    expect(queryConsoleLine("> list")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Done \(2\.4s\)!/)).not.toBeInTheDocument();
   });
 
   it("displays Container tag badge when provider is docker", () => {
@@ -221,20 +282,11 @@ describe("ServerConsole Component", () => {
     expect(badge).toHaveTextContent("File / Host");
   });
 
-  it("displays dynamic container IP badge when host and port are provided for docker", () => {
-    renderConsole({ provider: "docker", host: "172.17.0.3", port: 25569 });
-    const badge = screen.getByTestId("console-ip-badge");
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("172.17.0.3:25569");
-    expect(badge).toHaveAttribute("title", "Container IP: 172.17.0.3:25569");
-  });
-
-  it("displays dynamic host IP badge when host and port are provided for host process", () => {
+  it("displays dynamic address badge when host and port are provided", () => {
     renderConsole({ provider: "local", host: "192.168.1.253", port: 25565 });
     const badge = screen.getByTestId("console-ip-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("192.168.1.253:25565");
-    expect(badge).toHaveAttribute("title", "Host IP: 192.168.1.253:25565");
   });
 
   it("does not display IP badge when host is not provided", () => {
@@ -242,32 +294,62 @@ describe("ServerConsole Component", () => {
     expect(screen.queryByTestId("console-ip-badge")).not.toBeInTheDocument();
   });
 
-  it("colorizes log lines according to severity level classes", async () => {
+  it("renders structured token colors (muted timestamp, colored level tag, violet [sourceTag], neutral INFO body, milestone green) and strips Docker nanosecond prefixes by default", async () => {
+    const user = userEvent.setup();
     mockGetServerConsole.mockResolvedValue({
       lines: [
-        "[INFO] Starting server",
-        "[WARN] Can't keep up! Is the server overloaded?",
-        "[ERROR] Encountered an unexpected exception",
+        "2026-11-24T09:51:16.206710177Z [09:51:16 INFO]: [Veinminer] Starting plugin setup",
+        '[09:51:16 INFO]: Done (2.412s)! For help, type "help"',
+        "[09:51:17 WARN]: Can't keep up! Is the server overloaded?",
+        "[09:51:18 ERROR]: Encountered an unexpected exception",
         "Plain text log without level",
       ],
     });
 
     renderConsole();
 
-    const infoLine = await screen.findByText("[INFO] Starting server");
-    expect(infoLine).toHaveClass("text-sky-300");
+    const infoLine = await findConsoleLine("[09:51:16 INFO]: [Veinminer] Starting plugin setup");
+    expect(infoLine).toHaveAttribute("data-log-level", "info");
 
-    const warnLine = await screen.findByText(/Can't keep up!/);
-    expect(warnLine).toHaveClass("text-amber-400");
+    const tsSpan = infoLine.querySelector('[data-log-token="timestamp"]');
+    const levelSpan = infoLine.querySelector('[data-log-token="level"]');
+    const sourceSpan = infoLine.querySelector('[data-log-token="source"]');
+    const msgSpan = infoLine.querySelector('[data-log-token="message"]');
+    expect(tsSpan).toHaveClass("text-terminal-timestamp");
+    expect(levelSpan).toHaveClass("text-terminal-info");
+    expect(levelSpan).toHaveTextContent("INFO");
+    expect(sourceSpan).toHaveClass("text-terminal-source");
+    expect(sourceSpan).toHaveTextContent("[Veinminer]");
+    expect(msgSpan).toHaveClass("text-terminal-text");
+    expect(msgSpan).not.toHaveClass("text-terminal-info");
 
-    const errorLine = await screen.findByText(/Encountered an unexpected exception/);
-    expect(errorLine).toHaveClass("text-rose-400");
+    const milestoneMsg = screen.getByText('Done (2.412s)! For help, type "help"');
+    expect(milestoneMsg).toHaveClass("text-terminal-success");
 
-    const plainLine = await screen.findByText("Plain text log without level");
-    expect(plainLine).toHaveClass("text-gray-300");
+    const warnLine = screen.getByText(/Can't keep up!/);
+    expect(warnLine).toHaveClass("text-terminal-warn");
+
+    const errorLine = screen.getByText(/Encountered an unexpected exception/);
+    expect(errorLine).toHaveClass("text-terminal-error");
+
+    const plainLine = screen.getByText("Plain text log without level");
+    expect(plainLine).toHaveClass("text-terminal-text");
+
+    // Toggle ISO timestamps on
+    await user.click(screen.getByTestId("console-iso-toggle"));
+    expect(
+      await findConsoleLine(
+        "2026-11-24T09:51:16.206710177Z [09:51:16 INFO]: [Veinminer] Starting plugin setup",
+      ),
+    ).toBeInTheDocument();
+
+    // Filter by Error level
+    await user.click(screen.getByTestId("console-filter-error"));
+    expect(screen.getByText(/Encountered an unexpected exception/)).toBeInTheDocument();
+    expect(screen.queryByText(/Can't keep up!/)).not.toBeInTheDocument();
   });
 
-  it("filters logs and displays match count when searching", async () => {
+  it("filters logs, highlights search matches, and displays match count", async () => {
     const user = userEvent.setup();
     mockGetServerConsole.mockResolvedValue({
       lines: [
@@ -284,33 +366,38 @@ describe("ServerConsole Component", () => {
     await user.type(searchInput, "alice");
 
     expect(screen.getByTestId("console-search-matches")).toHaveTextContent("2 matches");
-    expect(screen.getByText(/Alice logged in/)).toBeInTheDocument();
-    expect(screen.getByText(/Alice timed out/)).toBeInTheDocument();
+    expect(screen.getAllByText("Alice")).toHaveLength(2);
     expect(screen.queryByText(/Bob logged in/)).not.toBeInTheDocument();
 
     // Clear search
-    const clearSearchBtn = screen.getByRole("button", { name: "Clear search" });
-    await user.click(clearSearchBtn);
-
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByText(/Bob logged in/)).toBeInTheDocument();
   });
 
-  it("toggles follow log auto-scroll button", async () => {
+  it("toggles follow log auto-scroll button and pauses on scroll up with Jump to latest button", async () => {
     const user = userEvent.setup();
     renderConsole();
+    await screen.findByText(/Done \(2\.4s\)!/);
 
     const followBtn = screen.getByTestId("follow-log-toggle");
     expect(followBtn).toHaveTextContent("Follow Log");
     expect(followBtn).toHaveAttribute("title", "Auto-scrolling enabled");
 
-    await user.click(followBtn);
+    const viewport = screen.getByTestId("console-output-viewport");
+    Object.defineProperty(viewport, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(viewport, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(viewport, "scrollTop", { value: 200, writable: true, configurable: true });
+
+    fireEvent.scroll(viewport);
     expect(followBtn).toHaveAttribute("title", "Auto-scrolling paused");
 
-    await user.click(followBtn);
+    const jumpBtn = screen.getByTestId("console-jump-latest-btn");
+    expect(jumpBtn).toBeInTheDocument();
+    await user.click(jumpBtn);
     expect(followBtn).toHaveAttribute("title", "Auto-scrolling enabled");
   });
 
-  it("displays crash alert banner and opens crash report modal when crash reports exist", async () => {
+  it("displays crash alert banner when server is crashed and opens crash report modal with server name", async () => {
     const user = userEvent.setup();
     const sampleCrash: CrashReportSummary = {
       filename: "crash-2026-09-14-server.txt",
@@ -324,7 +411,7 @@ describe("ServerConsole Component", () => {
 
     mockGetServerCrashReports.mockResolvedValue([sampleCrash]);
 
-    renderConsole();
+    renderConsole({ serverStatus: "crashed", serverName: "Survival SMP" });
 
     const banner = await screen.findByTestId("crash-alert-banner");
     expect(banner).toBeInTheDocument();
@@ -332,17 +419,34 @@ describe("ServerConsole Component", () => {
     expect(banner).toHaveTextContent("MOD_CRASH");
     expect(screen.getByTestId("crash-banner-blamed-mod")).toHaveTextContent("Blamed: create");
 
-    // Click "View Crash Report" in banner
-    const viewBtn = screen.getByTestId("crash-banner-view-btn");
-    await user.click(viewBtn);
+    await user.click(screen.getByTestId("crash-banner-view-btn"));
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Crash Report Inspector")).toBeInTheDocument();
+    expect(screen.getByText(/Survival SMP/)).toBeInTheDocument();
     expect(screen.getByTestId("blamed-mod-callout")).toHaveTextContent("create");
 
-    // Close modal
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("suppresses loud crash alert banner for historical crashes on a healthy running server while keeping toolbar button", async () => {
+    const oldCrash: CrashReportSummary = {
+      filename: "crash-2025-01-01-server.txt",
+      timestamp: "2025-01-01T01:00:00Z",
+      failure_code: "MOD_CRASH",
+      blamed_mod: "oldmod",
+      stack_trace_snippet: "",
+      suggested_remediation: "Remove oldmod",
+      raw_content: "old crash",
+    };
+    mockGetServerCrashReports.mockResolvedValue([oldCrash]);
+
+    renderConsole({ serverStatus: "running", uptimeSeconds: 3600 });
+
+    const toolbarCrashBtn = await screen.findByTestId("view-crash-reports-btn");
+    expect(toolbarCrashBtn).toHaveTextContent("Crash (1)");
+    expect(screen.queryByTestId("crash-alert-banner")).not.toBeInTheDocument();
   });
 
   it("appends live console lines received via WebSocket stream", async () => {
@@ -353,7 +457,7 @@ describe("ServerConsole Component", () => {
       notifyConsoleListeners("srv-live", ["[INFO] Player Steve joined the game"]);
     });
 
-    expect(await screen.findByText("[INFO] Player Steve joined the game")).toBeInTheDocument();
+    expect(await findConsoleLine("[INFO] Player Steve joined the game")).toBeInTheDocument();
   });
 
   it("disables 3s polling query when WS connection is active", async () => {
@@ -364,12 +468,11 @@ describe("ServerConsole Component", () => {
     renderConsole({ serverId: "srv-live" });
     await screen.findByText(/Done \(2\.4s\)!/);
 
-    // Initial fetch was done
     expect(mockGetServerConsole).toHaveBeenCalledTimes(1);
-    expect(useWSStore.getState().connected).toBe(true);
+    expect(screen.getByTestId("console-stream-status")).toHaveTextContent("Live");
   });
 
-  it("triggers reconnect re-tail flow and resets live lines on WS reconnection", async () => {
+  it("merges re-tailed lines on WS reconnection without wiping existing live lines", async () => {
     useWSStore.setState({
       connected: false,
       connectionState: ConnectionState.RECONNECTING,
@@ -378,27 +481,27 @@ describe("ServerConsole Component", () => {
     renderConsole({ serverId: "srv-live" });
     await screen.findByText(/Done \(2\.4s\)!/);
 
-    // Add a live line while reconnecting
     act(() => {
       notifyConsoleListeners("srv-live", ["[INFO] Transient live message"]);
     });
-    expect(await screen.findByText("[INFO] Transient live message")).toBeInTheDocument();
+    expect(await findConsoleLine("[INFO] Transient live message")).toBeInTheDocument();
 
-    // Reconnection occurs: RECONNECTING -> CONNECTED
     mockGetServerConsole.mockResolvedValueOnce({
-      lines: ["[Server thread/INFO]: Refetched re-tail line 1"],
+      lines: [
+        "[INFO] Transient live message",
+        "[Server thread/INFO]: Refetched re-tail line 1",
+      ],
     });
 
     act(() => {
       useWSStore.getState().setConnectionState(ConnectionState.CONNECTED);
     });
 
-    // Re-tail refetch should be triggered and transient live lines cleared
     expect(await screen.findByText(/Refetched re-tail line 1/)).toBeInTheDocument();
-    expect(screen.queryByText("[INFO] Transient live message")).not.toBeInTheDocument();
+    expect(await findConsoleLine("[INFO] Transient live message")).toBeInTheDocument();
   });
 
-  it("refetches history and displays missed lines when visibility changes from hidden to visible, and cleans up listener", async () => {
+  it("refetches history and merges missed lines when visibility changes from hidden to visible, and cleans up listener", async () => {
     Object.defineProperty(document, "visibilityState", {
       value: "hidden",
       writable: true,
@@ -428,7 +531,9 @@ describe("ServerConsole Component", () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
 
-    expect(await screen.findByText(/Player joined while tab was in background/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Player joined while tab was in background/),
+    ).toBeInTheDocument();
     expect(mockGetServerConsole).toHaveBeenCalledTimes(2);
 
     unmount();
@@ -436,37 +541,74 @@ describe("ServerConsole Component", () => {
     removeEventListenerSpy.mockRestore();
   });
 
-  it("does not mount duplicate terminal containers when navigating away and back (unmount and remount)", async () => {
+  it("does not mount duplicate terminal containers when navigating away and back", async () => {
     const { unmount } = renderConsole({ serverId: "srv-live" });
     await screen.findByText(/Done \(2\.4s\)!/);
 
-    expect(screen.getAllByPlaceholderText("Enter a command...")).toHaveLength(1);
+    expect(screen.getAllByTestId("console-command-input")).toHaveLength(1);
     expect(screen.getAllByTestId("console-search-input")).toHaveLength(1);
 
-    // Simulate navigating away
     unmount();
-    expect(screen.queryByPlaceholderText("Enter a command...")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("console-search-input")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("console-command-input")).not.toBeInTheDocument();
 
-    // Simulate navigating back
     renderConsole({ serverId: "srv-live" });
     await screen.findByText(/Done \(2\.4s\)!/);
 
-    // Exactly one instance mounted, zero duplicate viewports or listeners
-    expect(screen.getAllByPlaceholderText("Enter a command...")).toHaveLength(1);
+    expect(screen.getAllByTestId("console-command-input")).toHaveLength(1);
     expect(screen.getAllByTestId("console-search-input")).toHaveLength(1);
   });
 
-  it("renders log container with min-h-[420px] and calc(100dvh-33rem) height without h-[420px] or flex-1", async () => {
-    const { container } = renderConsole({ serverId: "srv-viewport" });
+  it("places viewport-balanced clamp height on outer console container so log viewport stretches with flex-1 min-h-0", async () => {
+    renderConsole({ serverId: "srv-viewport" });
     await screen.findByText(/Done \(2\.4s\)!/);
 
-    const logContainer = container.querySelector(".overflow-y-auto");
+    const outerContainer = screen.getByTestId("server-console-container");
+    expect(outerContainer.className).toContain("h-[460px]");
+    expect(outerContainer.className).toContain("lg:h-[clamp(400px,calc(100dvh-14.5rem),640px)]");
+
+    const logContainer = screen.getByTestId("console-output-viewport");
     expect(logContainer).toBeInTheDocument();
-    expect(logContainer?.className).toContain("min-h-[420px]");
-    expect(logContainer?.className).toContain("calc(100dvh-33rem)");
-    expect(logContainer?.className).not.toMatch(/(^|\s)h-\[420px\]/);
-    expect(logContainer?.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
+    expect(logContainer.className).toContain("flex-1");
+    expect(logContainer.className).toContain("min-h-0");
+    expect(logContainer.className).toContain("overflow-y-auto");
+    expect(logContainer.className).not.toContain("calc(100dvh-33rem)");
+  });
+
+  it("clears stale crash lines immediately when server status transitions from crashed to starting", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    mockGetServerConsole.mockResolvedValueOnce({
+      lines: ["[ERROR] docker start failed: port is already allocated"],
+    });
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ServerConsole serverId="srv-transition" serverStatus="crashed" />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await findConsoleLine("[ERROR] docker start failed: port is already allocated"),
+    ).toBeInTheDocument();
+
+    mockGetServerConsole.mockResolvedValueOnce({
+      lines: ["[12:00:01 INFO]: Starting minecraft server version 1.21.11"],
+    });
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ServerConsole serverId="srv-transition" serverStatus="starting" />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await findConsoleLine("[12:00:01 INFO]: Starting minecraft server version 1.21.11"),
+    ).toBeInTheDocument();
+    expect(
+      queryConsoleLine("[ERROR] docker start failed: port is already allocated"),
+    ).not.toBeInTheDocument();
   });
 
   it("hides duplicated status, player, provider, and IP capsules when compactHeader is enabled", async () => {
@@ -483,5 +625,80 @@ describe("ServerConsole Component", () => {
     expect(screen.queryByTestId("console-player-counter-capsule")).not.toBeInTheDocument();
     expect(screen.queryByTestId("console-provider-badge")).not.toBeInTheDocument();
     expect(screen.queryByTestId("console-ip-badge")).not.toBeInTheDocument();
+  });
+
+  it("activates 3s HTTP fallback polling when WS is connected but console channel is degraded", async () => {
+    vi.useFakeTimers();
+    try {
+      useWSStore.setState({
+        connected: true,
+        connectionState: ConnectionState.CONNECTED,
+        channelStates: {
+          "server:srv-degraded:console": {
+            channel: "server:srv-degraded:console",
+            status: ChannelStatus.RETRYING,
+            authorized: true,
+            retryCount: 1,
+          },
+        },
+      });
+      renderConsole({ serverId: "srv-degraded" });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(mockGetServerConsole).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
+      });
+      expect(mockGetServerConsole).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves Clear Console across tab visibility switch and WS reconnect while showing only post-clear lines", async () => {
+    mockGetServerConsole.mockResolvedValue({
+      lines: [
+        "[Server thread/INFO]: Line before clear 1",
+        "[Server thread/INFO]: Line before clear 2",
+      ],
+    });
+    useWSStore.setState({
+      connected: false,
+      connectionState: ConnectionState.RECONNECTING,
+    });
+
+    const user = userEvent.setup();
+    renderConsole({ serverId: "srv-clear-persist" });
+
+    expect(await findConsoleLine("[Server thread/INFO]: Line before clear 1")).toBeInTheDocument();
+    expect(await findConsoleLine("[Server thread/INFO]: Line before clear 2")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("console-clear-btn"));
+    expect(queryConsoleLine("[Server thread/INFO]: Line before clear 1")).not.toBeInTheDocument();
+
+    // Tab visibility switch triggers syncMissedTail returning the same lines -> must stay cleared
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(queryConsoleLine("[Server thread/INFO]: Line before clear 1")).not.toBeInTheDocument();
+
+    // WS reconnect triggers syncMissedTail with a new post-clear line -> old lines stay cleared, new line renders
+    mockGetServerConsole.mockResolvedValueOnce({
+      lines: [
+        "[Server thread/INFO]: Line before clear 1",
+        "[Server thread/INFO]: Line before clear 2",
+        "[Server thread/INFO]: New line after clear",
+      ],
+    });
+    await act(async () => {
+      useWSStore.getState().setConnectionState(ConnectionState.CONNECTED);
+    });
+
+    expect(await findConsoleLine("[Server thread/INFO]: New line after clear")).toBeInTheDocument();
+    expect(queryConsoleLine("[Server thread/INFO]: Line before clear 1")).not.toBeInTheDocument();
+    expect(queryConsoleLine("[Server thread/INFO]: Line before clear 2")).not.toBeInTheDocument();
   });
 });

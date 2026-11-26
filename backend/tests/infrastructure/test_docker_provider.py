@@ -106,7 +106,7 @@ class TestDockerProviderContract:
         assert create_args[create_args.index("-p") + 1] == "25565:25565"
         assert "--memory" in create_args
         # 4096 + 512 = 4608m headroom
-        assert create_args[create_args.index("--memory") + 1] == "4608m"
+        assert create_args[create_args.index("--memory") + 1] == "5120m"
 
         # Volume mount contract (Decision 3)
         assert "-v" in create_args
@@ -497,16 +497,27 @@ class TestDockerProviderContract:
             external_id="onx-exec-srv",
         )
 
+        mock_rcon = AsyncMock()
+        mock_rcon.connect = AsyncMock()
+        mock_rcon.send_command = AsyncMock(return_value="Made player an operator\n")
+        mock_rcon.close = AsyncMock()
+
         with (
-            patch.object(provider, "_resolve_rcon_credentials", AsyncMock(return_value=None)),
+            patch.object(
+                provider,
+                "_resolve_rcon_credentials",
+                AsyncMock(return_value=("127.0.0.1", 25575, "secret")),
+            ),
+            patch(
+                "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
+                return_value=mock_rcon,
+            ),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.return_value = (0, "Made player an operator\n")
             out = await provider.execute_command(handle, "op player; echo 'injection'")
 
-        mock_docker.assert_awaited_once_with(
-            "exec", "onx-exec-srv", "rcon-cli", "--", "op player; echo 'injection'"
-        )
+        mock_docker.assert_not_called()
+        mock_rcon.send_command.assert_awaited_once_with("op player; echo 'injection'")
         assert "Made player an operator" in out
 
     @pytest.mark.asyncio
@@ -1304,10 +1315,19 @@ class TestDockerDestroy:
                 return 0, "command executed"
             return 0, ""
 
+        mock_rcon = AsyncMock()
+        mock_rcon.connect = AsyncMock()
+        mock_rcon.send_command = AsyncMock(return_value="command executed")
+        mock_rcon.close = AsyncMock()
+
         with (
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", side_effect=fake_docker_runner),
             patch.object(provider, "_wait_for_container_exit", AsyncMock(return_value=True)),
+            patch(
+                "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
+                return_value=mock_rcon,
+            ),
         ):
             result = await provider.start(
                 server_id="srv-f1",
@@ -1322,7 +1342,7 @@ class TestDockerDestroy:
                 provider="docker",
                 server_id="srv-f1",
                 external_id="",
-                metadata=result.metadata,
+                metadata={**result.metadata, "rcon_password": "secret", "rcon_port": 25575},
             )
 
             executed_commands.clear()

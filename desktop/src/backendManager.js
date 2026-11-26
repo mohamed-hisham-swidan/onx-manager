@@ -314,9 +314,13 @@ class LocalBackendManager {
     throw new Error(msg);
   }
 
-  async _waitForHealthy(port) {
+  async _waitForHealthy(port, bindHost = "127.0.0.1") {
     const deadline = Date.now() + this.healthTimeoutMs;
-    const url = `http://127.0.0.1:${port}/health`;
+    const probeHost =
+      !bindHost || bindHost === "0.0.0.0" || bindHost === "::" || bindHost === "[::]"
+        ? "127.0.0.1"
+        : bindHost;
+    const url = `http://${probeHost}:${port}/health`;
     while (Date.now() < deadline) {
       if (!this.child || this.child.exitCode !== null) {
         throw new Error(`Local backend exited early (code ${this.child ? this.child.exitCode : "unknown"}).`);
@@ -371,6 +375,7 @@ class LocalBackendManager {
       ...process.env,
       PYTHONUNBUFFERED: "1",
       ONX_DEPLOYMENT_PROFILE: "local",
+      ONX_PANEL_BIND_HOST: bindHost,
       ONX_PANEL_BIND_PORT: String(port),
       ONX_STATIC_DIR: fs.existsSync(path.join(staticDir, "index.html")) ? staticDir : "off",
     };
@@ -411,7 +416,7 @@ class LocalBackendManager {
     });
 
     try {
-      await this._waitForHealthy(port);
+      await this._waitForHealthy(port, bindHost);
       this._setStatus("running", null);
       return this.getSnapshot();
     } catch (err) {

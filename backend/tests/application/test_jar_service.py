@@ -18,7 +18,6 @@ from app.modules.server.application.services.jar_service import (
     _fetch_xml_with_retries,
     _parse_forge_metadata,
     _parse_neoforge_metadata,
-    _resolve_bukkit_url,
     _resolve_fabric_url,
     _resolve_forge_url,
     _resolve_neoforge_url,
@@ -29,7 +28,6 @@ from app.modules.server.application.services.jar_service import (
     _resolve_vanilla_url,
     clear_metadata_cache,
     download_server_jar,
-    fetch_bukkit_versions,
     fetch_fabric_versions,
     fetch_forge_versions,
     fetch_neoforge_versions,
@@ -280,11 +278,6 @@ class TestURLResolvers:
         assert url == "https://download.getbukkit.org/spigot/spigot-1.21.jar"
 
     @pytest.mark.asyncio
-    async def test_bukkit_direct_url(self) -> None:
-        url = await _resolve_bukkit_url("1.21")
-        assert url == "https://download.getbukkit.org/craftbukkit/craftbukkit-1.21.jar"
-
-    @pytest.mark.asyncio
     async def test_vanilla_http_error(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
             resp = _mock_aresponse(500, None)
@@ -436,11 +429,6 @@ class TestFetchVersions:
     @pytest.mark.asyncio
     async def test_spigot_versions(self) -> None:
         versions = await fetch_spigot_versions()
-        assert "1.21.4" in versions
-
-    @pytest.mark.asyncio
-    async def test_bukkit_versions(self) -> None:
-        versions = await fetch_bukkit_versions()
         assert "1.21.4" in versions
 
     @pytest.mark.asyncio

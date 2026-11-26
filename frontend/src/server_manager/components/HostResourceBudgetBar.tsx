@@ -48,7 +48,7 @@ export function HostResourceBudgetBar({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-accent-primary border border-border-subtle">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-muted text-text-accent border border-border-subtle">
             <Icon name="hard-drive" size={14} />
           </div>
           <div>
@@ -56,7 +56,7 @@ export function HostResourceBudgetBar({
               <span className="text-xs font-semibold text-text-primary">
                 Host Resource Budget
               </span>
-              <span className="inline-flex items-center rounded-full border border-border-subtle bg-surface-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              <span className="inline-flex items-center rounded-full border border-border-subtle bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
                 {budget.profile === "local" ? "Desktop Safe Reserve" : "VPS Reserve"}
               </span>
             </div>
@@ -75,14 +75,16 @@ export function HostResourceBudgetBar({
           </span>
           <span className="text-text-muted">·</span>
           <span className="text-text-secondary">
-            {budget.available_cpus} / {budget.allocatable_cpus} CPU avail
+            {budget.allocated_cpus === 0 && budget.allocations.length > 0
+              ? `Shared CPU (${budget.allocatable_cpus} cores)`
+              : `${budget.available_cpus} / ${budget.allocatable_cpus} CPU avail`}
           </span>
         </div>
       </div>
 
       {/* Segmented Host Memory Budget Bar */}
       <div className="space-y-1.5">
-        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-elevated border border-border-subtle">
+        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-muted border border-border-subtle">
           {reservePct > 0 && (
             <div
               style={{ width: `${reservePct}%` }}

@@ -76,6 +76,13 @@ class HealthSignalHandler(EventHandler):
     async def _recompute(self, server_id: str, new_signals: list[HealthSignal]) -> None:
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLHealthRepository(uow.session)
+            if not await repo.exists_server(server_id):
+                logger.debug(
+                    "Ignoring health signal for non-existent/deleted server %s",
+                    server_id,
+                )
+                return
+
             status = await repo.get(server_id)
             if status is None:
                 status = HealthStatus.create(server_id)

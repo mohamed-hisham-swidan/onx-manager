@@ -9,7 +9,7 @@ declare const process: { cwd: () => string };
 const fs = require("node:fs");
 const path = require("node:path");
 
-describe("Phase 8: Accessibility, Motion & Density Polish", () => {
+describe("Phase 8: Accessibility & Motion Polish", () => {
   const cssPath = path.resolve(process.cwd().endsWith("frontend") ? "src/index.css" : "frontend/src/index.css");
   const cssContent = fs.readFileSync(cssPath, "utf8");
 
@@ -29,20 +29,6 @@ describe("Phase 8: Accessibility, Motion & Density Polish", () => {
       expect(cssContent).toContain("@media (prefers-reduced-motion: reduce)");
       expect(cssContent).toContain("animation-duration: 0.01ms !important");
       expect(cssContent).toContain("transition-duration: 0.01ms !important");
-    });
-  });
-
-  describe("Density Hierarchy & Token Controls", () => {
-    it("defines compact density tokens", () => {
-      expect(cssContent).toContain('[data-density="compact"]');
-      expect(cssContent).toContain("--density-padding-card: 0.75rem");
-      expect(cssContent).toContain("--density-padding-row: 0.375rem");
-    });
-
-    it("defines comfortable density tokens", () => {
-      expect(cssContent).toContain('[data-density="comfortable"]');
-      expect(cssContent).toContain("--density-padding-card: 1.25rem");
-      expect(cssContent).toContain("--density-padding-row: 0.75rem");
     });
   });
 

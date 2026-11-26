@@ -90,7 +90,7 @@ async def get_health_dashboard(
 
     async with database.session_factory() as session:
         repo = SQLHealthRepository(session)
-        all_statuses = await repo.list_all()
+        all_statuses = await repo.list_active()
 
     counts: dict[str, int] = {
         "healthy": 0,

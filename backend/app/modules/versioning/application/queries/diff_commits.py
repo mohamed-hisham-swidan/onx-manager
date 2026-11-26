@@ -124,16 +124,9 @@ class DiffCommitsHandler(QueryHandler[DiffCommitsQuery]):
                     to_resolved,
                     check=False,
                 )
-                added = []
-                removed = []
-                modified = []
-                for record in diff_result.stdout.split("\x00"):
-                    if not record:
-                        continue
-                    status = record[:1]
-                    path = record[1:].lstrip("\t") if len(record) > 1 else ""
-                    # diff-tree -z output: status\0path\0
-                # parse properly
+                added: list[str] = []
+                removed: list[str] = []
+                modified: list[str] = []
                 tokens = diff_result.stdout.split("\x00")
                 i = 0
                 while i < len(tokens):
@@ -141,18 +134,46 @@ class DiffCommitsHandler(QueryHandler[DiffCommitsQuery]):
                     if not tok:
                         i += 1
                         continue
-                    status = tok[:1]
-                    path = tok[1:].strip() or (tokens[i + 1] if i + 1 < len(tokens) else "")
-                    # name-status -z gives "M\0path\0"
                     if "\t" in tok:
                         status, path = tok.split("\t", 1)
-                    if status.startswith("A"):
-                        added.append(path)
-                    elif status.startswith("D"):
-                        removed.append(path)
-                    elif status.startswith("M"):
-                        modified.append(path)
-                    i += 1
+                        if status.startswith("A"):
+                            added.append(path)
+                        elif status.startswith("D"):
+                            removed.append(path)
+                        elif status.startswith("M"):
+                            modified.append(path)
+                        i += 1
+                        continue
+                    status = tok
+                    if status[:1] in ("R", "C"):
+                        old_path = tokens[i + 1] if i + 1 < len(tokens) else ""
+                        new_path = tokens[i + 2] if i + 2 < len(tokens) else ""
+                        if old_path:
+                            removed.append(old_path)
+                        if new_path:
+                            added.append(new_path)
+                        i += 3
+                        continue
+                    path = tokens[i + 1] if i + 1 < len(tokens) else ""
+                    if path:
+                        if status.startswith("A"):
+                            added.append(path)
+                        elif status.startswith("D"):
+                            removed.append(path)
+                        elif status.startswith("M"):
+                            modified.append(path)
+                    i += 2
+
+                server_type_diff = (
+                    {"from": loader_from or "", "to": loader_to or ""}
+                    if (loader_from or "") != (loader_to or "")
+                    else None
+                )
+                mc_version_diff = (
+                    {"from": mc_from or "", "to": mc_to or ""}
+                    if (mc_from or "") != (mc_to or "")
+                    else None
+                )
                 return {
                     "from_commit_id": query.from_commit_id,
                     "to_commit_id": query.to_commit_id,
@@ -163,10 +184,11 @@ class DiffCommitsHandler(QueryHandler[DiffCommitsQuery]):
                         or added_mods
                         or removed_mods
                         or modified_mods
-                        or mc_from != mc_to
+                        or server_type_diff is not None
+                        or mc_version_diff is not None
                     ),
-                    "server_type": {"from": loader_from or "", "to": loader_to or ""},
-                    "minecraft_version": {"from": mc_from or "", "to": mc_to or ""},
+                    "server_type": server_type_diff,
+                    "minecraft_version": mc_version_diff,
                     "java_args": {},
                     "configs": {"added": added, "removed": removed, "modified": modified},
                     "env_vars": {},

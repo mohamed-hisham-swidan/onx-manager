@@ -143,3 +143,42 @@ class TestRuntimeDiagnosticsUptime:
             )
 
         assert result.data["uptime_seconds"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_unsupervised_docker_server_falls_back_to_running_start_time(self) -> None:
+        server_id = ServerId("srv-diag-docker-uptime")
+        server = Server.create(
+            server_id=server_id,
+            name="Docker Server",
+            server_type=ServerType.VANILLA,
+            minecraft_version=MinecraftVersion.parse("1.21"),
+            memory=MemoryAllocation(1024, 2048),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
+        )
+        server.start()
+        server.mark_running(pid=0, port=25565, host="172.17.0.5", start_time=None)
+        server.runtime.start_time = None
+        server.runtime.running_start_time = time.time() - 120.0
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        with (
+            patch.object(RuntimeSupervisor, "get_for", return_value=None),
+            patch.object(RuntimeSupervisor, "is_supervised", return_value=False),
+            patch(
+                "app.modules.server.application.runtime_ownership.RuntimeOwnershipManager"
+            ) as mock_mgr,
+        ):
+            mock_mgr.return_value.validate_runtime = AsyncMock(return_value=MagicMock(chain=[]))
+            mock_mgr.return_value.detect_owner_conflicts = AsyncMock(return_value=[])
+
+            handler = GetServerRuntimeDiagnosticsHandler()
+            result = await handler.handle(
+                GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-docker-uptime")
+            )
+
+        assert 115.0 <= result.data["uptime_seconds"] <= 125.0

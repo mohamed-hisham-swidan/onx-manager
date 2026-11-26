@@ -24,7 +24,10 @@ class PluginVersionInfo:
     loaders: list[str] = field(default_factory=list)
     files: list[PluginFile] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
+    required_dependencies: list[str] = field(default_factory=list)
+    changelog: str | None = None
     date_published: str = ""
+    version_type: str = "release"
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,9 @@ class PluginCatalogProvider(ABC):
         query: str,
         *,
         project_type: str = "plugin",
+        loader: str | None = None,
+        sort: str = "relevance",
+        game_version: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> PluginSearchPage: ...

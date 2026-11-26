@@ -83,21 +83,23 @@ class OperationStep:
         at: datetime | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
-        now = at or _utcnow()
+        now = _normalize_dt(at) or _utcnow()
         self.status = StepStatus.FAILED
         self.safe_to_retry = safe_to_retry
         self.completed_at = now
-        if self.started_at is not None:
-            self.elapsed_ms = int((now - self.started_at).total_seconds() * 1000)
+        start = _normalize_dt(self.started_at)
+        if start is not None:
+            self.elapsed_ms = max(0, int((now - start).total_seconds() * 1000))
         if context:
             self.context.update(context)
 
     def cancel(self, at: datetime | None = None) -> None:
-        now = at or _utcnow()
+        now = _normalize_dt(at) or _utcnow()
         self.status = StepStatus.CANCELLED
         self.completed_at = now
-        if self.started_at is not None:
-            self.elapsed_ms = int((now - self.started_at).total_seconds() * 1000)
+        start = _normalize_dt(self.started_at)
+        if start is not None:
+            self.elapsed_ms = max(0, int((now - start).total_seconds() * 1000))
 
     def skip(self) -> None:
         self.status = StepStatus.SKIPPED

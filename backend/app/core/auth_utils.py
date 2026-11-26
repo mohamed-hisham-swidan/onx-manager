@@ -56,13 +56,13 @@ async def _resolve_api_key(token: str, db: AsyncSession) -> dict:
 
         raise AuthenticationError("Account is deactivated")
 
-    role_names = [r.name for r in user_model.roles]
     perms_str = api_key_model.permissions or ""
     permissions = [p.strip() for p in perms_str.split(",") if p.strip()]
 
     return {
         "user_id": user_model.id,
-        "roles": role_names,
+        "roles": [],
         "permissions": permissions,
         "scope": ",".join(permissions),
+        "auth_type": "api_key",
     }

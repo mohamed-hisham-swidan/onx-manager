@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { QueryClientContext } from "@tanstack/react-query";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -7,6 +8,7 @@ import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Modal } from "@/components/ui/Modal";
 import { useOperationStore } from "@/operations/stores/operationStore";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
 import type {
   ManualDownloadBlockerItem,
   ModpackInspectResponse,
@@ -56,7 +58,7 @@ function formatLabel(source: string): string {
 function StepHeader({ step, title }: { step: number; title: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-primary text-[11px] font-bold text-white">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-primary text-[11px] font-bold text-accent-contrast-text">
         {step}
       </span>
       <h3 className="text-sm font-bold text-text-primary">{title}</h3>
@@ -83,7 +85,7 @@ function InspectErrorCallout({
           action={
             <Link
               to="/settings?tab=integrations"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover"
             >
               <Icon name="lock" size={13} />
               Configure CurseForge API Key in Panel Settings
@@ -142,6 +144,7 @@ function ModpackInstallWizardModalInner({
   initialFormat = "auto",
 }: ModpackInstallWizardModalProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const queryClient = useContext(QueryClientContext);
 
   const [file, setFile] = useState<File | null>(null);
   const [format, setFormat] = useState<ModpackFormat>(initialFormat);
@@ -207,6 +210,10 @@ function ModpackInstallWizardModalInner({
           setActiveOperationId(null);
           setIsInstalling(false);
           setInstallResult(completedResult);
+          if (queryClient) {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId) });
+          }
           onInstalled?.(completedResult);
         } else if (
           detail.status === "FAILED" ||
@@ -235,7 +242,7 @@ function ModpackInstallWizardModalInner({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeOperationId, api, serverId, inspection, plan, setOperation, onInstalled]);
+  }, [activeOperationId, api, serverId, inspection, plan, setOperation, onInstalled, queryClient]);
 
   function blockerResolved(blocker: ManualDownloadBlockerItem): boolean {
     return blocker.resolved || Boolean(resolvedBlockers[blockerKey(blocker)]);
@@ -334,6 +341,10 @@ function ModpackInstallWizardModalInner({
       }
 
       setInstallResult(result);
+      if (queryClient) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId) });
+      }
       onInstalled?.(result);
     } catch (error) {
       if (
@@ -412,7 +423,7 @@ function ModpackInstallWizardModalInner({
               {installResult.lec_key && (
                 <div className="rounded-lg border border-border-subtle bg-surface-page p-3">
                   <dt className="text-[11px] uppercase tracking-wider text-text-muted">
-                    LEC Key
+                    Loader Cache
                   </dt>
                   <dd className="mt-1 font-mono text-xs text-text-primary break-all">
                     {installResult.lec_key}
@@ -641,7 +652,7 @@ function ModpackInstallWizardModalInner({
                       {item.path}
                     </span>
                     <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-                      {item.classification === "routed_cas" ? "B-ROUTED-CAS" : "B"}
+                      {item.classification === "routed_cas" ? "Cached Binary" : "B"}
                     </span>
                     <span className="text-text-muted">{formatBytes(item.size)}</span>
                   </li>
@@ -702,11 +713,11 @@ function ModpackInstallWizardModalInner({
                           {isResolved ? (
                             <span className="inline-flex items-center gap-1 rounded-full border border-status-success-border bg-status-success-bg px-2 py-0.5 text-[10px] font-semibold text-status-success">
                               <Icon name="check" size={10} />
-                              Verified in CAS
+                              Verified
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-[10px] font-semibold text-status-warning">
-                              manual_download_required
+                              Download required
                             </span>
                           )}
                         </div>
@@ -762,7 +773,7 @@ function ModpackInstallWizardModalInner({
                   onChange={(event) => setBuildLec(event.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-border-default"
                 />
-                Pre-warm / verify Loader Environment Cache (LEC) during install
+                Pre-build loader files during install
               </label>
               <label className="flex items-start gap-2 text-xs text-text-secondary">
                 <input

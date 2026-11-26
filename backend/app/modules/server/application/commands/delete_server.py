@@ -148,6 +148,11 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
         with contextlib.suppress(Exception):
             await RuntimeSupervisor.stop_for(sid)
 
+        with contextlib.suppress(Exception):
+            from app.tasks.definitions.metrics_collector import evict_server_from_collector
+
+            await evict_server_from_collector(sid)
+
         # 4. Resolve provider safely
         provider: Any = None
         provider_error: Exception | None = None
@@ -247,6 +252,7 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
 
             server_name = server.name
             server.mark_deleted()
+            await _cleanup_server_scoped_records(uow.session, sid)
             await repo.delete(server_id)
             for event in server.collect_events():
                 uow.add_event(event)
@@ -299,3 +305,89 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 )
 
         return CommandResult(success=True, data={"server_id": command.server_id})
+
+
+async def _cleanup_server_scoped_records(session: Any, server_id: str) -> None:
+    """Clean up server-scoped health, metrics, alerts, exposure, and pending-restore rows.
+
+    Historical backups (``backup_jobs`` / ``class_c_snapshots``) are intentionally
+    preserved so backup retention continues to expose ``server_deleted=True``.
+    """
+    from sqlalchemy import delete, select
+    from sqlalchemy.exc import OperationalError
+
+    from app.modules.backup.infrastructure.models import (
+        BackupPolicyModel,
+        PendingRestoreModel,
+    )
+    from app.modules.exposure.infrastructure.models import (
+        ServerExposureGrantModel,
+        ServerExposureModel,
+        ServerExposureTargetModel,
+        ServerRegisteredPortModel,
+    )
+    from app.modules.health.infrastructure.repository import SQLHealthRepository
+    from app.modules.monitoring.infrastructure.models import AlertRuleModel, MetricPointModel
+    from app.modules.versioning.infrastructure.models import (
+        ServerBranchModel,
+        ServerRuntimeModel,
+        ServerTestRunModel,
+    )
+    from app.modules.versioning.infrastructure.port_allocator import release_port_set
+
+    async def _run_nested(fn: Any) -> None:
+        try:
+            async with session.begin_nested():
+                await fn()
+        except OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+
+    await _run_nested(lambda: SQLHealthRepository(session).delete_by_server(server_id))
+
+    # Release any in-process allocated ports and remove orphan branch containers
+    async def _release_versioning_ports() -> None:
+        branch_containers: list[str] = []
+        for model_cls in (ServerBranchModel, ServerRuntimeModel, ServerTestRunModel):
+            rows = (
+                await session.execute(select(model_cls).where(model_cls.server_id == server_id))
+            ).scalars().all()
+            for row in rows:
+                release_port_set(getattr(row, "port_set_json", None))
+                cid = getattr(row, "container_id", None)
+                if cid:
+                    branch_containers.append(str(cid))
+        for cid in dict.fromkeys(branch_containers):
+            with contextlib.suppress(Exception):
+                proc = await asyncio.create_subprocess_exec(
+                    "docker",
+                    "rm",
+                    "-f",
+                    cid,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(proc.wait(), timeout=10.0)
+
+    await _run_nested(_release_versioning_ports)
+
+    for stmt in (
+        delete(MetricPointModel).where(MetricPointModel.server_id == server_id),
+        delete(AlertRuleModel).where(AlertRuleModel.server_id == server_id),
+        delete(PendingRestoreModel).where(PendingRestoreModel.server_id == server_id),
+        delete(BackupPolicyModel).where(BackupPolicyModel.server_id == server_id),
+        delete(ServerExposureTargetModel).where(
+            ServerExposureTargetModel.exposure_id.in_(
+                select(ServerExposureModel.id).where(ServerExposureModel.server_id == server_id)
+            )
+        ),
+        delete(ServerExposureGrantModel).where(ServerExposureGrantModel.server_id == server_id),
+        delete(ServerRegisteredPortModel).where(
+            ServerRegisteredPortModel.server_id == server_id
+        ),
+        delete(ServerExposureModel).where(ServerExposureModel.server_id == server_id),
+        delete(ServerTestRunModel).where(ServerTestRunModel.server_id == server_id),
+        delete(ServerRuntimeModel).where(ServerRuntimeModel.server_id == server_id),
+        delete(ServerBranchModel).where(ServerBranchModel.server_id == server_id),
+    ):
+        await _run_nested(lambda s=stmt: session.execute(s))

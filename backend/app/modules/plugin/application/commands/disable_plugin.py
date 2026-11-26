@@ -57,10 +57,14 @@ class DisablePluginHandler(CommandHandler[DisablePluginCommand]):
                     os.path.join(server_dir, "plugins"),
                     os.path.join(server_dir, "mods"),
                 ]
+                any_dir_exists = False
+                renamed_ok = False
                 for d in dict.fromkeys(dirs_to_check):
                     if self._fs.exists(d):
+                        any_dir_exists = True
                         try:
                             toggle_addon_file(d, plugin.filename, enabled=False)
+                            renamed_ok = True
                             break
                         except FileNotFoundError:
                             continue
@@ -70,6 +74,17 @@ class DisablePluginHandler(CommandHandler[DisablePluginCommand]):
                                 plugin.filename,
                                 exc,
                             )
+                            return CommandResult(
+                                success=False,
+                                error=f"Physical file rename failed: {exc}",
+                                error_code="FS_ERROR",
+                            )
+                if any_dir_exists and not renamed_ok:
+                    return CommandResult(
+                        success=False,
+                        error=f"Addon file '{plugin.filename}' was not found on disk.",
+                        error_code="FILE_NOT_FOUND",
+                    )
 
             plugin.set_disabled_on_disk(True)
             plugin.disable()

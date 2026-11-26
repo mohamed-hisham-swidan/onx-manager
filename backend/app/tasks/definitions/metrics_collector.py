@@ -28,6 +28,13 @@ def init_collector(
     _prometheus = prometheus
 
 
+async def evict_server_from_collector(server_id: str) -> None:
+    """Remove a deleted server from the active MetricsCollector instance, if initialized."""
+    collector = _collector
+    if collector is not None:
+        await collector.evict_server(server_id)
+
+
 async def run_metrics_collection_task(params: dict[str, Any]) -> dict[str, Any]:
     if _collection_lock.locked():
         logger.debug("Metrics collection already in progress — skipping overlapping cycle")

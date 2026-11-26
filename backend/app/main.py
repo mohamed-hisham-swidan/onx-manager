@@ -43,6 +43,7 @@ from app.core.config import ConfigFactory, init_active_panel_bind
 from app.core.event_bus import EventBus
 from app.core.http_client import close_http_client, init_http_client
 from app.core.identity import IDENTITY
+from app.core.logging import configure_logging
 from app.core.persistence.db import database
 from app.core.persistence.db_revision import check_database_compatibility
 from app.core.platform_lock import set_cloexec_on_all_fds
@@ -85,6 +86,11 @@ async def lifespan(_app: FastAPI):
     set_cloexec_on_all_fds()
     settings = ConfigFactory.global_settings()
     init_settings_store()
+    boot_live = get_live_settings()
+    configure_logging(
+        json_output=settings.log_json,
+        log_level="DEBUG" if boot_live.debug else boot_live.log_level,
+    )
     init_active_panel_bind()
     database.init(settings)
     db_status = await check_database_compatibility()
@@ -226,6 +232,31 @@ async def lifespan(_app: FastAPI):
             logger.exception("Startup orphan cleanup failed")
 
         try:
+            from app.modules.health.infrastructure.repository import SQLHealthRepository
+
+            pruned_health = await SQLHealthRepository(session).prune_orphaned()
+            if pruned_health:
+                await session.commit()
+                logger.info("Pruned %d orphaned health status record(s) on startup", pruned_health)
+        except Exception:
+            logger.exception("Startup orphaned health cleanup failed")
+
+        try:
+            from app.modules.versioning.infrastructure.port_allocator import (
+                reclaim_dead_port_reservations,
+            )
+
+            reclaimed_ports = await reclaim_dead_port_reservations(session)
+            if any(reclaimed_ports.values()):
+                await session.commit()
+                logger.info(
+                    "Reclaimed dead/orphaned port reservations on startup: %s",
+                    reclaimed_ports,
+                )
+        except Exception:
+            logger.exception("Startup dead-port reclamation failed")
+
+        try:
             from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
 
             ownership_mgr = RuntimeOwnershipManager(repo)
@@ -362,10 +393,13 @@ async def lifespan(_app: FastAPI):
     async def _session_factory():
         return database.session_factory()
 
+    from app.tasks.definitions.cleanup_task import run_cleanup_task
+
     # InProcessQueue — runs handler functions in-process when a task fires
     task_queue = InProcessQueue(_session_factory)
     task_queue.register("run_metrics_collection", run_metrics_collection_task)
     task_queue.register("run_backup_task", run_backup_task)
+    task_queue.register("run_cleanup_task", run_cleanup_task)
     init_task_queue(task_queue)
 
     # Reclaim PENDING tasks orphaned by a previous process restart, and fail
@@ -538,6 +572,7 @@ def create_app(static_dir: str | Path | None = None) -> FastAPI:
         allow_credentials="*" not in cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-ONX-Has-Uncommitted"],
     )
 
     register_error_handlers(app)

@@ -47,7 +47,7 @@ def derive_loader_ref_from_parts(
 
     type_value = server_type.value if isinstance(server_type, ServerType) else str(server_type)
 
-    if type_value in ("vanilla", "spigot", "bukkit"):
+    if type_value in ("vanilla", "spigot"):
         loader_id = type_value
         version = fallback_version
 

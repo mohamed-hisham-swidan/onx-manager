@@ -16,6 +16,22 @@ export type StepStatus =
   | "SKIPPED"
   | "CANCELLED";
 
+export interface OperationArtifactProgress {
+  name: string;
+  kind: "backup" | "server_core" | "addon" | string;
+  status: "pending" | "cached" | "downloading" | "patching" | "ready" | string;
+  progress_pct: number;
+  bytes_done?: number;
+  bytes_total?: number;
+}
+
+export interface OperationHealthCheckItem {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "passed" | "skipped" | "warned" | "failed" | string;
+  detail?: string | null;
+}
+
 export interface OperationStep {
   id: string;
   step_id: string;
@@ -25,7 +41,11 @@ export interface OperationStep {
   elapsed_ms: number;
   message_key: string | null;
   safe_to_retry: boolean;
-  context: Record<string, unknown>;
+  context: Record<string, unknown> & {
+    artifacts?: OperationArtifactProgress[];
+    checks?: OperationHealthCheckItem[];
+    warnings?: string[];
+  };
   started_at: string | null;
   completed_at: string | null;
 }

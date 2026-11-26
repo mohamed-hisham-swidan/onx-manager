@@ -423,9 +423,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             await get_operation_service().start_step(spec.operation_id, "MATERIALIZE_STAGING")
 
         try:
-            # 1. Check storage COW capability (Class B)
-            with _class_b_step("StorageCapabilityProbe"):
-                StorageCapabilityProbe.assert_supports_reflink(spec.server_dir)
+            # 1. Probe storage COW capability (informational — ext4 uses copy fallback)
+            reflink_supported = StorageCapabilityProbe.probe_path(spec.server_dir)
 
             # 2. Check physical system headroom (Class B)
             with _class_b_step("ResourcePreflightProbe"):
@@ -437,16 +436,20 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 spec.operation_id,
                 "MATERIALIZE_STAGING",
                 0.2,
-                context={"phase": "preflight_checks_passed"},
+                context={"phase": "preflight_checks_passed", "reflink_supported": reflink_supported},
             )
 
             # 3. Materialize test directory under .onx/tests/<test_id> (Class B)
             with _class_b_step("test dir creation/materialization"):
                 test_root.mkdir(parents=True, exist_ok=True)
 
-            # 4. COW world clone (Class B)
+            # 4. World clone (reflink when supported, copy fallback on ext4)
             with _class_b_step("world clone"):
-                BtrfsZfsSnapshotDriver.clone_world(spec.server_dir, test_dir_str)
+                BtrfsZfsSnapshotDriver.clone_world(
+                    spec.server_dir,
+                    test_dir_str,
+                    allow_copy_fallback=not reflink_supported,
+                )
             await self._report_progress(
                 spec.operation_id,
                 "MATERIALIZE_STAGING",

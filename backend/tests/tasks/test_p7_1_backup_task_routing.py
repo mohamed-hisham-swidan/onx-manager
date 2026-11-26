@@ -159,3 +159,107 @@ async def test_run_backup_task_calls_baseline_hook_for_tier2_and_activity_labels
     )
     assert act1 == "backup.started" and "Tier-1" in msg1
     assert act2 == "backup.completed" and "Tier-2" in msg2
+
+
+@pytest.mark.asyncio
+async def test_run_backup_task_tier1_uses_backup_storage_path_and_publishes_events(
+    tmp_path: Path, isolated_db
+) -> None:
+    server_dir = tmp_path / "srv-t1"
+    (server_dir / "world").mkdir(parents=True)
+    (server_dir / "world" / "level.dat").write_bytes(b"world")
+    (server_dir / "server.properties").write_text("motd=Test\n", encoding="utf-8")
+
+    from app.core.exceptions import NotFoundError
+    from app.modules.backup.domain.aggregate import BackupJob
+    from app.modules.backup.domain.events import BackupFailedEvent
+    from app.modules.backup.infrastructure.repository import SQLBackupRepository
+    from app.modules.server.infrastructure.models import ServerModel
+    from app.modules.shared.value_objects import BackupJobId, ServerId
+
+    async with isolated_db() as session:
+        session.add(
+            ServerModel(
+                id="srv-t1",
+                name="Srv T1",
+                server_type="vanilla",
+                minecraft_version="1.21.1",
+                port=25565,
+                memory_min_mb=512,
+                memory_max_mb=1024,
+                root_path=str(server_dir),
+                working_directory=".",
+                provider="docker",
+                location_type="docker",
+                mode="simple",
+            )
+        )
+        repo = SQLBackupRepository(session)
+        await repo.save_job(BackupJob.create_tier1(BackupJobId("b-t1-ok"), ServerId("srv-t1")))
+        await repo.save_job(
+            BackupJob.create_tier1(BackupJobId("b-t1-fail"), ServerId("srv-missing"))
+        )
+        await session.commit()
+
+    # Intentionally omit backup_local_dir to verify backup_storage_path is used
+    fake_settings = SimpleNamespace(
+        backup_storage_path=str(tmp_path / "backup_storage"),
+        backup_encryption_key_path=str(tmp_path / "backup.key"),
+        storage_backend="local",
+        host_state_dir=str(tmp_path / "host_state"),
+        host_state_host_dir="",
+        host_data_dir="",
+        servers_data_dir=str(tmp_path / "servers"),
+    )
+
+    from app.core.event_bus import DomainEvent, EventHandler
+
+    bus = EventBus()
+    published: list[DomainEvent] = []
+
+    class _CaptureHandler(EventHandler):
+        async def handle(self, event: DomainEvent) -> None:
+            published.append(event)
+
+    handler = _CaptureHandler()
+    bus.subscribe("BackupCompletedEvent", handler)
+    bus.subscribe("BackupFailedEvent", handler)
+
+    with (
+        patch(
+            "app.tasks.definitions.backup_task.ConfigFactory.global_settings",
+            return_value=fake_settings,
+        ),
+        patch(
+            "app.tasks.definitions.backup_task.get_optional_event_bus",
+            return_value=bus,
+        ),
+        patch(
+            "app.tasks.definitions.backup_task.ensure_simple_baseline_lockfile",
+            AsyncMock(
+                return_value=BaselineAdoptionResult(status="created", files_count=1, cas_ingested=0)
+            ),
+        ),
+    ):
+        res = await run_backup_task(
+            {
+                "backup_id": "b-t1-ok",
+                "server_id": "srv-t1",
+                "tier": BackupTier.TIER_1.value,
+                "two_tier": True,
+            }
+        )
+        assert res == {"backup_id": "b-t1-ok", "server_id": "srv-t1"}
+        assert any(isinstance(e, BackupCompletedEvent) for e in published)
+        assert (tmp_path / "backup_storage" / "tier1" / "srv-t1" / "b-t1-ok").is_dir()
+
+        with pytest.raises(NotFoundError):
+            await run_backup_task(
+                {
+                    "backup_id": "b-t1-fail",
+                    "server_id": "srv-missing",
+                    "tier": BackupTier.TIER_1.value,
+                    "two_tier": True,
+                }
+            )
+        assert any(isinstance(e, BackupFailedEvent) for e in published)

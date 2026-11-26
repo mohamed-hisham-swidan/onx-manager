@@ -70,9 +70,18 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
 
             server_dir = server.deployment.server_directory()
             repo: PluginRepository = SQLPluginRepository(uow.session)
+            server_type_str = (
+                server.server_type.value
+                if hasattr(server.server_type, "value")
+                else str(server.server_type)
+            )
+            from app.modules.plugin.infrastructure.addon_fs import get_addon_dir_name
+
+            primary_dir = get_addon_dir_name(server_type_str)
+            scan_dirs = list(dict.fromkeys([primary_dir, "plugins", "mods"]))
 
             disk_addons: dict[str, _DiskAddon] = {}
-            for dir_name in ("plugins", "mods"):
+            for dir_name in scan_dirs:
                 dir_path = os.path.join(server_dir, dir_name)
                 if not self._fs.exists(dir_path):
                     continue
@@ -91,6 +100,13 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
                     else:
                         continue
 
+                    # Prefer primary addon directory and active .jar over duplicate .jar.disabled
+                    prev = disk_addons.get(base_name)
+                    if prev is not None and (prev.dir_name == primary_dir and dir_name != primary_dir):
+                        continue
+                    if prev is not None and not prev.is_disabled and is_disabled:
+                        continue
+
                     disk_addons[base_name] = _DiskAddon(
                         dir_name=dir_name,
                         base_filename=base_name,
@@ -100,7 +116,21 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
                     )
 
             existing = await repo.list_all_by_server(server_id)
-            existing_by_filename = {p.filename: p for p in existing if p.filename}
+            existing_by_filename: dict[str, Plugin] = {}
+            duplicate_rows: list[Plugin] = []
+            for p in existing:
+                if not p.filename:
+                    continue
+                if p.filename not in existing_by_filename:
+                    existing_by_filename[p.filename] = p
+                else:
+                    # Prefer keeping a catalog-tracked row over a duplicate detected row
+                    cur = existing_by_filename[p.filename]
+                    if cur.source == "detected" and p.source != "detected":
+                        duplicate_rows.append(cur)
+                        existing_by_filename[p.filename] = p
+                    else:
+                        duplicate_rows.append(p)
 
             added: list[str] = []
             for base_name, disk_addon in sorted(disk_addons.items()):
@@ -119,7 +149,10 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
                     # Update missing metadata if unknown
                     if existing_plugin.display_version == "unknown" or not existing_plugin.loader:
                         try:
-                            meta = parse_jar_metadata(disk_addon.full_path)
+                            meta = parse_jar_metadata(
+                                disk_addon.full_path,
+                                preferred_server_type=server_type_str,
+                            )
                             if meta.version and existing_plugin.display_version == "unknown":
                                 try:
                                     parsed_ver = PluginVersion.parse(meta.version)
@@ -143,7 +176,10 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
 
                 # New addon detected on disk
                 try:
-                    meta = parse_jar_metadata(disk_addon.full_path)
+                    meta = parse_jar_metadata(
+                        disk_addon.full_path,
+                        preferred_server_type=server_type_str,
+                    )
                 except Exception as e:
                     logger.debug(
                         "Failed parsing metadata for new addon %s: %s",
@@ -194,7 +230,11 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
                 added.append(base_name)
 
             removed: list[str] = []
-            for plugin in existing:
+            for dup in duplicate_rows:
+                await repo.delete(dup.plugin_id)
+                if dup.filename:
+                    removed.append(dup.filename)
+            for plugin in existing_by_filename.values():
                 if plugin.pending_deletion:
                     continue
                 if plugin.filename is None:

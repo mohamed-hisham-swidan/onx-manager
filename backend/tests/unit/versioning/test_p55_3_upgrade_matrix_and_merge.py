@@ -42,6 +42,7 @@ from app.modules.versioning.infrastructure.modpack_parser import (
     ManualDownloadBlocker,
 )
 from app.modules.versioning.infrastructure.upgrade_matrix import (
+    CompatibilityMatrix,
     MatrixStatus,
     build_compatibility_matrix,
 )
@@ -767,3 +768,416 @@ def test_upgrade_merge_rules_conflicts_and_per_file_base_advancement(
     assert res_fixed.new_base_overrides["spigot.yml"] == hashlib.sha256(
         conflict_theirs["spigot.yml"]
     ).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_matrix_parent_loader_chain_project_fallback_and_keep_paths(
+    tmp_path: Path,
+) -> None:
+    cas = ArtifactCas(tmp_path / "cas")
+    spigot_old = b"spigot-plugin-v1"
+    s_sha256, s_sha512, s_sha1 = _hashes(spigot_old)
+    cas.put_bytes(spigot_old)
+
+    spigot_new = b"spigot-plugin-v2"
+    _, sn_sha512, sn_sha1 = _hashes(spigot_new)
+
+    legacy_old = b"legacy-plugin-v1"
+    l_sha256, l_sha512, l_sha1 = _hashes(legacy_old)
+    cas.put_bytes(legacy_old)
+
+    seen_update_loaders: list[list[str]] = []
+
+    class _ChainFakeModrinth(FakeModrinthClient):
+        async def lookup_version_updates_by_hashes(
+            self,
+            hashes: list[str],
+            *,
+            loaders: list[str],
+            game_versions: list[str],
+            algorithm: str = "sha512",
+            version_types: tuple[str, ...] = ("release",),
+        ) -> dict[str, ModrinthVersionRecord]:
+            seen_update_loaders.append(list(loaders))
+            return await super().lookup_version_updates_by_hashes(
+                hashes,
+                loaders=loaders,
+                game_versions=game_versions,
+                algorithm=algorithm,
+                version_types=version_types,
+            )
+
+    lockfile = LockfileV21(
+        format=2,
+        mc="1.20.4",
+        loader=LoaderRef(id="paper", version="latest"),
+        base_overrides={},
+        files=(
+            LockfileFile(
+                path="plugins/SpigotFallback.jar",
+                sha256=s_sha256,
+                size=len(spigot_old),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.MODRINTH,
+                sha512=s_sha512,
+                sha1=s_sha1,
+                project_id="spigot-fallback",
+                version_id="v1",
+            ),
+            LockfileFile(
+                path="plugins/KeptLegacy.jar",
+                sha256=l_sha256,
+                size=len(legacy_old),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.MODRINTH,
+                sha512=l_sha512,
+                sha1=l_sha1,
+                project_id="kept-legacy",
+                version_id="v1",
+            ),
+        ),
+    )
+
+    fallback_rec = ModrinthVersionRecord(
+        version_id="spigot-v2",
+        project_id="spigot-fallback",
+        name="SpigotFallback 2.0",
+        version_number="2.0.0",
+        version_type="release",
+        # Bare 1.21 + spigot loader (not literally "1.21.4" / "paper")
+        game_versions=("1.21",),
+        loaders=("spigot",),
+        environment="server_only",
+        files=(
+            PluginFile(
+                url="https://cdn.modrinth.com/data/spigot-fallback/2.0/SpigotFallback.jar",
+                filename="SpigotFallback.jar",
+                size_bytes=len(spigot_new),
+                sha1=sn_sha1,
+                sha512=sn_sha512,
+                primary=True,
+            ),
+        ),
+        dependencies=(),
+        date_published="2025-01-01T00:00:00Z",
+    )
+
+    client = _ChainFakeModrinth(
+        # /version_files/update misses on exact hash -> must fall back to project_versions!
+        updates={},
+        project_versions={"spigot-fallback": [fallback_rec]},
+    )
+
+    matrix = await build_compatibility_matrix(
+        lockfile,
+        target_mc="1.21.4",
+        target_loader=LoaderRef(id="paper", version="latest"),
+        modrinth_client=client,  # type: ignore[arg-type]
+        cas=cas,
+        keep_paths=["plugins/KeptLegacy.jar"],
+    )
+
+    assert seen_update_loaders == [["paper"], ["spigot"], ["bukkit"]]
+    assert not matrix.has_blockers
+    matrix.assert_no_blockers()
+    assert matrix.kept_paths == ("plugins/KeptLegacy.jar",)
+
+    by_path = {e.path: e for e in matrix.entries}
+    fb = by_path["plugins/SpigotFallback.jar"]
+    assert fb.status == MatrixStatus.CARRIED
+    assert fb.action_label == "will_upgrade"
+    assert fb.target_version_id == "spigot-v2"
+
+    kept = by_path["plugins/KeptLegacy.jar"]
+    assert kept.status == MatrixStatus.CARRIED
+    assert kept.kept_by_operator is True
+    assert kept.action_label == "kept_current"
+    assert kept.is_blocker is False
+    assert kept.target_sha256 == l_sha256
+
+    restored = CompatibilityMatrix.from_dict(matrix.to_dict())
+    assert restored.kept_paths == ("plugins/KeptLegacy.jar",)
+    restored_kept = {e.path: e for e in restored.entries}["plugins/KeptLegacy.jar"]
+    assert restored_kept.kept_by_operator is True
+    assert restored_kept.action_label == "kept_current"
+
+
+@pytest.mark.asyncio
+async def test_root_server_jar_excluded_from_addon_matrix_and_purpur_native_loader(
+    tmp_path: Path,
+) -> None:
+    """Root server.jar must be excluded from addons, and Purpur is a native target loader."""
+    from app.api.v1.schemas.modpacks_upgrades import LecPrewarmRequest, PlanUpgradeRequest
+    from app.modules.versioning.domain.lockfile import parse_lec_key
+    from app.modules.versioning.infrastructure.lec_store import ALLOWED_LEC_TREES
+
+    cas = ArtifactCas(tmp_path / "cas")
+
+    server_jar = b"purpur-1.21.11-core-jar"
+    sj_sha256, sj_sha512, sj_sha1 = _hashes(server_jar)
+    cas.put_bytes(server_jar)
+
+    plugin_old = b"veinminer-plugin-v1"
+    p_sha256, p_sha512, p_sha1 = _hashes(plugin_old)
+    cas.put_bytes(plugin_old)
+
+    plugin_new = b"veinminer-plugin-v2"
+    _, pn_sha512, pn_sha1 = _hashes(plugin_new)
+
+    seen_hashes: list[list[str]] = []
+    seen_loaders: list[list[str]] = []
+
+    class _RecordingModrinth(FakeModrinthClient):
+        async def lookup_version_files_by_hashes(
+            self, hashes: list[str], *, algorithm: str = "sha512"
+        ) -> dict[str, ModrinthVersionRecord]:
+            seen_hashes.append(list(hashes))
+            return await super().lookup_version_files_by_hashes(
+                hashes, algorithm=algorithm
+            )
+
+        async def lookup_version_updates_by_hashes(
+            self,
+            hashes: list[str],
+            *,
+            loaders: list[str],
+            game_versions: list[str],
+            algorithm: str = "sha512",
+            version_types: tuple[str, ...] = ("release",),
+        ) -> dict[str, ModrinthVersionRecord]:
+            seen_loaders.append(list(loaders))
+            return await super().lookup_version_updates_by_hashes(
+                hashes,
+                loaders=loaders,
+                game_versions=game_versions,
+                algorithm=algorithm,
+                version_types=version_types,
+            )
+
+    lockfile = LockfileV21(
+        format=2,
+        mc="1.21.11",
+        loader=LoaderRef(id="purpur", version="latest"),
+        base_overrides={},
+        files=(
+            LockfileFile(
+                path="server.jar",
+                sha256=sj_sha256,
+                size=len(server_jar),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.USER,
+                sha512=sj_sha512,
+                sha1=sj_sha1,
+            ),
+            LockfileFile(
+                path="plugins/veinminer.jar",
+                sha256=p_sha256,
+                size=len(plugin_old),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.MODRINTH,
+                sha512=p_sha512,
+                sha1=p_sha1,
+                project_id="veinminer",
+                version_id="v1",
+            ),
+        ),
+    )
+
+    update_rec = ModrinthVersionRecord(
+        version_id="v2",
+        project_id="veinminer",
+        name="Veinminer 2.0",
+        version_number="2.0.0",
+        version_type="release",
+        game_versions=("1.21.4",),
+        loaders=("paper",),
+        environment="server_only",
+        files=(
+            PluginFile(
+                url="https://cdn.modrinth.com/data/veinminer/2.0/veinminer.jar",
+                filename="veinminer.jar",
+                size_bytes=len(plugin_new),
+                sha1=pn_sha1,
+                sha512=pn_sha512,
+                primary=True,
+            ),
+        ),
+        dependencies=(),
+        date_published="2025-02-01T00:00:00Z",
+    )
+
+    client = _RecordingModrinth(updates={p_sha512: update_rec})
+    matrix = await build_compatibility_matrix(
+        lockfile,
+        target_mc="1.21.4",
+        target_loader=LoaderRef(id="purpur", version="latest"),
+        modrinth_client=client,  # type: ignore[arg-type]
+        cas=cas,
+    )
+
+    # server.jar must be completely excluded from Modrinth hashing and matrix entries
+    assert seen_hashes == [[p_sha512]]
+    assert seen_loaders == [["purpur", "paper"]]
+    paths = [e.path for e in matrix.entries]
+    assert "server.jar" not in paths
+    assert paths == ["plugins/veinminer.jar"]
+    assert matrix.entries[0].status == MatrixStatus.CARRIED
+    assert not matrix.has_blockers
+
+    # Purpur is accepted by schemas, LEC key parser, and LEC tree allowlist
+    plan_req = PlanUpgradeRequest(
+        target_mc="1.21.4",
+        target_loader_id="purpur",
+        target_loader_version="latest",
+    )
+    assert plan_req.target_loader_id == "purpur"
+
+    lec_req = LecPrewarmRequest(
+        loader_id="purpur", mc_version="1.21.4", loader_version="latest"
+    )
+    assert lec_req.lec_key == "purpur/1.21.4/latest"
+
+    parts = parse_lec_key("purpur/1.21.4/latest")
+    assert parts.loader == "purpur"
+    assert parts.mc == "1.21.4"
+    assert parts.version == "latest"
+    assert "purpur" in ALLOWED_LEC_TREES
+
+
+def test_java_25_image_for_mc_26_and_version_selector_blocks_mc26_for_mc121() -> None:
+    """MC 26.x selects Java 25, 1.21.11 stays Java 21, and 26.x-only builds never match 1.21.11."""
+    from app.modules.plugin.application.services.version_selector import select_best_version
+    from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
+    from app.modules.server.infrastructure.providers.docker import resolve_docker_image
+
+    assert resolve_docker_image(minecraft_version="26.1") == "eclipse-temurin:25-jre"
+    assert resolve_docker_image(minecraft_version="26.3") == "eclipse-temurin:25-jre"
+    assert resolve_docker_image(minecraft_version="1.21.11") == "eclipse-temurin:21-jre-jammy"
+
+    mc26_only = PluginVersionInfo(
+        version_id="v-26",
+        project_id="letmedespawn",
+        name="LetMeDespawn 1.26",
+        version_number="1.26.10.3",
+        game_versions=["26.1", "26.3"],
+        loaders=["paper", "purpur"],
+        files=[],
+    )
+    sel = select_best_version("purpur", "1.21.11", [mc26_only])
+    assert sel.selected is None
+    assert sel.notice_kind == "incompatible"
+
+
+@pytest.mark.asyncio
+async def test_orphaned_rolling_back_prev_tree_cleaned_while_completed_until_confirm_blocks(
+    tmp_path: Path,
+) -> None:
+    """Orphaned ROLLING_BACK .prev journals are cleaned; COMPLETED until_confirm still blocks."""
+    from types import SimpleNamespace
+
+    from app.core.exceptions import ConflictError
+    from app.modules.versioning.application.refresh_orchestrator import (
+        RETENTION_UNTIL_CONFIRM,
+        RefreshOrchestrator,
+    )
+
+    server_root = tmp_path / "srv-1"
+    server_root.mkdir()
+    prev_dir = tmp_path / "srv-1.prev"
+    prev_dir.mkdir()
+    (prev_dir / "old.txt").write_text("old", encoding="utf-8")
+
+    class _FakePathGuard:
+        def validate_swap_path(
+            self,
+            _server_id: str,
+            candidate: str,
+            *,
+            field: str = "",
+            live_root: str | None = None,
+        ) -> Path:
+            del field, live_root
+            return Path(candidate)
+
+    class _FakeRepo:
+        def __init__(self, records: list[SimpleNamespace]) -> None:
+            self.records = records
+            self.updated: list[tuple[str, str, bool]] = []
+            self.cleaned: list[str] = []
+
+        async def list_retained_previous_trees(self) -> list[SimpleNamespace]:
+            return list(self.records)
+
+        async def transition(
+            self,
+            journal_id: str,
+            *,
+            fencing_token: int,
+            phase: str,
+            error: str | None = None,
+        ) -> None:
+            del fencing_token, error
+            is_term = phase in (
+                "COMPLETED",
+                "ROLLED_BACK",
+                "FAILED_CLEAN",
+                "UPGRADE_CONFIRMED",
+            )
+            self.updated.append((journal_id, phase, is_term))
+
+        async def mark_previous_tree_cleaned(self, journal_id: str) -> None:
+            self.cleaned.append(journal_id)
+
+    # 1) Orphaned ROLLING_BACK journal is finalized & cleaned automatically
+    orphan = SimpleNamespace(
+        journal_id="j-orphan",
+        server_id="srv-1",
+        fencing_token=1,
+        phase="ROLLING_BACK",
+        terminal=False,
+        retention_policy=RETENTION_UNTIL_CONFIRM,
+        live_path=str(server_root),
+        previous_path=str(prev_dir),
+        staging_path=str(prev_dir),
+        used_exchange=False,
+        error="RCON client not connected",
+    )
+    repo = _FakeRepo([orphan])
+    svc = object.__new__(RefreshOrchestrator)
+    svc._repository = repo
+    svc._path_guard = _FakePathGuard()
+
+    removed = await svc.prepare_prior_previous_tree(
+        "srv-1", retention_policy=RETENTION_UNTIL_CONFIRM
+    )
+    assert str(prev_dir) in removed
+    assert not prev_dir.exists()
+    assert repo.updated == [("j-orphan", "FAILED_CLEAN", True)]
+    assert repo.cleaned == ["j-orphan"]
+
+    # 2) Genuine COMPLETED until_confirm journal still blocks with ConflictError
+    pinned_prev = tmp_path / "srv-1-pinned.prev"
+    pinned_prev.mkdir()
+    (pinned_prev / "keep.txt").write_text("keep", encoding="utf-8")
+    pinned = SimpleNamespace(
+        journal_id="j-pinned",
+        server_id="srv-1",
+        fencing_token=1,
+        phase="COMPLETED",
+        terminal=True,
+        retention_policy=RETENTION_UNTIL_CONFIRM,
+        live_path=str(server_root),
+        previous_path=str(pinned_prev),
+        staging_path=str(pinned_prev),
+        used_exchange=False,
+        error=None,
+    )
+    svc._repository = _FakeRepo([pinned])
+    with pytest.raises(ConflictError, match="previous tree retained until confirmation"):
+        await svc.prepare_prior_previous_tree(
+            "srv-1", retention_policy=RETENTION_UNTIL_CONFIRM
+        )

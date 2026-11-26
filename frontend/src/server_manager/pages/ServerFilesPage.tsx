@@ -1,1110 +1,555 @@
-import React, { useState, useRef, useMemo, useEffect } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createAuthenticatedApi, ApiError } from "@/services/api";
-import { queryKeys } from "@/services/queryClient";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ApiError } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
-import { Button, IconButton } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Modal } from "@/components/ui/Modal";
-import { Pagination } from "@/components/ui/Pagination";
-import { EmptyState, ErrorState } from "@/components/ui/States";
 import { LoadingBar } from "@/components/ui/LoadingBar";
+import { ErrorState, ForbiddenState } from "@/components/ui/States";
 import { PageSkeleton } from "@/components/Skeleton";
-import { toast } from "@/stores/toastStore";
-import type { FileItem } from "@/server_manager/types";
-import { CodeEditor } from "@/components/CodeEditor";
-import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
-
-const PAGE_SIZE = 50;
-
-const NON_EDITABLE_EXTENSIONS = new Set([
-  "dat", "mca", "mcr", "sqlite", "db", "nbt", "jar", "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "ico", "class"
-]);
-
-function isBinaryFile(fileName: string): boolean {
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  return !!ext && NON_EDITABLE_EXTENSIONS.has(ext);
-}
-
-function formatBytes(bytes: number) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
+import { FilesToolbar } from "@/server_manager/components/files/FilesToolbar";
+import { FilesTable } from "@/server_manager/components/files/FilesTable";
+import { FileEditorView } from "@/server_manager/components/files/FileEditorView";
+import { LogsTabView } from "@/server_manager/components/files/LogsTabView";
+import { LogFileViewer } from "@/server_manager/components/files/LogFileViewer";
+import { NewFileModal } from "@/server_manager/components/files/NewFileModal";
+import { NewFolderModal } from "@/server_manager/components/files/NewFolderModal";
+import { CommitBranchModal } from "@/server_manager/components/files/CommitBranchModal";
+import {
+  extractApiErrorMessage,
+  FILES_SPLIT_KEYBOARD_STEP,
+  MAX_FILES_SPLIT_RATIO,
+  MIN_FILES_SPLIT_RATIO,
+} from "@/server_manager/components/files/filesUtils";
+import {
+  FILES_PAGE_SIZE,
+  useServerFilesController,
+} from "@/server_manager/components/files/useServerFilesController";
 
 export function ServerFilesPage() {
-  const { serverId } = useParams<{ serverId: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const branchContext = useServerBranchContext();
-  const urlBranch = searchParams.get("branch") || undefined;
-  const activeBranch = branchContext
-    ? branchContext.gitBacked
-      ? urlBranch || branchContext.branch
-      : undefined
-    : urlBranch;
-  const readOnlyBranch = activeBranch === "main";
-  const currentPath = searchParams.get("path") || "";
-  const fileParam = searchParams.get("file") || searchParams.get("edit");
-  const [editContent, setEditContent] = useState("");
-  const [userEdited, setUserEdited] = useState(false);
-  const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
-  const [showNewFolder, setShowNewFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
-  const [showBulkDelete, setShowBulkDelete] = useState(false);
-  const [showCommitDialog, setShowCommitDialog] = useState(false);
-  const [reloadCommand, setReloadCommand] = useState("");
-  const [commitMessage, setCommitMessage] = useState("");
-  const [prevCurrentPath, setPrevCurrentPath] = useState(currentPath);
-  if (currentPath !== prevCurrentPath) {
-    setPrevCurrentPath(currentPath);
-    setSelectedPaths(new Set());
-  }
-  const previousBranchRef = useRef(activeBranch);
+  const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const [isResizingSplit, setIsResizingSplit] = useState(false);
+  const c = useServerFilesController();
+  const { updateSplitRatio } = c;
 
   useEffect(() => {
-    if (previousBranchRef.current === activeBranch) return;
-    previousBranchRef.current = activeBranch;
-    setUserEdited(false);
-    setEditContent("");
-    setSelectedPaths(new Set());
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("file");
-        next.delete("edit");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [activeBranch, setSearchParams]);
+    if (!isResizingSplit) return;
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
 
-  const editingFile = useMemo<FileItem | null>(() => {
-    if (!fileParam) return null;
-    const fileName = fileParam.split("/").pop() || fileParam;
-    return {
-      name: fileName,
-      path: fileParam,
-      is_dir: false,
-      size: 0,
+    const handlePointerMove = (ev: PointerEvent) => {
+      const container = splitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const rawPercent = ((ev.clientX - rect.left) / rect.width) * 100;
+      updateSplitRatio(rawPercent);
     };
-  }, [fileParam]);
 
-  const [prevFileParam, setPrevFileParam] = useState<string | null>(fileParam);
-  if (fileParam !== prevFileParam) {
-    setPrevFileParam(fileParam);
-    setUserEdited(false);
-    setEditContent("");
-  }
+    const handlePointerEnd = () => {
+      setIsResizingSplit(false);
+    };
 
-  const switchView = (mode: "branch" | "live-state") => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (mode === "live-state") next.set("view", "live-state");
-      else next.delete("view");
-      next.delete("mode");
-      next.delete("file");
-      next.delete("edit");
-      return next;
-    });
-  };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
 
-  const updateCurrentPath = (newPath: string) => {
-    setCurrentPage(1);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (newPath) {
-        next.set("path", newPath);
-      } else {
-        next.delete("path");
-      }
-      return next;
-    });
-  };
+    return () => {
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [isResizingSplit, updateSplitRatio]);
 
-  const openFileEditor = (file: FileItem) => {
-    setUserEdited(false);
-    setEditContent("");
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("file", file.path);
-      return next;
-    });
-  };
-
-  const handleCloseEditor = () => {
-    setUserEdited(false);
-    setEditContent("");
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("file");
-        next.delete("edit");
-        if (!next.get("path") && fileParam && fileParam.includes("/")) {
-          const parentDir = fileParam.substring(0, fileParam.lastIndexOf("/"));
-          if (parentDir) {
-            next.set("path", parentDir);
-          }
-        }
-        return next;
-      },
-      { replace: true },
-    );
-  };
-
-  const navigateToDirectory = (dirPath: string) => {
-    setUserEdited(false);
-    setEditContent("");
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("file");
-      next.delete("edit");
-      if (dirPath) {
-        next.set("path", dirPath);
-      } else {
-        next.delete("path");
-      }
-      return next;
-    });
-  };
-
-  const api = useMemo(() => createAuthenticatedApi(), []);
-  const queryClient = useQueryClient();
-
-  const viewParam = searchParams.get("view") || searchParams.get("mode");
-  const viewMode = viewParam === "live-state" || viewParam === "live_state" ? "live-state" : "branch";
-  const isLiveState = viewMode === "live-state";
-  const isNonMainLiveStateReadOnly = Boolean(
-    isLiveState && activeBranch && activeBranch !== "main",
-  );
-  const showViewSwitcher = branchContext?.gitBacked === true || viewParam === "live-state" || viewParam === "live_state";
-
-  const { data: files, isLoading, error } = useQuery({
-    queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch),
-    queryFn: () =>
-      activeBranch
-        ? api.listServerFiles(serverId!, currentPath, activeBranch)
-        : api.listServerFiles(serverId!, currentPath),
-    enabled: !!serverId && !isLiveState,
-  });
-
-  const { data: fileContentData, isLoading: isContentLoading, error: fileContentError } = useQuery({
-    queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? "", activeBranch),
-    queryFn: async () => {
-      const res = activeBranch
-        ? await api.readServerFileContent(serverId!, editingFile!.path, activeBranch)
-        : await api.readServerFileContent(serverId!, editingFile!.path);
-      return typeof res === "string"
-        ? { path: editingFile!.path, content: res, is_binary: false }
-        : res;
-    },
-    enabled: !!serverId && !!editingFile,
-  });
-
-  const isBinary = fileContentData?.is_binary === true;
-  const rawTextContent =
-    typeof fileContentData === "string" ? fileContentData : (fileContentData?.content ?? "");
-  const displayedContent = userEdited ? editContent : rawTextContent;
-
-  const liveStatePath = currentPath || "/";
-
-  const { data: liveStateFiles, isLoading: isLiveStateLoading, error: liveStateError } = useQuery({
-    queryKey: queryKeys.files.liveStateList(serverId!, liveStatePath),
-    queryFn: () => (api.listLiveStateFiles ? api.listLiveStateFiles(serverId!, liveStatePath) : Promise.resolve({ items: [] })),
-    enabled: !!serverId && isLiveState,
-  });
-
-  const { data: liveStateContentData, isLoading: isLiveStateContentLoading, error: liveStateContentError } = useQuery({
-    queryKey: queryKeys.files.liveStateContent(serverId!, editingFile?.path ?? ""),
-    queryFn: async () => {
-      const res = await (api.readLiveStateFileContent
-        ? api.readLiveStateFileContent(serverId!, editingFile!.path)
-        : Promise.resolve({ content: "" }));
-      return res;
-    },
-    enabled: !!serverId && isLiveState && !!editingFile,
-  });
-
-  const liveStateRawContent =
-    (liveStateContentData as { content?: string } | undefined)?.content ?? "";
-  const liveStateDisplayedContent = userEdited ? editContent : liveStateRawContent;
-
-  const effectiveDisplayedContent = isLiveState ? liveStateDisplayedContent : displayedContent;
-  const effectiveContentLoading = isLiveState ? isLiveStateContentLoading : isContentLoading;
-  const effectiveContentError = isLiveState ? liveStateContentError : fileContentError;
-
-  const liveStateSaveMutation = useMutation({
-    mutationFn: () =>
-      api.writeLiveStateFileContent
-        ? api.writeLiveStateFileContent(serverId!, {
-            path: editingFile!.path,
-            content: liveStateDisplayedContent,
-            reload_command: reloadCommand || null,
-          })
-        : Promise.resolve({ status: "ok", rcon_reloaded: false, reload_command: null } as any),
-    onSuccess: (res: any) => {
-      toast(
-        "success",
-        res?.rcon_reloaded ? `Saved & reloaded (${res?.reload_command})` : "Saved to stopped server live state",
-      );
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.liveStateContent(serverId!, editingFile!.path) });
-      handleCloseEditor();
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to save file", err);
-    },
-  });
-
-  const handleMutationError = (defaultTitle: string, err: Error) => {
-    if (err instanceof ApiError && err.status === 403) {
-      toast("error", "Permission Denied", "You do not have permission to perform this action on this server.");
-    } else {
-      toast("error", defaultTitle, err.message);
-    }
-  };
-
-  const deleteMutation = useMutation({
-    mutationFn: (path: string) =>
-      activeBranch
-        ? api.deleteServerFile(serverId!, path, activeBranch)
-        : api.deleteServerFile(serverId!, path),
-    onSuccess: () => {
-      toast("success", "File deleted");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
-      setFileToDelete(null);
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to delete file", err);
-    },
-  });
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (paths: string[]) => {
-      for (const p of paths) {
-        if (activeBranch) {
-          await api.deleteServerFile(serverId!, p, activeBranch);
-        } else {
-          await api.deleteServerFile(serverId!, p);
-        }
-      }
-    },
-    onSuccess: () => {
-      toast("success", "Files deleted", `Successfully deleted ${selectedPaths.size} item(s).`);
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
-      setSelectedPaths(new Set());
-      setShowBulkDelete(false);
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to delete files", err);
-    },
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: (file: File) =>
-      activeBranch
-        ? api.uploadServerFile(serverId!, currentPath, file, activeBranch)
-        : api.uploadServerFile(serverId!, currentPath, file),
-    onSuccess: () => {
-      toast("success", "File uploaded");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to upload file", err);
-    },
-  });
-
-  const mkdirMutation = useMutation({
-    mutationFn: (folderName: string) => {
-      const fullPath = currentPath ? `${currentPath}/${folderName}` : folderName;
-      return activeBranch
-        ? api.mkdirServerDirectory(serverId!, fullPath, undefined, activeBranch)
-        : api.mkdirServerDirectory(serverId!, fullPath);
-    },
-    onSuccess: () => {
-      toast("success", "Folder created");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
-      setShowNewFolder(false);
-      setNewFolderName("");
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to create folder", err);
-    },
-  });
-
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      activeBranch
-        ? api.writeServerFileContent(serverId!, editingFile!.path, displayedContent, activeBranch)
-        : api.writeServerFileContent(serverId!, editingFile!.path, displayedContent),
-    onSuccess: () => {
-      toast("success", "File saved");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile!.path, activeBranch) });
-      handleCloseEditor();
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to save file", err);
-    },
-  });
-
-  const commitMutation = useMutation({
-    mutationFn: () =>
-      api.createServerCommit(serverId!, {
-        message: commitMessage.trim(),
-        branch_name: activeBranch,
-      }),
-    onSuccess: (result) => {
-      const commitId =
-        typeof result.commit_id === "string" ? result.commit_id.slice(0, 12) : "new commit";
-      const routed = Array.isArray(result.routed_to_cas) ? result.routed_to_cas.length : 0;
-      const quarantined = Array.isArray(result.quarantined) ? result.quarantined.length : 0;
-      const suffix =
-        routed || quarantined
-          ? ` · ${routed} routed to CAS · ${quarantined} quarantined`
-          : "";
-      toast("success", "Changes committed", `${commitId} on ${activeBranch}${suffix}`);
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? "", activeBranch) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.versioning.branches(serverId!) });
-      setShowCommitDialog(false);
-      setCommitMessage("");
-    },
-    onError: (err: Error) => {
-      handleMutationError("Failed to commit changes", err);
-    },
-  });
-
-  const handleDownload = async (file: FileItem) => {
-    try {
-      const blob = activeBranch
-        ? await api.downloadServerFile(serverId!, file.path, activeBranch)
-        : await api.downloadServerFile(serverId!, file.path);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file.name;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err: unknown) {
-      toast("error", "Download failed", err instanceof Error ? err.message : "Download failed");
-    }
-  };
-
-  const navigateUp = () => {
-    if (!currentPath) return;
-    const parts = currentPath.split("/").filter(Boolean);
-    parts.pop();
-    updateCurrentPath(parts.join("/"));
-  };
-
-  const navigateTo = (folder: string) => {
-    const newPath = currentPath ? `${currentPath}/${folder}` : folder;
-    updateCurrentPath(newPath);
-  };
-
-
-  const filteredFiles = useMemo(() => {
-    if (!files) return [];
-    if (!searchQuery.trim()) return files;
-    const q = searchQuery.trim().toLowerCase();
-    return files.filter((f) => f.name.toLowerCase().includes(q));
-  }, [files, searchQuery]);
-
-  const paginatedFiles = useMemo(() => {
-    if (filteredFiles.length <= PAGE_SIZE) return filteredFiles;
-    const startIdx = (currentPage - 1) * PAGE_SIZE;
-    return filteredFiles.slice(startIdx, startIdx + PAGE_SIZE);
-  }, [filteredFiles, currentPage]);
-
-  const allSelectablePaths = useMemo(
-    () => paginatedFiles.filter((f) => !f.is_dir).map((f) => f.path),
-    [paginatedFiles],
-  );
-  const isAllSelected =
-    allSelectablePaths.length > 0 &&
-    allSelectablePaths.every((p) => selectedPaths.has(p));
-
-  const toggleSelectAll = () => {
-    if (isAllSelected) {
-      setSelectedPaths(new Set());
-    } else {
-      setSelectedPaths(new Set(allSelectablePaths));
-    }
-  };
-
-  const toggleSelect = (path: string) => {
-    setSelectedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  };
-
-  if (isLiveState) {
-    if (isLiveStateLoading && !liveStateFiles) return <PageSkeleton />;
-    if (liveStateError) return <ErrorState message={liveStateError instanceof Error ? liveStateError.message : "Failed to load"} />;
-  } else {
-    if (isLoading && !files) return <PageSkeleton />;
-    if (error) return <ErrorState message={error.message} />;
-  }
-
-  const pathParts = currentPath.split("/").filter(Boolean);
-  const breadcrumbs = [
-    { name: "root", path: "" },
-    ...pathParts.map((part, index) => ({
-      name: part,
-      path: pathParts.slice(0, index + 1).join("/"),
-    })),
-  ];
-
-  const editorPathParts =
-    editingFile?.path && editingFile.path.includes("/")
-      ? editingFile.path.split("/").slice(0, -1)
-      : [];
-
-  if (editingFile) {
+  if (!c.canAccessFiles) {
     return (
-      <div className="flex flex-col h-full bg-surface-card rounded-xl shadow-xs border border-border-subtle overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-border-subtle bg-surface-card">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleCloseEditor}
-              aria-label="Back"
-              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer"
-            >
-              <Icon name="chevron-left" />
-            </button>
-            <div>
-              <nav
-                aria-label="Editor breadcrumb"
-                className="text-xs text-text-muted font-mono flex items-center gap-1.5 flex-wrap"
-              >
-                <button
-                  type="button"
-                  onClick={() => navigateToDirectory("")}
-                  className="hover:text-text-primary hover:underline cursor-pointer"
-                >
-                  root
-                </button>
-                {editorPathParts.map((part, index) => {
-                  const pathUpTo = editorPathParts.slice(0, index + 1).join("/");
-                  return (
-                    <span key={pathUpTo} className="flex items-center gap-1.5">
-                      <span className="text-border-subtle">/</span>
-                      <button
-                        type="button"
-                        onClick={() => navigateToDirectory(pathUpTo)}
-                        className="hover:text-text-primary hover:underline cursor-pointer"
-                      >
-                        {part}
-                      </button>
-                    </span>
-                  );
-                })}
-                <span className="text-border-subtle">/</span>
-                <span className="text-text-primary font-medium">
-                  {editingFile.name}
-                </span>
-              </nav>
-              <h2 className="text-lg font-semibold text-text-primary">
-                Editing: {editingFile.name}
-              </h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCloseEditor}
-              className="px-3 py-1.5 text-sm font-medium text-text-secondary bg-surface-card border border-border-subtle hover:border-border-hover rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            {!isBinary && ((isLiveState && !isNonMainLiveStateReadOnly) || !readOnlyBranch) && (
-              <>
-                {isLiveState && (
-                  <select
-                    aria-label="RCON Reload Command"
-                    value={reloadCommand}
-                    onChange={(e) => setReloadCommand(e.target.value)}
-                    className="rounded-lg border border-border-subtle hover:border-border-hover bg-surface-card px-2 py-1.5 text-sm"
-                  >
-                    <option value="">Auto</option>
-                    <option value="whitelist reload">whitelist reload</option>
-                    <option value="minecraft:reload">minecraft:reload</option>
-                    <option value="reload">reload</option>
-                  </select>
-                )}
-                <Button
-                  variant="primary"
-                  onClick={() => (isLiveState ? liveStateSaveMutation.mutate() : saveMutation.mutate())}
-                  disabled={isNonMainLiveStateReadOnly || (isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending) || effectiveContentLoading || !!effectiveContentError}
-                  loading={isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending}
-                  icon="save"
-                >
-                  {isLiveState ? "Save Live State" : "Save"}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="flex-1 p-4">
-          {effectiveContentLoading ? (
-            <div className="h-64 flex items-center justify-center text-text-muted">Loading content...</div>
-          ) : effectiveContentError ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-subtle rounded-xl">
-              <Icon name="alert" size={48} className="text-status-danger mb-3" />
-              <h3 className="text-base font-semibold text-text-primary mb-1">
-                Failed to load file
-              </h3>
-              <p className="text-sm text-text-muted mb-4 max-w-sm">
-                {fileContentError instanceof Error ? fileContentError.message : "Unable to read file content"}
-              </p>
-              <button
-                type="button"
-                onClick={handleCloseEditor}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-surface-card border border-border-subtle hover:border-border-hover rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
-              >
-                Back to Files
-              </button>
-            </div>
-          ) : isBinary ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-subtle rounded-xl">
-              <Icon name="file" size={48} className="text-text-muted mb-3" />
-              <h3 className="text-base font-semibold text-text-primary mb-1">Binary File</h3>
-              <p className="text-sm text-text-muted mb-4 max-w-sm">
-                This file cannot be displayed or edited as text because it contains binary data.
-              </p>
-              <button
-                type="button"
-                onClick={() => handleDownload(editingFile)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-accent-primary hover:bg-accent-hover rounded-lg transition-colors cursor-pointer"
-              >
-                <Icon name="download" size={16} />
-                Download File
-              </button>
-            </div>
-          ) : (
-            <CodeEditor
-              value={effectiveDisplayedContent}
-              filename={editingFile.name}
-              onChange={(val) => {
-                setEditContent(val);
-                setUserEdited(true);
-              }}
-            />
-          )}
-        </div>
+      <ForbiddenState
+        title="Access Denied"
+        message="You do not have permission to view or manage files on this server."
+        onBack={() => navigate(`/servers/${c.serverId}/console`)}
+      />
+    );
+  }
+
+  const activeListQuery = c.isLogsView
+    ? c.logsQuery
+    : c.isLiveState
+      ? c.liveStateQuery
+      : c.filesQuery;
+  if (activeListQuery.isLoading && !activeListQuery.data) return <PageSkeleton />;
+  if (activeListQuery.error) {
+    if (activeListQuery.error instanceof ApiError && activeListQuery.error.status === 403) {
+      return (
+        <ForbiddenState
+          title="Access Denied"
+          message={extractApiErrorMessage(activeListQuery.error, "Permission denied")}
+          onBack={() => navigate(`/servers/${c.serverId}/console`)}
+        />
+      );
+    }
+    return (
+      <ErrorState
+        message={extractApiErrorMessage(activeListQuery.error, "Failed to load files")}
+        onRetry={() => void activeListQuery.refetch()}
+      />
+    );
+  }
+
+  const renderEditorOrLogViewer = (compact: boolean) => {
+    if (!c.editingFile) return null;
+    if (c.activeEditorIsLogs) {
+      return (
+        <LogFileViewer
+          file={c.editingFile}
+          contentResponse={c.logContentQuery.data}
+          isLoading={c.logContentQuery.isLoading}
+          error={c.logContentQuery.error}
+          compact={compact}
+          onRetry={() => void c.logContentQuery.refetch()}
+          onClose={c.handleCloseEditor}
+          onDownload={(file) => c.handleDownload(file, "logs")}
+        />
+      );
+    }
+    const activeError = c.activeEditorIsLiveState
+      ? c.liveStateContentQuery.error
+      : c.fileContentQuery.error;
+    const activeLoading = c.activeEditorIsLiveState
+      ? c.liveStateContentQuery.isLoading
+      : c.fileContentQuery.isLoading;
+    return (
+      <FileEditorView
+        serverId={c.serverId!}
+        editingFile={c.editingFile}
+        activeBranch={c.activeBranch}
+        isLiveState={c.activeEditorIsLiveState}
+        isReadOnly={c.activeEditorReadOnly}
+        displayedContent={c.displayedContent}
+        isDirty={c.isDirty}
+        isContentLoading={activeLoading}
+        contentError={activeError}
+        isBinary={c.isBinary}
+        isSaving={
+          c.activeEditorIsLiveState
+            ? c.liveStateSaveMutation.isPending
+            : c.saveMutation.isPending
+        }
+        reloadCommand={c.reloadCommand}
+        onReloadCommandChange={c.setReloadCommand}
+        onChangeContent={(val) => {
+          c.setEditContent(val);
+          c.setUserEdited(true);
+        }}
+        onSave={() =>
+          c.activeEditorIsLiveState
+            ? c.liveStateSaveMutation.mutate()
+            : c.saveMutation.mutate()
+        }
+        onRetryLoad={() =>
+          void (c.activeEditorIsLiveState
+            ? c.liveStateContentQuery.refetch()
+            : c.fileContentQuery.refetch())
+        }
+        onCloseEditor={c.handleCloseEditor}
+        onNavigateDirectory={c.navigateToDirectory}
+        onDownload={(file) =>
+          c.handleDownload(file, c.activeEditorIsLiveState ? "live-state" : "branch")
+        }
+        compact={compact}
+      />
+    );
+  };
+
+  if (!c.splitView && c.editingFile) {
+    return (
+      <div className="flex flex-col min-h-0 h-[clamp(440px,calc(100dvh-16.5rem),680px)]">
+        {renderEditorOrLogViewer(false)}
       </div>
     );
   }
 
-  // File browser view
-  return (
-    <div className="flex flex-col flex-1 min-h-0 space-y-4">
-      {showViewSwitcher && (
-        <div data-testid="files-view-switcher" className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => switchView("branch")}
-            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${viewMode === "branch" ? "bg-accent-primary text-accent-contrast-text border-transparent shadow-2xs" : "bg-surface-card border-border-subtle hover:border-border-hover hover:bg-surface-hover"}`}
-          >
-            Branch Config Files (Class B)
-          </button>
-          <button
-            type="button"
-            onClick={() => switchView("live-state")}
-            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${viewMode === "live-state" ? "bg-accent-primary text-accent-contrast-text border-transparent shadow-2xs" : "bg-surface-card border-border-subtle hover:border-border-hover hover:bg-surface-hover"}`}
-          >
-            Live State Files (Class C)
-          </button>
-        </div>
-      )}
+  const renderLeftPaneContent = (embedded: boolean) => {
+    if (c.isLogsView) {
+      return (
+        <LogsTabView
+          entries={c.logsQuery.data ?? []}
+          isLoading={c.logsQuery.isLoading}
+          isFetching={c.logsQuery.isFetching}
+          activeBranch={c.activeBranch}
+          isAdvancedMode={c.isAdvancedMode}
+          selectedPath={c.splitView ? (c.editingFile?.path ?? null) : null}
+          splitView={c.splitView}
+          embedded={embedded}
+          onToggleSplitView={() => c.setSplitView((prev) => !prev)}
+          onRefresh={() => void c.logsQuery.refetch()}
+          onOpenLog={(item) => c.openFileEditor(item, "logs")}
+          onDownload={(item) => c.handleDownload(item, "logs")}
+        />
+      );
+    }
 
-      {isLiveState && (
-        <div data-testid="live-state-banner" className="rounded-xl border border-border-subtle bg-surface-card px-4 py-3 text-sm text-text-secondary shadow-2xs space-y-2">
-          <p>
-            Live State edits apply directly to Class-C runtime files on the live server directory. If the server is RUNNING, saving triggers an automatic RCON save-all flush + reload; if STOPPED, saving writes atomically after checking world/session.lock.
-          </p>
-          {isNonMainLiveStateReadOnly && (
-            <p
-              data-testid="files-non-main-class-c-banner"
-              className="rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs font-medium text-status-warning"
-            >
-              Class-C Live State belongs to <code className="font-mono">main</code>. Viewing branch &ldquo;{activeBranch}&rdquo; is read-only here; switch to <code className="font-mono">main</code> to modify live world/Class-C files.
+    return (
+      <>
+        {c.isLiveState && (
+          <div
+            data-testid="live-state-banner"
+            className={`shrink-0 text-xs text-text-secondary space-y-2 ${
+              embedded
+                ? "border-b border-border-subtle bg-surface-card px-3 py-2"
+                : "rounded-xl border border-border-subtle bg-surface-card px-4 py-2.5 shadow-2xs"
+            }`}
+          >
+            <p>
+              Live Data edits apply directly to runtime files on the live server directory (RCON flush + reload when running; atomic write when stopped).
             </p>
-          )}
-        </div>
-      )}
-
-      {!isLiveState && isLoading && <LoadingBar />}
-
-      {!isLiveState && activeBranch && (
-        <div
-          data-testid="branch-context-banner"
-          className="flex flex-wrap items-center gap-2 rounded-xl border border-border-subtle bg-surface-card px-4 py-2.5 text-xs text-text-secondary shadow-2xs"
-        >
-          <Icon name="backup" size={14} className="text-text-muted" />
-          <span>
-            Branch: <strong className="font-mono text-text-primary">{activeBranch}</strong>
-          </span>
-          <span className="text-border-subtle">•</span>
-          {readOnlyBranch ? (
-            <span className="text-status-warning">
-              Saved state is read-only. Select a working branch to edit files.
-            </span>
-          ) : (
-            <span>Changes stay uncommitted until Save &amp; Commit.</span>
-          )}
-        </div>
-      )}
-
-      {/* Toolbar & Breadcrumbs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-card rounded-xl shadow-xs border border-border-subtle">
-        <div className="flex items-center overflow-x-auto whitespace-nowrap text-sm font-medium text-text-secondary">
-          {breadcrumbs.map((crumb, idx) => (
-            <React.Fragment key={crumb.path}>
-              <button
-                type="button"
-                onClick={() => updateCurrentPath(crumb.path)}
-                className={`flex items-center gap-1 hover:text-text-primary transition-colors cursor-pointer ${
-                  idx === breadcrumbs.length - 1
-                    ? "font-semibold text-text-primary"
-                    : ""
-                }`}
+            {c.isNonMainLiveStateReadOnly && (
+              <p
+                data-testid="files-non-main-class-c-banner"
+                className="rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs font-medium text-status-warning"
               >
-                {idx === 0 && <Icon name="folder" size={16} className="text-text-muted" />}
-                <span>{crumb.name}</span>
-              </button>
-              {idx < breadcrumbs.length - 1 && (
-                <span className="mx-2 text-border-subtle">/</span>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Client-side filter search */}
-          <div className="relative min-w-[180px] max-w-xs">
-            <span className="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-text-muted">
-              <Icon name="search" size={15} />
-            </span>
-            <input
-              type="text"
-              aria-label="Filter current directory"
-              placeholder="Filter files in folder..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full rounded-lg border border-border-subtle hover:border-border-hover bg-surface-page py-1.5 ps-9 pe-3 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus transition-colors"
-            />
-          </div>
-
-          <input
-            type="file"
-            aria-label="Upload file"
-            ref={fileInputRef}
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files && e.target.files[0]) {
-                uploadMutation.mutate(e.target.files[0]);
-              }
-              e.target.value = "";
-            }}
-          />
-          {selectedPaths.size > 0 && !readOnlyBranch && (
-            <Button
-              variant="danger"
-              icon="trash"
-              loading={bulkDeleteMutation.isPending}
-              onClick={() => setShowBulkDelete(true)}
-            >
-              Delete Selected ({selectedPaths.size})
-            </Button>
-          )}
-          {!isLiveState && activeBranch && !readOnlyBranch && (
-            <Button
-              variant="secondary"
-              icon="save"
-              onClick={() => setShowCommitDialog(true)}
-            >
-              Save &amp; Commit
-            </Button>
-          )}
-          {!isLiveState && !readOnlyBranch && (
-            <>
-              <Button
-                variant="secondary"
-                icon="folder"
-                onClick={() => setShowNewFolder(true)}
-              >
-                New Folder
-              </Button>
-              <Button
-                variant="primary"
-                icon="upload"
-                loading={uploadMutation.isPending}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Upload File
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {showNewFolder && (
-        <div className="flex items-center gap-2 p-4 bg-surface-card rounded-xl shadow-xs border border-border-subtle">
-          <Icon name="folder" className="text-text-muted" />
-          <input
-            type="text"
-            placeholder="Folder name"
-            aria-label="Folder name"
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            className="flex-1 px-3 py-1.5 text-sm border border-border-subtle hover:border-border-hover rounded-lg focus:outline-none focus:ring-1 focus:ring-border-focus focus:border-border-focus bg-surface-page text-text-primary placeholder:text-text-muted transition-colors"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && newFolderName) mkdirMutation.mutate(newFolderName);
-              if (e.key === "Escape") {
-                setShowNewFolder(false);
-                setNewFolderName("");
-              }
-            }}
-          />
-          <Button
-            variant="primary"
-            onClick={() => mkdirMutation.mutate(newFolderName)}
-            disabled={!newFolderName || mkdirMutation.isPending}
-            loading={mkdirMutation.isPending}
-          >
-            Create
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setShowNewFolder(false);
-              setNewFolderName("");
-            }}
-          >
-            Cancel
-          </Button>
-        </div>
-      )}
-
-      {isLiveState && (
-        <div className="flex flex-col gap-2">
-          {(liveStateFiles?.items ?? []).map((f: any) => (
-            <button
-              key={f.path}
-              type="button"
-              onClick={() => {
-                if (f.is_dir) updateCurrentPath(f.path);
-                else openFileEditor({ name: f.name, path: f.path, is_dir: false, size: f.size });
-              }}
-              className="flex items-center justify-between rounded-lg border border-border-subtle hover:border-border-hover hover:bg-surface-hover bg-surface-card px-4 py-2 text-sm shadow-2xs transition-colors"
-            >
-              <span>{f.name}</span>
-              <span className="text-xs text-text-muted">
-                {f.size ? `${f.size} B` : ""}
-                {f.is_dynamic_class_c ? " · Dynamic Class-C" : ""}
-                {f.writable ? " · Editable" : " · Read-Only Binary"}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!isLiveState && (
-      /* File Browser Table */
-      <div className="flex flex-col flex-1 min-h-0 bg-surface-card rounded-xl shadow-xs border border-border-subtle overflow-hidden">
-        {files?.length === 0 && !currentPath ? (
-          <EmptyState
-            title="Empty Directory"
-            description="No files found in this folder."
-            icon="folder"
-            action={readOnlyBranch ? undefined : {
-              label: "Upload File",
-              icon: "upload",
-              onClick: () => fileInputRef.current?.click(),
-            }}
-          />
-        ) : filteredFiles.length === 0 && searchQuery ? (
-          <EmptyState
-            title="No matching files"
-            description={`No files match "${searchQuery}".`}
-            icon="search"
-            action={{
-              label: "Clear filter",
-              onClick: () => {
-                setSearchQuery("");
-                setCurrentPage(1);
-              },
-            }}
-          />
-        ) : (
-          <div className="overflow-x-auto flex-1 min-h-0 overflow-y-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase bg-surface-muted/60 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
-                <tr>
-                  <th scope="col" className="w-10 px-4 py-2.5">
-                    {allSelectablePaths.length > 0 && (
-                      <input
-                        type="checkbox"
-                        aria-label="Select all"
-                        checked={isAllSelected}
-                        onChange={toggleSelectAll}
-                        className="onx-checkbox"
-                      />
-                    )}
-                  </th>
-                  <th scope="col" className="px-4 py-2.5">Name</th>
-                  <th scope="col" className="px-4 py-2.5 w-32">Size</th>
-                  <th scope="col" className="px-4 py-2.5 w-32 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {currentPath && (
-                  <tr className="hover:bg-surface-hover/50 transition-colors">
-                    <td className="w-10 px-4 py-2"></td>
-                    <td className="px-4 py-2">
-                      <button
-                        type="button"
-                        onClick={navigateUp}
-                        className="flex items-center gap-2.5 cursor-pointer text-left focus:outline-hidden focus-visible:ring-1 focus-visible:ring-border-focus rounded font-medium text-text-primary"
-                        aria-label="Navigate to parent directory"
-                      >
-                        <Icon name="folder" className="text-text-muted" size={16} />
-                        <span>..</span>
-                      </button>
-                    </td>
-                    <td className="px-4 py-2 text-text-muted">-</td>
-                    <td className="px-4 py-2 text-right"></td>
-                  </tr>
-                )}
-                {paginatedFiles.map((file) => (
-                  <tr
-                    key={file.path}
-                    className="hover:bg-surface-hover/50 transition-colors group"
-                  >
-                    <td className="w-10 px-4 py-2">
-                      {!file.is_dir && (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${file.name}`}
-                          checked={selectedPaths.has(file.path)}
-                          onChange={() => toggleSelect(file.path)}
-                          className="onx-checkbox"
-                        />
-                      )}
-                    </td>
-                    <td className="px-4 py-2">
-                      <button
-                        type="button"
-                        className="flex items-center gap-2.5 cursor-pointer text-left focus:outline-hidden focus-visible:ring-1 focus-visible:ring-border-focus rounded"
-                        onClick={() => {
-                          if (file.is_dir) {
-                            navigateTo(file.name);
-                          } else if (isBinaryFile(file.name)) {
-                            handleDownload(file);
-                          } else {
-                            openFileEditor(file);
-                          }
-                        }}
-                      >
-                        <Icon
-                          name={file.is_dir ? "folder" : "file"}
-                          size={16}
-                          className="text-text-muted"
-                        />
-                        <span className="font-medium text-text-primary truncate max-w-[200px] sm:max-w-xs md:max-w-sm hover:text-text-accent transition-colors">
-                          {file.name}
-                        </span>
-                      </button>
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap text-xs font-mono text-text-muted">
-                      {file.is_dir ? "-" : formatBytes(file.size)}
-                    </td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        {file.is_dir ? (
-                          <>
-                            <IconButton
-                              icon="folder"
-                              aria-label={`Open ${file.name}`}
-                              title={`Open ${file.name}`}
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => navigateTo(file.name)}
-                            />
-                            {!readOnlyBranch && (
-                              <IconButton
-                                icon="trash"
-                                aria-label={`Delete ${file.name}`}
-                                title={`Delete ${file.name}`}
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setFileToDelete(file)}
-                              />
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <IconButton
-                              icon="download"
-                              aria-label="Download"
-                              title={`Download ${file.name}`}
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleDownload(file)}
-                            />
-                            {!readOnlyBranch && !isBinaryFile(file.name) && (
-                              <IconButton
-                                icon="edit"
-                                aria-label="Edit"
-                                title={`Edit ${file.name}`}
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => openFileEditor(file)}
-                              />
-                            )}
-                            {!readOnlyBranch && (
-                              <IconButton
-                                icon="trash"
-                                aria-label="Delete"
-                                title={`Delete ${file.name}`}
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setFileToDelete(file)}
-                              />
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {filteredFiles.length > PAGE_SIZE && (
-              <div className="border-t border-border-subtle p-3">
-                <Pagination
-                  totalItems={filteredFiles.length}
-                  pageSize={PAGE_SIZE}
-                  page={currentPage}
-                  onPageChange={setCurrentPage}
-                />
-              </div>
+                Live Data belongs to <code className="font-mono">main</code>. Viewing branch &ldquo;{c.activeBranch}&rdquo; is read-only here; switch to <code className="font-mono">main</code> to modify live world files.
+              </p>
             )}
           </div>
         )}
-      </div>
-      )}
 
-      <Modal
-        open={showCommitDialog}
-        onClose={() => {
-          if (!commitMutation.isPending) setShowCommitDialog(false);
-        }}
-        title="Save & Commit"
-        description={
-          activeBranch
-            ? `Commit validated Class-B changes on branch "${activeBranch}".`
-            : "Commit validated Class-B changes."
-        }
-        size="sm"
-        closeOnBackdrop={!commitMutation.isPending}
-        closeOnEscape={!commitMutation.isPending}
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (commitMessage.trim() && !commitMutation.isPending) {
-              commitMutation.mutate();
-            }
-          }}
-        >
-          <label
-            htmlFor="commit-message"
-            className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-muted"
+        {!c.isLiveState && c.filesQuery.isFetching && <LoadingBar />}
+
+        {!c.isLiveState && c.activeBranch && (
+          <div
+            data-testid="branch-context-banner"
+            className={`shrink-0 flex flex-wrap items-center gap-2 text-xs text-text-secondary ${
+              embedded
+                ? "border-b border-border-subtle bg-surface-card px-3 py-2"
+                : "rounded-xl border border-border-subtle bg-surface-card px-4 py-2.5 shadow-2xs"
+            }`}
           >
-            Commit message
-          </label>
-          <input
-            id="commit-message"
-            type="text"
-            aria-label="Commit message"
-            placeholder="Describe this change"
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-            autoFocus
-            maxLength={500}
-            disabled={commitMutation.isPending}
-            className="w-full rounded-lg border border-border-subtle hover:border-border-hover bg-surface-page px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus transition-colors"
-          />
-          <div className="mt-4 flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setShowCommitDialog(false)}
-              disabled={commitMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              icon="save"
-              loading={commitMutation.isPending}
-              disabled={!commitMessage.trim()}
-            >
-              Commit
-            </Button>
+            <Icon name="backup" size={14} className="text-text-muted" />
+            <span>Branch: <strong className="font-mono text-text-primary">{c.activeBranch}</strong></span>
+            <span className="text-border-subtle">•</span>
+            {c.readOnlyBranch ? (
+              <span className="text-status-warning font-medium">
+                Viewing main (read-only). Switch to a working branch in the header to edit files.
+              </span>
+            ) : (
+              <span>Changes stay uncommitted until Save &amp; Commit.</span>
+            )}
           </div>
-        </form>
-      </Modal>
+        )}
 
-      <ConfirmDialog
-        open={showBulkDelete}
-        title="Delete Selected Items"
-        description={`Are you sure you want to delete ${selectedPaths.size} selected item(s)? This action cannot be undone.`}
-        confirmLabel={bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
-        variant="danger"
-        isPending={bulkDeleteMutation.isPending}
-        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedPaths))}
-        onCancel={() => {
-          if (bulkDeleteMutation.isPending) return;
-          setShowBulkDelete(false);
+        <FilesToolbar
+          breadcrumbs={c.breadcrumbs}
+          currentPath={c.currentPath}
+          onNavigatePath={c.updateCurrentPath}
+          onCopyPath={c.copyCurrentPath}
+          copiedPath={c.copiedPath}
+          filteredCount={c.filteredAndSorted.length}
+          searchQuery={c.searchQuery}
+          onSearchChange={(q) => { c.setSearchQuery(q); c.setCurrentPage(1); }}
+          sortField={c.sortField}
+          sortDirection={c.sortDirection}
+          onSortChange={(field, dir) => { c.setSortField(field); c.setSortDirection(dir); c.setCurrentPage(1); }}
+          isLiveState={c.isLiveState}
+          readOnly={c.readOnlyBranch}
+          activeBranch={c.activeBranch}
+          selectedCount={c.selectedPaths.size}
+          onClearSelection={() => c.setSelectedPaths(new Set())}
+          onBulkDelete={() => c.setShowBulkDelete(true)}
+          bulkDeletePending={c.bulkDeleteMutation.isPending}
+          onOpenNewFile={() => c.setShowNewFile(true)}
+          onOpenNewFolder={() => c.setShowNewFolder(true)}
+          onTriggerUpload={() => fileInputRef.current?.click()}
+          uploadPending={c.uploadBatchMutation.isPending}
+          uploadProgress={c.uploadProgress}
+          onOpenCommit={() => c.setShowCommitDialog(true)}
+          splitView={c.splitView}
+          onToggleSplitView={() => c.setSplitView((prev) => !prev)}
+          embedded={embedded}
+        />
+
+        <FilesTable
+          rows={c.paginatedRows}
+          totalFilteredCount={c.filteredAndSorted.length}
+          pageSize={FILES_PAGE_SIZE}
+          currentPage={c.currentPage}
+          onPageChange={c.setCurrentPage}
+          currentPath={c.currentPath}
+          searchQuery={c.searchQuery}
+          onClearSearch={() => { c.setSearchQuery(""); c.setCurrentPage(1); }}
+          isLiveState={c.isLiveState}
+          readOnly={c.isLiveState ? c.isNonMainLiveStateReadOnly : c.readOnlyBranch}
+          isAdvancedMode={c.isAdvancedMode}
+          activeBranch={c.activeBranch}
+          dropBlockedReason={c.dropBlockedReason}
+          activeFilePath={c.splitView ? (c.editingFile?.path ?? null) : null}
+          embedded={embedded}
+          selectedPaths={c.selectedPaths}
+          onToggleSelect={(path) => {
+            c.setSelectedPaths((prev) => {
+              const next = new Set(prev);
+              if (next.has(path)) next.delete(path); else next.add(path);
+              return next;
+            });
+          }}
+          onToggleSelectAll={() => c.setSelectedPaths(c.isAllSelected ? new Set() : new Set(c.allSelectablePaths))}
+          isAllSelected={c.isAllSelected}
+          onNavigateUp={() => {
+            if (!c.currentPath) return;
+            const parts = c.currentPath.split("/").filter(Boolean);
+            parts.pop();
+            c.updateCurrentPath(parts.join("/"));
+          }}
+          onNavigateFolder={(row) => c.updateCurrentPath(c.isLiveState ? row.path : (c.currentPath ? `${c.currentPath}/${row.name}` : row.name))}
+          onOpenFile={(row) => c.openFileEditor(row, c.viewMode)}
+          onDownload={(row) => c.handleDownload(row, c.isLiveState ? "live-state" : "branch")}
+          onDelete={c.setFileToDelete}
+          onOpenNewFile={() => c.setShowNewFile(true)}
+          onTriggerUpload={() => fileInputRef.current?.click()}
+          onDropFiles={c.handleUploadFiles}
+        />
+      </>
+    );
+  };
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 space-y-4">
+      <input
+        type="file"
+        aria-label="Upload file"
+        multiple
+        ref={fileInputRef}
+        className="hidden"
+        onChange={(e) => {
+          const selected = e.target.files ? Array.from(e.target.files) : [];
+          if (selected.length > 0) c.handleUploadFiles(selected);
+          e.target.value = "";
         }}
       />
 
+      {c.showViewSwitcher && (
+        <div
+          data-testid="files-view-switcher"
+          className="inline-flex flex-wrap self-start rounded-xl border border-border-subtle bg-surface-card p-1 shadow-2xs gap-1"
+        >
+          {c.isAdvancedMode ? (
+            <>
+              <button
+                type="button"
+                data-testid="files-tab-configs"
+                onClick={() => c.switchView("branch")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+                  c.viewMode === "branch"
+                    ? "bg-accent-primary text-accent-contrast-text shadow-2xs"
+                    : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                }`}
+              >
+                Configs
+              </button>
+              <button
+                type="button"
+                data-testid="files-tab-live-state"
+                onClick={() => c.switchView("live-state")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+                  c.viewMode === "live-state"
+                    ? "bg-accent-primary text-accent-contrast-text shadow-2xs"
+                    : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                }`}
+              >
+                Live Data
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              data-testid="files-tab-all"
+              onClick={() => c.switchView("branch")}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+                c.viewMode === "branch"
+                  ? "bg-accent-primary text-accent-contrast-text shadow-2xs"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              }`}
+            >
+              All Files
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="files-tab-logs"
+            onClick={() => c.switchView("logs")}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+              c.viewMode === "logs"
+                ? "bg-accent-primary text-accent-contrast-text shadow-2xs"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            }`}
+          >
+            Logs &amp; Crashes
+          </button>
+        </div>
+      )}
+
+      {c.splitView ? (
+        <div
+          ref={splitContainerRef}
+          data-testid="files-split-workspace"
+          className={`flex flex-col lg:flex-row gap-4 lg:gap-0 min-w-0 min-h-0 h-[clamp(440px,calc(100dvh-16.5rem),680px)] ${
+            isResizingSplit ? "select-none" : ""
+          }`}
+        >
+          <div
+            data-testid="files-split-left-pane"
+            style={{ width: `${c.splitRatio}%` }}
+            className="flex flex-col min-h-0 min-w-0 max-lg:!w-full lg:shrink-0 overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-xs"
+          >
+            {renderLeftPaneContent(true)}
+          </div>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize file explorer and editor panes"
+            aria-valuenow={Math.round(c.splitRatio)}
+            aria-valuemin={MIN_FILES_SPLIT_RATIO}
+            aria-valuemax={MAX_FILES_SPLIT_RATIO}
+            tabIndex={0}
+            title="Drag to resize panes · Double-click to reset"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              setIsResizingSplit(true);
+            }}
+            onDoubleClick={c.resetSplitRatio}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") {
+                e.preventDefault();
+                c.updateSplitRatio((r) => r - FILES_SPLIT_KEYBOARD_STEP);
+              } else if (e.key === "ArrowRight") {
+                e.preventDefault();
+                c.updateSplitRatio((r) => r + FILES_SPLIT_KEYBOARD_STEP);
+              } else if (e.key === "Home") {
+                e.preventDefault();
+                c.resetSplitRatio();
+              }
+            }}
+            className="hidden lg:flex w-3 -mx-0.5 cursor-col-resize select-none items-center justify-center group shrink-0 focus-visible:outline-hidden"
+          >
+            <div
+              className={`w-1 h-10 rounded-full transition-colors ${
+                isResizingSplit
+                  ? "bg-accent-primary"
+                  : "bg-border-subtle group-hover:bg-accent-primary group-active:bg-accent-primary group-focus-visible:bg-accent-primary"
+              }`}
+            />
+          </div>
+          <div
+            data-testid="files-split-right-pane"
+            className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden"
+          >
+            {c.editingFile ? (
+              renderEditorOrLogViewer(true)
+            ) : (
+              <div
+                data-testid="files-split-placeholder"
+                className="flex flex-1 min-h-0 flex-col items-center justify-center rounded-xl border border-border-subtle bg-surface-card p-8 text-center shadow-xs"
+              >
+                <Icon name="columns" size={32} className="mb-3 text-text-muted" />
+                <p className="text-sm font-medium text-text-primary">No file selected</p>
+                <p className="mt-1 text-xs text-text-muted max-w-xs">
+                  Select a file or log on the left to inspect or edit it here
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        renderLeftPaneContent(false)
+      )}
+
+      <NewFileModal
+        key={c.showNewFile ? "new-file-open" : "new-file-closed"}
+        open={c.showNewFile}
+        currentPath={c.currentPath}
+        isPending={c.newFileMutation.isPending}
+        onClose={() => c.setShowNewFile(false)}
+        onCreate={(fileName, initialContent) => c.newFileMutation.mutate({ fileName, initialContent })}
+      />
+      <NewFolderModal
+        key={c.showNewFolder ? "new-folder-open" : "new-folder-closed"}
+        open={c.showNewFolder}
+        currentPath={c.currentPath}
+        isPending={c.mkdirMutation.isPending}
+        onClose={() => c.setShowNewFolder(false)}
+        onCreate={(folderName) => c.mkdirMutation.mutate(folderName)}
+      />
+      <CommitBranchModal
+        key={c.showCommitDialog ? "commit-open" : "commit-closed"}
+        open={c.showCommitDialog}
+        activeBranch={c.activeBranch}
+        isPending={c.commitMutation.isPending}
+        onClose={() => c.setShowCommitDialog(false)}
+        onCommit={(message) => c.commitMutation.mutate(message)}
+      />
+
       <ConfirmDialog
-        open={!!fileToDelete}
-        title={fileToDelete?.is_dir ? "Delete Folder" : "Delete File"}
-        description={`Are you sure you want to delete ${fileToDelete?.name}? ${fileToDelete?.is_dir ? "All contents will be permanently deleted. " : ""}This action cannot be undone.`}
-        confirmLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
-        variant="danger"
-        isPending={deleteMutation.isPending}
-        onConfirm={() => fileToDelete && deleteMutation.mutate(fileToDelete.path)}
-        onCancel={() => {
-          if (deleteMutation.isPending) return;
-          setFileToDelete(null);
+        open={c.pendingOverwrite !== null}
+        title="Overwrite Existing Files?"
+        description={c.pendingOverwrite ? `${c.pendingOverwrite.collisions.join(", ")} already exist(s) in this folder. Overwrite?` : undefined}
+        confirmLabel="Overwrite"
+        variant="warning"
+        isPending={c.uploadBatchMutation.isPending}
+        onConfirm={() => {
+          if (!c.pendingOverwrite) return;
+          const toUpload = c.pendingOverwrite.files;
+          c.setPendingOverwrite(null);
+          c.uploadBatchMutation.mutate(toUpload);
         }}
+        onCancel={() => c.setPendingOverwrite(null)}
+      />
+      <ConfirmDialog
+        open={c.showBulkDelete}
+        title="Delete Selected Items"
+        description={`Are you sure you want to delete ${c.selectedPaths.size} selected item(s)? This action cannot be undone.`}
+        confirmLabel={c.bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
+        variant="danger"
+        isPending={c.bulkDeleteMutation.isPending}
+        onConfirm={() => c.bulkDeleteMutation.mutate(Array.from(c.selectedPaths))}
+        onCancel={() => { if (!c.bulkDeleteMutation.isPending) c.setShowBulkDelete(false); }}
+      />
+      <ConfirmDialog
+        open={c.pendingFileSwitch !== null || c.pendingViewSwitch !== null}
+        title="Discard unsaved changes?"
+        description={
+          c.editingFile
+            ? c.pendingViewSwitch !== null
+              ? `You have unsaved edits to "${c.editingFile.name}". Switching views will discard them.`
+              : `You have unsaved edits to "${c.editingFile.name}". Switching files will discard them.`
+            : undefined
+        }
+        confirmLabel="Discard"
+        cancelLabel="Keep Editing"
+        variant="warning"
+        onConfirm={() => {
+          if (c.pendingViewSwitch !== null) c.confirmViewSwitch();
+          else c.confirmFileSwitch();
+        }}
+        onCancel={() => {
+          c.cancelViewSwitch();
+          c.cancelFileSwitch();
+        }}
+      />
+      <ConfirmDialog
+        open={c.fileToDelete !== null}
+        title={c.fileToDelete?.is_dir ? "Delete Folder" : "Delete File"}
+        description={`Are you sure you want to delete ${c.fileToDelete?.name}? ${c.fileToDelete?.is_dir ? "All contents will be permanently deleted. " : ""}This action cannot be undone.`}
+        confirmLabel={c.deleteMutation.isPending ? "Deleting..." : "Delete"}
+        variant="danger"
+        isPending={c.deleteMutation.isPending}
+        onConfirm={() => c.fileToDelete && c.deleteMutation.mutate(c.fileToDelete.path)}
+        onCancel={() => { if (!c.deleteMutation.isPending) c.setFileToDelete(null); }}
       />
     </div>
   );

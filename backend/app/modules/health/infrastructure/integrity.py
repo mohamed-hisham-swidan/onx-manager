@@ -108,15 +108,39 @@ def _check_jar(srvd: Path, checks: list[IntegrityCheck]) -> None:
         )
 
 
+def _find_modern_argfile(srvd: Path) -> Path | None:
+    for pattern in (
+        "libraries/net/neoforged/neoforge/*/unix_args.txt",
+        "libraries/net/neoforged/neoforge/*/win_args.txt",
+        "libraries/net/minecraftforge/forge/*/unix_args.txt",
+        "libraries/net/minecraftforge/forge/*/win_args.txt",
+        "libraries/org/quiltmc/quilt-loader/*/unix_args.txt",
+    ):
+        matches = sorted(srvd.glob(pattern))
+        if matches and matches[0].is_file():
+            return matches[0]
+    return None
+
+
 def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None:
-    """Forge >= 1.17 installers produce ``run.sh`` + ``libraries/`` but place the
-    runtime JAR deep inside ``libraries/`` — a top-level jar check alone would
-    (wrongly) block such servers from starting.
+    """Forge/NeoForge >= 1.17 installers produce ``libraries/.../unix_args.txt``
+    (and optionally ``run.sh``/``run.bat``) with no top-level server jar.
     """
     run_sh = srvd / "run.sh"
     run_bat = srvd / "run.bat"
     libraries = srvd / "libraries"
-    if (run_sh.is_file() or run_bat.is_file()) and libraries.is_dir():
+    argfile = _find_modern_argfile(srvd)
+    if argfile is not None:
+        rel = argfile.relative_to(srvd).as_posix()
+        checks.append(
+            IntegrityCheck(
+                check_name="server_jar",
+                severity="critical",
+                status="pass",
+                detail=f"Modern argfile install detected: {rel}",
+            )
+        )
+    elif (run_sh.is_file() or run_bat.is_file()) and libraries.is_dir():
         script_name = "run.sh" if run_sh.is_file() else "run.bat"
         checks.append(
             IntegrityCheck(
@@ -135,8 +159,8 @@ def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None
                 severity="critical",
                 status="fail",
                 detail=(
-                    "No .jar files and no run script (run.sh/run.bat) + libraries/ layout found "
-                    "in server directory"
+                    "No .jar files, argfile (libraries/.../unix_args.txt), or run script "
+                    "(run.sh/run.bat) + libraries/ layout found in server directory"
                 ),
             )
         )

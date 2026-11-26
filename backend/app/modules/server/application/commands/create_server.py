@@ -95,13 +95,25 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             )
 
         from app.modules.server.application.services.jar_service import (
+            compute_file_sha256,
+            download_progress_context,
             download_server_jar,
             forge_requires_installer,
             neoforge_requires_installer,
+            resolve_display_jar_filename,
             resolve_server_dir,
             validate_forge_supported_version,
             write_eula,
             write_server_properties,
+        )
+        from app.modules.server.application.services.provisioning_telemetry import (
+            ProvisioningProgressTracker,
+            format_bytes_human,
+            make_sync_or_async_progress_adapter,
+        )
+        from app.modules.versioning.infrastructure.java_floor import (
+            resolve_java_floor_from_mc_version,
+            temurin_docker_image_for_java_major,
         )
 
         if command.mode == "advanced" and os.name != "posix":
@@ -169,7 +181,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 )
 
         location_type = LocationType.DOCKER
-        runtime_info = RuntimeInfo(provider="docker")
+        runtime_info = RuntimeInfo(provider="docker", port=command.port)
 
         server_id = ServerId()
         server_dir_path = resolve_server_dir(
@@ -239,20 +251,35 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 server.begin_provisioning()
             await repo.save(server)
 
+            tracker = ProvisioningProgressTracker(
+                server_id=str(server_id),
+                server_name=command.name,
+                server_type=command.server_type,
+                minecraft_version=command.minecraft_version,
+                mode=command.mode,
+                event_bus=self._event_bus,
+            )
+
             uow.defer_cleanup(lambda: local_fs.delete_dir(server_dir_path))
 
+            jar_dest = ""
+            display_name = resolve_display_jar_filename(
+                command.server_type,
+                command.minecraft_version,
+            )
+            jar_size: int | None = None
+
             try:
+                await tracker.start_step(
+                    "prepare_workspace",
+                    "Creating server directory, eula.txt, and server.properties...",
+                    activity_message="Created workspace directory",
+                )
                 write_server_identity(
                     dir_path=server_dir_path,
                     uid=str(server_id),
                     provider=resolved_provider,
                     fs=local_fs,
-                )
-                await download_server_jar(
-                    server_id=str(server_id),
-                    server_type=command.server_type,
-                    minecraft_version=command.minecraft_version,
-                    deployment=deployment,
                 )
                 write_eula(str(server_id), deployment=deployment)
                 write_server_properties(
@@ -274,40 +301,108 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                     },
                     deployment=deployment,
                 )
+                await tracker.complete_step(
+                    "prepare_workspace",
+                    detail="server.properties & eula.txt",
+                    activity_message="Created workspace and server.properties",
+                )
 
-                if server.mode == ServerMode.ADVANCED:
-                    from app.modules.versioning.application.advanced_initialization import (
-                        initialize_advanced_server,
+                if is_forge_installer or is_neoforge_installer:
+                    await tracker.start_step(
+                        "download_core",
+                        f"Preparing {command.server_type} installer...",
+                        activity_message="Queued background loader installer",
                     )
-                    from app.modules.versioning.domain.entities import (
-                        BranchProtectionPolicy,
-                        ServerBranch,
+                    jar_dest = await download_server_jar(
+                        server_id=str(server_id),
+                        server_type=command.server_type,
+                        minecraft_version=command.minecraft_version,
+                        deployment=deployment,
                     )
-                    from app.modules.versioning.domain.value_objects import BranchStatus
-                    from app.modules.versioning.infrastructure.repository import (
-                        SQLVersioningRepository,
+                else:
+                    await tracker.start_step(
+                        "download_core",
+                        f"Downloading {display_name}...",
                     )
-
-                    initialize_advanced_server(server)
-                    versioning_repo = SQLVersioningRepository(uow.session)
-                    if await versioning_repo.get_branch_by_name(str(server_id), "main") is None:
-                        await versioning_repo.save_branch(
-                            ServerBranch(
-                                id=str(uuid.uuid4()),
-                                server_id=str(server_id),
-                                name="main",
-                                status=BranchStatus.ACTIVE,
-                                is_protected=True,
-                                protection_policy=BranchProtectionPolicy(),
-                            )
+                    with download_progress_context(
+                        make_sync_or_async_progress_adapter(tracker),
+                        file_index=1,
+                        file_total=1,
+                        display_filename=display_name,
+                    ):
+                        jar_dest = await download_server_jar(
+                            server_id=str(server_id),
+                            server_type=command.server_type,
+                            minecraft_version=command.minecraft_version,
+                            deployment=deployment,
                         )
-            except ProvisioningError:
+                    if jar_dest and local_fs.exists(jar_dest):
+                        with __import__("contextlib").suppress(OSError):
+                            raw_size = local_fs.size(jar_dest)
+                            if isinstance(raw_size, int) and raw_size > 0:
+                                jar_size = raw_size
+                    size_label = format_bytes_human(jar_size) if jar_size else "Ready"
+                    await tracker.complete_step(
+                        "download_core",
+                        detail=f"{display_name} · {size_label}",
+                        activity_message=(
+                            f"Downloaded {display_name} ({size_label})"
+                            if jar_size
+                            else f"Prepared {display_name}"
+                        ),
+                    )
+
+                    await tracker.start_step(
+                        "verify_and_install",
+                        "Verifying JAR integrity & checksum...",
+                    )
+                    sha256 = compute_file_sha256(jar_dest, local_fs) if jar_dest else None
+                    if server.mode == ServerMode.ADVANCED:
+                        from app.modules.versioning.application.advanced_initialization import (
+                            initialize_advanced_server,
+                        )
+                        from app.modules.versioning.domain.entities import (
+                            BranchProtectionPolicy,
+                            ServerBranch,
+                        )
+                        from app.modules.versioning.domain.value_objects import BranchStatus
+                        from app.modules.versioning.infrastructure.repository import (
+                            SQLVersioningRepository,
+                        )
+
+                        initialize_advanced_server(server)
+                        versioning_repo = SQLVersioningRepository(uow.session)
+                        if await versioning_repo.get_branch_by_name(str(server_id), "main") is None:
+                            await versioning_repo.save_branch(
+                                ServerBranch(
+                                    id=str(uuid.uuid4()),
+                                    server_id=str(server_id),
+                                    name="main",
+                                    status=BranchStatus.ACTIVE,
+                                    is_protected=True,
+                                    protection_policy=BranchProtectionPolicy(),
+                                )
+                            )
+                        tracker.add_activity("Initialized Git repository on main", level="info")
+                    await tracker.complete_step(
+                        "verify_and_install",
+                        detail="Verified",
+                        activity_message=(
+                            "Checksum verified (SHA-256)"
+                            if sha256
+                            else "Server JAR verified"
+                        ),
+                    )
+            except ProvisioningError as exc:
+                await tracker.fail(str(exc))
                 local_fs.delete_dir(server_dir_path)
                 raise
-            except MCSError:
+            except MCSError as exc:
+                await tracker.fail(str(exc))
                 local_fs.delete_dir(server_dir_path)
                 raise
             except Exception as e:
+                await tracker.fail(str(e))
                 local_fs.delete_dir(server_dir_path)
                 raise ProvisioningError(
                     message=f"Unexpected provisioning failure for server {server_id}",
@@ -340,6 +435,16 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 event_bus=self._event_bus,
             )
 
+        java_major = resolve_java_floor_from_mc_version(command.minecraft_version)
+        target_img = temurin_docker_image_for_java_major(java_major)
+
+        if not (is_forge_installer or is_neoforge_installer):
+            await tracker.start_step(
+                "prepare_runtime",
+                f"Resolving Java {java_major} runtime image...",
+                detail=f"Java {java_major}",
+            )
+
         if resolved_provider == "docker" and docker_provider is not None:
             try:
                 from app.modules.server.infrastructure.providers.docker import (
@@ -355,6 +460,54 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                     exc,
                 )
 
+        if not (is_forge_installer or is_neoforge_installer):
+            await tracker.complete_step(
+                "prepare_runtime",
+                detail=f"Java {java_major}",
+                activity_message=f"Java {java_major} runtime ready ({target_img})",
+            )
+            await tracker.start_step(
+                "finalize",
+                "Recording final artifacts & marking server ready...",
+            )
+            size_label = format_bytes_human(jar_size) if jar_size else None
+            jar_summary = (
+                f"{display_name} · {size_label} · Verified"
+                if size_label
+                else f"{display_name} · Verified"
+            )
+            mode_summary = (
+                f"Java {java_major} · Advanced Mode (Git initialized)"
+                if command.mode == "advanced"
+                else f"Java {java_major} · Simple Mode"
+            )
+            artifacts = [
+                {
+                    "id": "core_jar",
+                    "label": "Server JAR",
+                    "value": jar_summary,
+                    "status": "verified",
+                },
+                {
+                    "id": "runtime",
+                    "label": "Runtime & Mode",
+                    "value": mode_summary,
+                    "status": "ready",
+                },
+                {
+                    "id": "config",
+                    "label": "Configuration",
+                    "value": f"server.properties, eula.txt · Port {command.port}",
+                    "status": "completed",
+                },
+            ]
+            snapshot = await tracker.complete(
+                "Server created and ready to start",
+                artifacts=artifacts,
+            )
+        else:
+            snapshot = tracker.snapshot()
+
         logger.info(
             'Server "%s" created — type=%s version=%s port=%d server_id=%s',
             server.name,
@@ -364,5 +517,8 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             server_id,
         )
 
-        return CommandResult(success=True, data={"server_id": str(server_id)})
+        return CommandResult(
+            success=True,
+            data={"server_id": str(server_id), "provisioning_progress": snapshot},
+        )
 

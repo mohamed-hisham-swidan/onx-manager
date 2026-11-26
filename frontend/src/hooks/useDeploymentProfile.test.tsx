@@ -151,18 +151,19 @@ describe("Deployment Profile UX adaptation (local vs vps)", () => {
 
     renderWithQuery(<SettingsPage />, localStatus);
 
-    expect(screen.getByText("System Settings")).toBeInTheDocument();
-    expect(screen.getByText("Appearance & Themes")).toBeInTheDocument();
+    expect(screen.getAllByText("General").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Appearance").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Modpacks & Cache").length).toBeGreaterThan(0);
     expect(screen.queryByText("Invitations")).not.toBeInTheDocument();
-    expect(screen.queryByText("Access Control")).not.toBeInTheDocument();
+    expect(screen.queryByText("Remote & Access")).not.toBeInTheDocument();
     expect(screen.queryByText("API Keys")).not.toBeInTheDocument();
 
-    const toggleBtn = screen.getByRole("button", { name: /Show VPS & multi-user settings/i });
-    fireEvent.click(toggleBtn);
+    const toggleSwitch = screen.getByRole("switch", { name: /VPS & Team Controls/i });
+    fireEvent.click(toggleSwitch);
 
-    expect(await screen.findByText("Invitations")).toBeInTheDocument();
-    expect(screen.getByText("Access Control")).toBeInTheDocument();
-    expect(screen.getByText("API Keys")).toBeInTheDocument();
+    expect((await screen.findAllByText("Invitations")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Remote & Access").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("API Keys").length).toBeGreaterThan(0);
   });
 
   it("SettingsPage shows all 6 tabs immediately in vps mode", () => {
@@ -177,11 +178,11 @@ describe("Deployment Profile UX adaptation (local vs vps)", () => {
 
     renderWithQuery(<SettingsPage />, vpsStatus);
 
-    expect(screen.getByText("Invitations")).toBeInTheDocument();
-    expect(screen.getByText("Access Control")).toBeInTheDocument();
-    expect(screen.getByText("API Keys")).toBeInTheDocument();
+    expect(screen.getAllByText("Invitations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Remote & Access").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("API Keys").length).toBeGreaterThan(0);
     expect(
-      screen.queryByRole("button", { name: /Show VPS & multi-user settings/i }),
+      screen.queryByRole("switch", { name: /VPS & Team Controls/i }),
     ).not.toBeInTheDocument();
   });
 

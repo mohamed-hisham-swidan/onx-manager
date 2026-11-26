@@ -71,10 +71,6 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
   useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
-vi.mock("@/server_manager/components/ServerConfigEditor", () => ({
-  ServerConfigEditor: () => <div data-testid="config-editor">ConfigEditor</div>,
-}));
-
 vi.mock("@/server_manager/components/ServerConsole", () => ({
   ServerConsole: () => <div data-testid="server-console">Console</div>,
 }));
@@ -87,6 +83,17 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  queryClient.setQueryData(["auth", "me"], {
+    user_id: "u1",
+    username: "admin",
+    email: null,
+    display_name: "Admin",
+    is_active: true,
+    roles: ["owner"],
+    permissions: ["admin:full"],
+    created_at: "",
+    last_login_at: null,
+  });
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -96,6 +103,7 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
           <Route path="/servers/:serverId" element={<ServerShell />}>
             <Route path="console" element={<div data-testid="console-page">Console Content</div>} />
             <Route path="files" element={<div data-testid="files-page">Files Content</div>} />
+            <Route path="backups" element={<div data-testid="backups-page">Backups Content</div>} />
             <Route path="mods" element={<div data-testid="mods-page">Mods Content</div>} />
             <Route path="plugins" element={<div data-testid="plugins-page">Plugins Content</div>} />
             <Route path="settings" element={<div data-testid="settings-page">Settings Content</div>} />
@@ -261,6 +269,22 @@ describe("ServerShell", () => {
     expect(modsLink).toHaveAttribute("href", "/servers/srv-123/files?path=mods");
   });
 
+  it("preserves ?branch= and ?view=live-state in top Files breadcrumb links", () => {
+    getServerBranchesMock.mockResolvedValue([
+      { name: "main", worktree_path: "/wt/main" },
+      { name: "feat-a", worktree_path: "/wt/feat-a" },
+    ]);
+    renderServerShell("/servers/srv-123/files?file=mods/worldedit/config.yml&branch=feat-a&view=live-state");
+
+    return waitFor(() => {
+      const modsLink = screen.getByRole("link", { name: "mods" });
+      expect(modsLink).toHaveAttribute(
+        "href",
+        "/servers/srv-123/files?path=mods&branch=feat-a&view=live-state",
+      );
+    });
+  });
+
   it("renders Server Identity Strip with name heading, status, and provider badge", () => {
     vi.mocked(useServerDetail).mockReturnValue({
       data: { ...mockServer, provider: "docker" },
@@ -361,7 +385,7 @@ describe("ServerShell", () => {
     expect(document.activeElement).toBe(main);
   });
 
-  it("displays deployment_host IP in header copy control and copies <ip>:<port>, falling back when deployment_host is null", async () => {
+  it("filters Docker bridge IP in header copy control and copies playable join address, honoring public_address", async () => {
     vi.mocked(useServerDetail).mockReturnValue({
       data: {
         ...mockServer,
@@ -378,13 +402,33 @@ describe("ServerShell", () => {
     renderServerShell("/servers/srv-123/console");
 
     const header = screen.getByTestId("server-context-header");
-    expect(header).toHaveTextContent("172.18.0.5");
+    expect(header).toHaveTextContent("localhost:25565");
+    expect(header).not.toHaveTextContent("172.18.0.5");
     expect(header.textContent).not.toContain("undefined");
     expect(header.textContent).not.toContain("null");
 
     const copyBtn = screen.getByTestId("server-header-copy-address");
     await user.click(copyBtn);
-    expect(writeTextSpy).toHaveBeenCalledWith("172.18.0.5:25565");
+    expect(writeTextSpy).toHaveBeenCalledWith("localhost:25565");
+  });
+
+  it("renders pending settings restart notice banner when pending_settings_branch is pending", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: {
+        ...mockServer,
+        status: "running",
+        pending_settings_branch: {
+          branch_name: "settings-pending-1",
+          status: "pending",
+        },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    renderServerShell("/servers/srv-123/console");
+    expect(screen.getByTestId("pending-settings-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("pending-settings-restart-btn")).toBeInTheDocument();
   });
 
   it("renders server quick navigation tab bar with lg:hidden container class to avoid double navigation on desktop", () => {
@@ -425,7 +469,7 @@ describe("ServerShell", () => {
   });
 
   describe("mode-based navigation gating in ServerShell", () => {
-    it("hides both Versions quick nav pill and sidebar Versions & Testing when server mode is simple", () => {
+    it("hides both Versions quick nav pill and sidebar Versions & Sandboxes when server mode is simple", () => {
       vi.mocked(useServerDetail).mockReturnValue({
         data: { ...mockServer, mode: "simple" },
         isLoading: false,
@@ -435,14 +479,14 @@ describe("ServerShell", () => {
       renderServerShell("/servers/srv-123/console");
 
       // Sidebar link
-      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
 
       // Quick nav pill
       const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
       expect(within(quickNav).queryByRole("link", { name: /Quick Versions/i })).not.toBeInTheDocument();
     });
 
-    it("renders both Versions quick nav pill and sidebar Versions & Testing when server mode is advanced", () => {
+    it("renders both Versions quick nav pill and sidebar Versions & Sandboxes when server mode is advanced", () => {
       vi.mocked(useServerDetail).mockReturnValue({
         data: { ...mockServer, mode: "advanced" },
         isLoading: false,
@@ -452,7 +496,7 @@ describe("ServerShell", () => {
       renderServerShell("/servers/srv-123/console");
 
       // Sidebar link
-      expect(screen.getByRole("link", { name: /Versions & Testing/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Versions & Sandboxes/i })).toBeInTheDocument();
 
       // Quick nav pill
       const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
@@ -468,7 +512,7 @@ describe("ServerShell", () => {
 
       renderServerShell("/servers/srv-123/console");
 
-      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
       const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
       expect(within(quickNav).queryByRole("link", { name: /Quick Versions/i })).not.toBeInTheDocument();
     });
@@ -549,5 +593,16 @@ describe("ServerShell", () => {
       renderServerShell("/servers/srv-123/files");
       expect(screen.queryByTestId("branch-selector")).not.toBeInTheDocument();
     });
+  });
+
+  it("renders per-server Backups link pointing to /servers/<id>/backups inside ServerShell", () => {
+    renderServerShell("/servers/srv-123/console");
+    const backupsLink = screen.getByRole("link", { name: "Backups" });
+    expect(backupsLink).toHaveAttribute("href", "/servers/srv-123/backups");
+  });
+
+  it("renders Backups breadcrumb when navigating to /servers/<id>/backups", () => {
+    renderServerShell("/servers/srv-123/backups");
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Backups");
   });
 });

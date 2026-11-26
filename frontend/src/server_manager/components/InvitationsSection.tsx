@@ -3,10 +3,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Banner } from "@/components/ui/Banner";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ErrorState, Skeleton } from "@/components/ui/States";
 import { toast } from "@/stores/toastStore";
 import { parseServerDate } from "@/server_manager/utils/format";
 import type { InvitationItem, CreateInviteRequest } from "@/types";
 import type { ServerResponse } from "@/server_manager/types";
+
+interface CurrentUserWithPerms {
+  user_id?: string;
+  roles?: string[];
+  permissions?: string[];
+}
 
 export function InvitationsSection() {
   const api = useMemo(() => createAuthenticatedApi(), []);
@@ -15,6 +25,7 @@ export function InvitationsSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [createdInvite, setCreatedInvite] = useState<{ token: string; link: string } | null>(null);
   const [copiedField, setCopiedField] = useState<"link" | "token" | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<{ id: string; prefix: string } | null>(null);
 
   // Form State
   const [email, setEmail] = useState("");
@@ -24,25 +35,44 @@ export function InvitationsSection() {
   const [expiresInHours, setExpiresInHours] = useState(48);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // 1. Fetch Invites
-  const { data: invites = [], isLoading, isError, error } = useQuery({
-    queryKey: ["invites"],
-    queryFn: () => api.listInvites(),
-  });
-
-  // 2. Fetch Current User Identity
-  const { data: currentUser } = useQuery({
+  const hasGetMe = typeof api.getMe === "function";
+  const { data: currentUser } = useQuery<CurrentUserWithPerms | null>({
     queryKey: ["currentUser"],
     queryFn: () => api.getMe(),
+    enabled: hasGetMe,
+    retry: false,
   });
 
-  // 3. Fetch Server List
+  const canManageInvites = useMemo(() => {
+    if (!currentUser) return true;
+    const roles = currentUser.roles ?? [];
+    const perms = currentUser.permissions ?? [];
+    return (
+      roles.includes("owner") ||
+      roles.includes("admin") ||
+      perms.includes("user:write") ||
+      perms.includes("admin:full")
+    );
+  }, [currentUser]);
+
+  const { data: invites = [], isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["invites"],
+    queryFn: () => api.listInvites(),
+    enabled: canManageInvites,
+  });
+
+  const hasListServers = typeof api.listServers === "function";
   const { data: servers = [], isLoading: isLoadingServers, isError: serversError } = useQuery({
     queryKey: ["servers"],
     queryFn: () => api.listServers(),
+    enabled: hasListServers && canManageInvites,
   });
 
-  // Calculate grantable global roles based on user's current roles
+  const serverNameMap = useMemo(
+    () => new Map(servers.map((s: ServerResponse) => [s.server_id, s.name])),
+    [servers],
+  );
+
   const grantableGlobalRoles = useMemo(() => {
     const roles = currentUser?.roles || [];
     if (roles.includes("owner")) {
@@ -66,6 +96,12 @@ export function InvitationsSection() {
     ];
   }, [currentUser]);
 
+  const safeDefaultRole = useMemo(() => {
+    if (grantableGlobalRoles.some((r) => r.value === "member")) return "member";
+    if (grantableGlobalRoles.some((r) => r.value === "viewer")) return "viewer";
+    return grantableGlobalRoles[0]?.value ?? "member";
+  }, [grantableGlobalRoles]);
+
   const createMutation = useMutation({
     mutationFn: (req: CreateInviteRequest) => api.createInvite(req),
     onSuccess: (res) => {
@@ -73,19 +109,18 @@ export function InvitationsSection() {
       const inviteUrl = `${window.location.origin}/invite/${res.token}`;
       setCreatedInvite({ token: res.token, link: inviteUrl });
       setIsModalOpen(false);
-      // Reset form
       setEmail("");
-      setGlobalRole(grantableGlobalRoles[0]?.value || "member");
+      setGlobalRole(safeDefaultRole);
       setServerId("");
       setServerRole("viewer");
       setExpiresInHours(48);
       setFormError(null);
-      toast("success", "Invitation Created", "Shareable invitation link has been generated.");
+      toast("success", "Invitation created", "Shareable invite link is ready.");
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : "Failed to create invitation";
       setFormError(msg);
-      toast("error", "Creation Failed", msg);
+      toast("error", "Creation failed", msg);
     },
   });
 
@@ -93,11 +128,11 @@ export function InvitationsSection() {
     mutationFn: (id: string) => api.revokeInvite(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invites"] });
-      toast("success", "Invitation Revoked", "The invitation token is now invalidated.");
+      toast("success", "Invitation revoked", "The invite token is no longer valid.");
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : "Failed to revoke invitation";
-      toast("error", "Revocation Failed", msg);
+      toast("error", "Revocation failed", msg);
     },
   });
 
@@ -107,7 +142,7 @@ export function InvitationsSection() {
 
     const payload: CreateInviteRequest = {
       email: email.trim() || undefined,
-      global_role: globalRole || grantableGlobalRoles[0]?.value || "member",
+      global_role: globalRole || safeDefaultRole,
       expires_in_hours: expiresInHours ? Number(expiresInHours) : undefined,
     };
 
@@ -125,7 +160,7 @@ export function InvitationsSection() {
     toast(
       "info",
       "Copied",
-      field === "token" ? "Token copied to clipboard!" : "Link copied to clipboard!",
+      field === "token" ? "Token copied to clipboard." : "Link copied to clipboard.",
     );
     setTimeout(() => setCopiedField((cur) => (cur === field ? null : cur)), 2000);
   };
@@ -133,157 +168,191 @@ export function InvitationsSection() {
   const openModal = () => {
     setCreatedInvite(null);
     setFormError(null);
-    setGlobalRole(grantableGlobalRoles[0]?.value || "member");
+    setGlobalRole(safeDefaultRole);
     setServerId("");
     setServerRole("viewer");
     setIsModalOpen(true);
   };
 
+  const formatServerScope = (invite: InvitationItem) => {
+    if (!invite.server_id) return "—";
+    const resolvedName = serverNameMap.get(invite.server_id);
+    const label = resolvedName || `${invite.server_id.slice(0, 8)}…`;
+    return `${label} (${invite.server_role || "member"})`;
+  };
+
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-border-default bg-surface-card p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h3 className="text-base font-semibold text-text-primary">
-              Invitations Management
-            </h3>
-            <p className="text-xs text-text-muted mt-0.5">
-              Create and manage invitation links to invite new users to this instance.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={openModal}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover shrink-0 cursor-pointer"
-          >
-            <Icon name="plus" size={16} />
-            Create Invitation
-          </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary">Invitations</h2>
+          <p className="text-sm text-text-muted mt-0.5">
+            Invite teammates with scoped panel or server roles.
+          </p>
         </div>
-
-        {/* Display created invitation secret once */}
-        {createdInvite && (
-          <div className="mb-6 p-4 rounded-xl border border-status-success-border bg-status-success-bg text-status-success space-y-3">
-            <div className="flex items-center gap-2">
-              <Icon name="check" size={18} className="text-status-success" />
-              <span className="font-semibold text-sm">Invitation Link Generated!</span>
-            </div>
-            <p className="text-xs text-status-success opacity-90">
-              This secret raw token is displayed <strong>only once</strong>. Copy the link or token below to share it.
-            </p>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  aria-label="Invitation Link"
-                  value={createdInvite.link}
-                  className="w-full px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page text-xs font-mono text-text-primary"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(createdInvite.link, "link")}
-                  className="px-3 py-1.5 rounded-lg bg-status-success text-accent-contrast-text text-xs font-medium shrink-0 flex items-center gap-1 cursor-pointer"
-                >
-                  <Icon name="copy" size={14} />
-                  {copiedField === "link" ? "Copied!" : "Copy Link"}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  aria-label="Invitation Token"
-                  value={createdInvite.token}
-                  className="w-full px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page text-xs font-mono text-text-primary"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(createdInvite.token, "token")}
-                  className="px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page hover:bg-surface-hover text-status-success text-xs font-medium shrink-0 flex items-center gap-1 cursor-pointer"
-                >
-                  <Icon name="copy" size={14} />
-                  {copiedField === "token" ? "Copied!" : "Copy Token"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isLoading ? (
-          <div className="py-8 text-center text-sm text-text-muted">Loading invitations...</div>
-        ) : isError ? (
-          <div className="p-4 rounded-lg bg-status-danger-bg text-xs text-status-danger border border-status-danger-border">
-            {error instanceof Error ? error.message : "Failed to load invitations"}
-          </div>
-        ) : invites.length === 0 ? (
-          <div className="py-8 text-center text-sm text-text-muted border border-dashed border-border-default rounded-lg">
-            No invitations created yet. Click "Create Invitation" to generate one.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-border-default bg-surface-page text-text-muted uppercase">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Token Prefix</th>
-                  <th className="px-4 py-3 font-semibold">Bound Email</th>
-                  <th className="px-4 py-3 font-semibold">Global Role</th>
-                  <th className="px-4 py-3 font-semibold">Server / Role</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 font-semibold">Expires</th>
-                  <th className="px-4 py-3 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {invites.map((invite: InvitationItem) => (
-                  <tr key={invite.invite_id} className="hover:bg-surface-hover transition-colors">
-                    <td className="px-4 py-3 font-mono font-medium text-text-primary">
-                      {invite.token_prefix}...
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">
-                      {invite.email || <span className="text-text-muted italic">Any email</span>}
-                    </td>
-                    <td className="px-4 py-3 capitalize font-medium text-text-primary">
-                      {invite.global_role}
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">
-                      {invite.server_id ? `${invite.server_id} (${invite.server_role || "member"})` : "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border ${
-                          invite.status === "ACTIVE"
-                            ? "bg-status-success-bg text-status-success border-status-success-border"
-                            : invite.status === "USED"
-                            ? "bg-status-info-bg text-status-info border-status-info-border"
-                            : "bg-surface-elevated text-text-muted border-border-default"
-                        }`}
-                      >
-                        {invite.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-text-muted">
-                      {invite.expires_at ? (parseServerDate(invite.expires_at)?.toLocaleString() ?? "Never") : "Never"}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {invite.status === "ACTIVE" && (
-                        <button
-                          type="button"
-                          onClick={() => revokeMutation.mutate(invite.invite_id)}
-                          disabled={revokeMutation.isPending}
-                          className="text-status-danger hover:underline font-medium disabled:opacity-50 cursor-pointer"
-                        >
-                          Revoke
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {canManageInvites && (
+          <Button type="button" variant="primary" size="sm" icon="plus" onClick={openModal}>
+            New Invite
+          </Button>
         )}
       </div>
+
+      {!canManageInvites ? (
+        <div className="rounded-xl border border-border-subtle bg-surface-card p-8 text-center space-y-2.5 shadow-2xs">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-status-warning-bg text-status-warning">
+            <Icon name="lock" size={20} />
+          </div>
+          <h3 className="text-sm font-semibold text-text-primary">Permission Required</h3>
+          <p className="text-xs text-text-muted max-w-sm mx-auto">
+            Administrator or Owner access is required to view or create invitations.
+          </p>
+        </div>
+      ) : (
+        <section className="rounded-xl border border-border-subtle bg-surface-card p-5 shadow-2xs space-y-5">
+          {createdInvite && (
+            <div className="p-4 rounded-xl border border-status-success-border bg-status-success-bg text-text-primary space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-status-success">
+                  <Icon name="check" size={16} />
+                  <span className="font-semibold text-sm">Invitation Link Ready</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCreatedInvite(null)}
+                  aria-label="Dismiss invite secret"
+                  className="rounded p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                >
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+              <p className="text-xs text-text-secondary">
+                This token is shown <strong>only once</strong>. Copy the link or token below.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    aria-label="Invitation Link"
+                    value={createdInvite.link}
+                    className="w-full px-3 py-1.5 rounded-lg border border-border-subtle bg-surface-page text-xs font-mono text-text-primary"
+                  />
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="primary"
+                    icon="copy"
+                    onClick={() => copyToClipboard(createdInvite.link, "link")}
+                  >
+                    {copiedField === "link" ? "Copied!" : "Copy Link"}
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    aria-label="Invitation Token"
+                    value={createdInvite.token}
+                    className="w-full px-3 py-1.5 rounded-lg border border-border-subtle bg-surface-page text-xs font-mono text-text-primary"
+                  />
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    icon="copy"
+                    onClick={() => copyToClipboard(createdInvite.token, "token")}
+                  >
+                    {copiedField === "token" ? "Copied!" : "Copy Token"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ) : isError ? (
+            <ErrorState
+              title="Failed to load invitations"
+              message={error instanceof Error ? error.message : "Could not load invitations."}
+              onRetry={() => refetch()}
+            />
+          ) : invites.length === 0 ? (
+            <div className="rounded-lg bg-surface-page/70 px-4 py-5 text-center text-xs text-text-muted">
+              No invitations yet. Create an invite to onboard teammates.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border-subtle">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border-subtle bg-surface-page/70 text-text-muted">
+                  <tr>
+                    <th className="px-3.5 py-2.5 font-medium">Token</th>
+                    <th className="px-3.5 py-2.5 font-medium">Email</th>
+                    <th className="px-3.5 py-2.5 font-medium">Global Role</th>
+                    <th className="px-3.5 py-2.5 font-medium">Server / Role</th>
+                    <th className="px-3.5 py-2.5 font-medium">Status</th>
+                    <th className="px-3.5 py-2.5 font-medium">Expires</th>
+                    <th className="px-3.5 py-2.5 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-subtle">
+                  {invites.map((invite: InvitationItem) => (
+                    <tr key={invite.invite_id} className="hover:bg-surface-hover/50 transition-colors">
+                      <td className="px-3.5 py-2.5 font-mono font-medium text-text-primary">
+                        {invite.token_prefix}...
+                      </td>
+                      <td className="px-3.5 py-2.5 text-text-secondary">
+                        {invite.email || <span className="text-text-muted">Any email</span>}
+                      </td>
+                      <td className="px-3.5 py-2.5 capitalize font-medium text-text-primary">
+                        {invite.global_role}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-text-secondary">
+                        {formatServerScope(invite)}
+                      </td>
+                      <td className="px-3.5 py-2.5">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border ${
+                            invite.status === "ACTIVE"
+                              ? "bg-status-success-bg text-status-success border-status-success-border"
+                              : invite.status === "USED"
+                              ? "bg-status-info-bg text-status-info border-status-info-border"
+                              : "bg-surface-muted text-text-muted border-border-subtle"
+                          }`}
+                        >
+                          {invite.status}
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-2.5 text-text-muted whitespace-nowrap">
+                        {invite.expires_at
+                          ? parseServerDate(invite.expires_at)?.toLocaleString() ?? "Never"
+                          : "Never"}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-right">
+                        {invite.status === "ACTIVE" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRevokeTarget({ id: invite.invite_id, prefix: invite.token_prefix })
+                            }
+                            disabled={revokeMutation.isPending}
+                            className="text-status-danger hover:underline font-medium disabled:opacity-50 cursor-pointer"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Modal for creating invitation */}
       <Modal
@@ -299,15 +368,11 @@ export function InvitationsSection() {
         closeButtonAriaLabel="Close dialog"
       >
         <div className="space-y-4 max-h-[80vh] overflow-y-auto">
-          {formError && (
-            <div role="alert" className="p-3 text-xs text-status-danger bg-status-danger-bg border border-status-danger-border rounded-lg">
-              {formError}
-            </div>
-          )}
+          {formError && <Banner variant="danger" title="Invitation failed" description={formError} />}
 
           <form onSubmit={handleCreateSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">
+              <label className="block text-xs font-medium text-text-secondary mb-1">
                 Bound Email (Optional)
               </label>
               <input
@@ -315,19 +380,19 @@ export function InvitationsSection() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Restrict to specific email address"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-border-subtle bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-hidden"
               />
             </div>
 
-            <div>
-              <label htmlFor="globalRole" className="block text-sm font-medium text-text-secondary mb-1">
+            <div className="space-y-2">
+              <label htmlFor="globalRole" className="block text-xs font-medium text-text-secondary">
                 Global Access Role
               </label>
               <select
                 id="globalRole"
                 value={globalRole}
                 onChange={(e) => setGlobalRole(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-border-subtle bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-hidden"
               >
                 {grantableGlobalRoles.map((role) => (
                   <option key={role.value} value={role.value}>
@@ -335,11 +400,16 @@ export function InvitationsSection() {
                   </option>
                 ))}
               </select>
+              {(globalRole === "owner" || globalRole === "admin") && (
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-status-warning-border bg-status-warning-bg px-2.5 py-1 text-[11px] font-medium text-status-warning">
+                  <Icon name="alert" size={12} />
+                  <span>Grants full administrative privileges across the panel.</span>
+                </div>
+              )}
             </div>
 
-            {/* Server Access (Optional) */}
-            <div className="border-t border-border-default pt-4 space-y-3">
-              <label className="block text-sm font-medium text-text-secondary">
+            <div className="border-t border-border-subtle pt-3 space-y-3">
+              <label className="block text-xs font-medium text-text-secondary">
                 Server Access (Optional)
               </label>
               <div>
@@ -349,7 +419,7 @@ export function InvitationsSection() {
                   value={serverId}
                   onChange={(e) => setServerId(e.target.value)}
                   disabled={isLoadingServers}
-                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none disabled:opacity-50"
+                  className="w-full px-3 py-2 rounded-lg border border-border-subtle bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-hidden disabled:opacity-50"
                 >
                   <option value="">[ No server access ]</option>
                   {servers.map((s: ServerResponse) => (
@@ -375,7 +445,7 @@ export function InvitationsSection() {
                     aria-label="Server Role"
                     value={serverRole}
                     onChange={(e) => setServerRole(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-border-subtle bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-hidden"
                   >
                     <option value="viewer">Server Viewer</option>
                     <option value="dev">Developer</option>
@@ -386,7 +456,7 @@ export function InvitationsSection() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">
+              <label className="block text-xs font-medium text-text-secondary mb-1">
                 Expiration (Hours)
               </label>
               <input
@@ -395,30 +465,50 @@ export function InvitationsSection() {
                 max={720}
                 value={expiresInHours}
                 onChange={(e) => setExpiresInHours(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-border-subtle bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-hidden"
               />
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
-              <button
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                variant="outline"
+                size="sm"
                 disabled={createMutation.isPending}
-                className="px-4 py-2 rounded-lg border border-border-default text-sm font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+                onClick={() => setIsModalOpen(false)}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
-                disabled={createMutation.isPending}
-                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-sm font-medium text-accent-contrast-text disabled:opacity-50 cursor-pointer"
+                variant="primary"
+                size="sm"
+                loading={createMutation.isPending}
               >
                 {createMutation.isPending ? "Generating..." : "Generate Invitation"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        title="Revoke invitation?"
+        description={
+          revokeTarget
+            ? `Token "${revokeTarget.prefix}..." will stop working immediately.`
+            : undefined
+        }
+        confirmLabel="Revoke"
+        onConfirm={() => {
+          if (revokeTarget) {
+            revokeMutation.mutate(revokeTarget.id);
+            setRevokeTarget(null);
+          }
+        }}
+        onCancel={() => setRevokeTarget(null)}
+      />
     </div>
   );
 }

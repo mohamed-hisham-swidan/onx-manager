@@ -2,7 +2,9 @@ import { useState, useRef, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServersList } from "@/server_manager/hooks/useServers";
+import { useFleetPermissions } from "@/server_manager/components/servers/serversUtils";
 import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
+import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import {
@@ -23,58 +25,14 @@ import { Pagination } from "@/components/ui/Pagination";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
-import {
-  ModpackInstallWizardModal,
-  SafeUpgradeWizardModal,
-} from "@/server_manager/components/p55";
+import { LoaderBadge } from "@/components/ui/LoaderBadge";
+import { ModpackInstallWizardModal } from "@/server_manager/components/p55";
 import type { PluginResponse } from "@/types";
 
 const PAGE_SIZE = 15;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
-}
-
-function LoaderBadge({ loader }: { loader?: string | null }) {
-  const norm = loader?.toLowerCase() || "";
-  if (norm.includes("fabric")) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-status-info-border bg-status-info-bg px-2 py-0.5 text-xs font-medium text-status-info">
-        <Icon name="fabric" size={12} />
-        Fabric
-      </span>
-    );
-  }
-  if (norm.includes("neoforge")) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning">
-        <Icon name="neoforge" size={12} />
-        NeoForge
-      </span>
-    );
-  }
-  if (norm.includes("forge")) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning">
-        <Icon name="forge" size={12} />
-        Forge
-      </span>
-    );
-  }
-  if (norm.includes("quilt")) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary">
-        <Icon name="quilt" size={12} />
-        Quilt
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-page px-2 py-0.5 text-xs font-medium text-text-secondary">
-      <Icon name="plugin" size={12} />
-      {loader || "Universal"}
-    </span>
-  );
 }
 
 function ClientOnlyBadge({ warning }: { warning?: string | null }) {
@@ -142,16 +100,19 @@ function ModStatusToggle({
 function ModUploadZone({
   onUpload,
   isUploading,
+  disabled = false,
 }: {
   onUpload: (file: File) => void;
   isUploading: boolean;
+  disabled?: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isBlocked = isUploading || disabled;
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(true);
+    if (!isBlocked) setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -162,6 +123,7 @@ function ModUploadZone({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    if (isBlocked) return;
     const file = e.dataTransfer.files?.[0];
     if (file) {
       if (!file.name.toLowerCase().endsWith(".jar")) {
@@ -173,6 +135,7 @@ function ModUploadZone({
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isBlocked) return;
     const file = e.target.files?.[0];
     if (file) {
       if (!file.name.toLowerCase().endsWith(".jar")) {
@@ -191,40 +154,46 @@ function ModUploadZone({
         type="file"
         aria-label="Choose custom mod jar file"
         accept=".jar"
+        disabled={isBlocked}
         onChange={handleFileChange}
         className="hidden"
         data-testid="mod-file-input"
       />
       <div
         role="button"
-        tabIndex={isUploading ? -1 : 0}
+        tabIndex={isBlocked ? -1 : 0}
+        aria-disabled={isBlocked}
         aria-label="Upload custom mod jar file"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => !isUploading && fileInputRef.current?.click()}
+        onClick={() => !isBlocked && fileInputRef.current?.click()}
         onKeyDown={(e) => {
-          if (!isUploading && (e.key === "Enter" || e.key === " ")) {
+          if (!isBlocked && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
             fileInputRef.current?.click();
           }
         }}
-        className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
+        className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
           isDragging
             ? "border-accent-primary bg-accent-primary/15"
             : "border-border-default hover:border-accent-primary bg-surface-card hover:bg-surface-hover/50"
-        } ${isUploading ? "pointer-events-none opacity-60" : ""}`}
+        } ${isBlocked ? "pointer-events-none opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
       >
         <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-primary/20 text-accent-primary">
-        <Icon name="upload" size={20} />
+          <Icon name="upload" size={20} />
+        </div>
+        <p className="text-sm font-medium text-text-primary">
+          {isUploading
+            ? "Uploading mod..."
+            : disabled
+              ? "Mod uploads are currently disabled"
+              : "Drop custom .jar mod file here, or browse"}
+        </p>
+        <p className="mt-1 text-xs text-text-muted">
+          Supports Forge, NeoForge, Fabric, and Quilt mods (.jar)
+        </p>
       </div>
-      <p className="text-sm font-medium text-text-primary">
-        {isUploading ? "Uploading mod..." : "Drop custom .jar mod file here, or browse"}
-      </p>
-      <p className="mt-1 text-xs text-text-muted">
-        Supports Forge, NeoForge, Fabric, and Quilt mods (.jar)
-      </p>
-    </div>
     </>
   );
 }
@@ -237,17 +206,20 @@ export function ServerModsPage() {
   const [touched, setTouched] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [loaderFilter, setLoaderFilter] = useState("all");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isModpackWizardOpen, setIsModpackWizardOpen] = useState(false);
-  const [isSafeUpgradeWizardOpen, setIsSafeUpgradeWizardOpen] = useState(false);
+
+  const modServers = useMemo(
+    () => (servers ?? []).filter((s) => getServerCapabilities(s.server_type).supportsMods),
+    [servers],
+  );
 
   const effectiveServerId = routeServerId
     ? routeServerId
     : touched
       ? selectedServerId
-      : lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
+      : lastUsedServerId && modServers.some((s) => s.server_id === lastUsedServerId)
         ? lastUsedServerId
         : selectedServerId;
 
@@ -309,7 +281,15 @@ export function ServerModsPage() {
   const uploadMod = useUploadPluginOrMod(effectiveServerId, activeBranch);
   const toggleMod = useToggleModState(effectiveServerId, activeBranch);
   const uninstallMod = useUninstallPlugin(effectiveServerId, activeBranch);
-  const hasUncommitted = Boolean(isWorkingBranch && mods?.some((m) => m.is_committed === false));
+  const permissions = useFleetPermissions();
+  const canManagePlugins = Boolean(
+    effectiveServerId && permissions.canManagePlugins(effectiveServerId),
+  );
+  const hasUncommitted = Boolean(
+    isWorkingBranch &&
+      (mods?.some((m) => m.is_committed === false) ||
+        Boolean((mods as { __hasUncommitted?: boolean } | undefined)?.__hasUncommitted)),
+  );
 
   function handleServerChange(e: React.ChangeEvent<HTMLSelectElement>) {
     setTouched(true);
@@ -317,12 +297,19 @@ export function ServerModsPage() {
   }
 
   function handleBrowseMarketplace() {
+    if (!canManagePlugins || isMainProtected) return;
+    if (routeServerId) {
+      const branchQuery =
+        isWorkingBranch && activeBranch ? `?branch=${encodeURIComponent(activeBranch)}` : "";
+      navigate(`/servers/${encodeURIComponent(effectiveServerId)}/mods/marketplace${branchQuery}`);
+      return;
+    }
     const branchSuffix = isWorkingBranch && activeBranch ? `&branch=${encodeURIComponent(activeBranch)}` : "";
     navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}&type=mod${branchSuffix}`);
   }
 
   function handleUpload(file: File) {
-    if (isMainProtected) return;
+    if (isMainProtected || !canManagePlugins) return;
     uploadMod.mutate(file, {
       onSuccess: () => {
         toast("success", "Mod uploaded", `"${file.name}" uploaded successfully.`);
@@ -385,13 +372,9 @@ export function ServerModsPage() {
         (m.filename && m.filename.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (m.description && m.description.toLowerCase().includes(searchQuery.toLowerCase()));
 
-      const matchesLoader =
-        loaderFilter === "all" ||
-        (m.loader && m.loader.toLowerCase() === loaderFilter.toLowerCase());
-
-      return matchesSearch && matchesLoader;
+      return matchesSearch;
     });
-  }, [mods, searchQuery, loaderFilter]);
+  }, [mods, searchQuery]);
 
   const paginatedMods = useMemo(() => {
     if (!filteredMods || filteredMods.length <= PAGE_SIZE) return filteredMods;
@@ -412,20 +395,13 @@ export function ServerModsPage() {
         actions={
           effectiveServerId ? (
             <>
-              {gitBacked && activeBranch && (
-                <span
-                  data-testid="mods-branch-badge"
-                  className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2.5 py-1 font-mono text-xs font-semibold text-accent-primary"
-                >
-                  Branch: {activeBranch}
-                </span>
-              )}
               {supportsModpacks && (
                 <button
                   type="button"
                   data-testid="open-modpack-wizard-btn"
+                  disabled={isMainProtected || !canManagePlugins}
                   onClick={() => setIsModpackWizardOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <Icon name="download" size={16} />
                   Install Modpack (.mrpack / CurseForge)
@@ -433,16 +409,7 @@ export function ServerModsPage() {
               )}
               <button
                 type="button"
-                data-testid="open-safe-upgrade-wizard-btn"
-                onClick={() => setIsSafeUpgradeWizardOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover cursor-pointer"
-              >
-                <Icon name="restart" size={16} />
-                1-Click Safe Upgrade
-              </button>
-              <button
-                type="button"
-                disabled={isMainProtected}
+                disabled={isMainProtected || !canManagePlugins}
                 onClick={handleBrowseMarketplace}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
               >
@@ -466,7 +433,7 @@ export function ServerModsPage() {
             className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
           >
             <option value="">Select a server...</option>
-            {servers?.map((s) => (
+            {modServers.map((s) => (
               <option key={s.server_id} value={s.server_id}>
                 {s.name}
               </option>
@@ -498,7 +465,7 @@ export function ServerModsPage() {
               {isPluginLoader(activeServerType) && (
                 <Link
                   to={`/servers/${effectiveServerId}/plugins`}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors"
                 >
                   <Icon name="plugin" size={14} />
                   Manage Plugins
@@ -557,10 +524,10 @@ export function ServerModsPage() {
             >
               <div>
                 <p className="font-semibold text-status-info">
-                  Uncommitted lockfile changes on &ldquo;{activeBranch}&rdquo;
+                  Uncommitted changes on &ldquo;{activeBranch}&rdquo;
                 </p>
                 <p className="text-text-secondary">
-                  Save &amp; commit your updated <code className="font-mono">onx-jars.lock.json</code> before starting a branch container or merging.
+                  Save &amp; commit your changes before testing or merging this branch.
                 </p>
               </div>
               <button
@@ -577,7 +544,11 @@ export function ServerModsPage() {
           )}
 
           {/* Upload Zone */}
-          <ModUploadZone onUpload={handleUpload} isUploading={uploadMod.isPending || isMainProtected} />
+          <ModUploadZone
+            onUpload={handleUpload}
+            isUploading={uploadMod.isPending}
+            disabled={isMainProtected || !canManagePlugins || isNonModdedServer}
+          />
 
           {/* Search and Filters */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -597,26 +568,6 @@ export function ServerModsPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2">
-              <label htmlFor="loader-filter" className="text-xs font-medium text-text-muted">
-                Loader:
-              </label>
-              <select
-                id="loader-filter"
-                value={loaderFilter}
-                onChange={(e) => {
-                  setLoaderFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
-              >
-                <option value="all">All Loaders</option>
-                <option value="fabric">Fabric</option>
-                <option value="forge">Forge</option>
-                <option value="neoforge">NeoForge</option>
-                <option value="quilt">Quilt</option>
-              </select>
-            </div>
           </div>
 
           {/* Content */}
@@ -704,14 +655,14 @@ export function ServerModsPage() {
                         <ModStatusToggle
                           mod={m}
                           onToggle={() => handleToggle(m)}
-                          isPending={isMainProtected || toggleMod.isPending}
+                          isPending={isMainProtected || !canManagePlugins || toggleMod.isPending}
                         />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => setUninstallTarget(m)}
-                          disabled={isMainProtected || uninstallMod.isPending}
+                          disabled={isMainProtected || !canManagePlugins || uninstallMod.isPending}
                           aria-label={`Uninstall ${m.name}`}
                           title="Uninstall"
                           className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
@@ -740,56 +691,44 @@ export function ServerModsPage() {
               icon="plugin"
               title="No mods found"
               description={
-                searchQuery || loaderFilter !== "all"
+                searchQuery
                   ? "No mods matched your filter criteria."
                   : "No mods are installed yet. Drop a .jar file in the upload zone above or browse the marketplace."
               }
               action={
-                searchQuery || loaderFilter !== "all" ? (
+                searchQuery ? (
                   <button
                     type="button"
                     onClick={() => {
                       setSearchQuery("");
-                      setLoaderFilter("all");
                     }}
                     className="inline-flex items-center gap-1 rounded-lg bg-surface-page border border-border-default px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
                   >
                     Clear Filters
                   </button>
-                ) : (
+                ) : canManagePlugins ? (
                   <button
                     type="button"
+                    disabled={isMainProtected}
                     onClick={handleBrowseMarketplace}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
                   >
                     <Icon name="plus" size={16} />
                     Browse Marketplace
                   </button>
-                )
+                ) : undefined
               }
             />
           )}
         </>
       )}
 
-      {effectiveServerId && (
-        <>
-          {supportsModpacks && (
-            <ModpackInstallWizardModal
-              serverId={effectiveServerId}
-              isOpen={isModpackWizardOpen}
-              onClose={() => setIsModpackWizardOpen(false)}
-            />
-          )}
-          <SafeUpgradeWizardModal
-            serverId={effectiveServerId}
-            isOpen={isSafeUpgradeWizardOpen}
-            onClose={() => setIsSafeUpgradeWizardOpen(false)}
-            serverMode={activeServer?.mode}
-            serverType={activeServer?.server_type}
-            currentMc={activeServer?.minecraft_version}
-          />
-        </>
+      {effectiveServerId && supportsModpacks && (
+        <ModpackInstallWizardModal
+          serverId={effectiveServerId}
+          isOpen={isModpackWizardOpen}
+          onClose={() => setIsModpackWizardOpen(false)}
+        />
       )}
 
       <ConfirmDialog

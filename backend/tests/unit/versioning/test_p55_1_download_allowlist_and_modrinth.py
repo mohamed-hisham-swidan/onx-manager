@@ -80,8 +80,9 @@ def _sha256(data: bytes) -> str:
 
 class TestDownloadAllowList:
     def test_normative_host_count(self) -> None:
-        assert len(ALL_NORMATIVE_DOWNLOAD_HOSTS) == 19
-        assert len(DEFAULT_ALLOWED_DOWNLOAD_HOSTS) == 15
+        assert len(ALL_NORMATIVE_DOWNLOAD_HOSTS) == 20
+        assert len(DEFAULT_ALLOWED_DOWNLOAD_HOSTS) == 16
+        assert "api.purpurmc.org" in DEFAULT_ALLOWED_DOWNLOAD_HOSTS
 
     @pytest.mark.parametrize("host", sorted(DEFAULT_ALLOWED_DOWNLOAD_HOSTS))
     def test_all_unconditional_hosts_accepted(self, host: str) -> None:

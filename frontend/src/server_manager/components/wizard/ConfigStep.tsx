@@ -103,7 +103,12 @@ export function ConfigStep({
 }: ConfigStepProps) {
   const { data: hostBudget } = useHostResources();
   const allocatableMaxRam = hostBudget?.allocatable_ram_mb ?? 262144;
+  const minRamNum = typeof data.minMemoryMb === "number" ? data.minMemoryMb : 0;
   const maxRamNum = typeof data.maxMemoryMb === "number" ? data.maxMemoryMb : 0;
+  const invalidRamRange =
+    data.minMemoryMb !== "" &&
+    data.maxMemoryMb !== "" &&
+    minRamNum > maxRamNum;
   const exceedsBudget = Boolean(hostBudget && maxRamNum > hostBudget.allocatable_ram_mb);
   return (
     <div>
@@ -247,7 +252,7 @@ export function ConfigStep({
                       overCeiling
                         ? "bg-surface-elevated border-border-subtle text-text-muted opacity-40 cursor-not-allowed"
                         : isActive
-                          ? "bg-accent-primary text-white border-accent-primary shadow-xs ring-2 ring-accent-primary/30 cursor-pointer"
+                          ? "bg-accent-primary text-accent-contrast-text border-accent-primary shadow-xs ring-2 ring-accent-primary/30 cursor-pointer"
                           : "bg-surface-page border-border-default text-text-primary hover:border-accent-primary hover:bg-surface-hover cursor-pointer"
                     }`}
                   >
@@ -257,6 +262,11 @@ export function ConfigStep({
               })}
             </div>
           </div>
+          {invalidRamRange && (
+            <p role="alert" className="text-xs font-medium text-status-danger">
+              Minimum RAM ({minRamNum} MB) cannot exceed Maximum RAM ({maxRamNum} MB).
+            </p>
+          )}
         </div>
 
         <div>
@@ -280,8 +290,8 @@ export function ConfigStep({
         <button
           type="button"
           onClick={onNext}
-          disabled={!data.name.trim() || exceedsBudget}
-          className="px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-white text-sm font-medium disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+          disabled={dockerAvailable === false || !data.name.trim() || exceedsBudget || invalidRamRange}
+          className="px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
         >
           Next
         </button>

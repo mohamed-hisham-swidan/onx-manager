@@ -1078,9 +1078,17 @@ async def test_one_click_upgrade_simple_and_advanced_e2e_confirm_and_rollback(
     assert prep_adv.status_code == 200, prep_adv.text
     prep_body = prep_adv.json()
     assert prep_body["upgrade"]["status"] == "testing"
-    assert prep_body["upgrade"]["upgrade_branch"] == "upgrade/1.21.1"
+    assert prep_body["upgrade"]["upgrade_branch"] == "upgrade-1.21.1"
     assert prep_body["runtime"] is not None
-    assert prep_body["runtime"]["branch_name"] == "upgrade/1.21.1"
+    assert prep_body["runtime"]["branch_name"] == "upgrade-1.21.1"
+
+    adv_branches = await api.client.get(
+        f"/api/v1/servers/{ADV_SERVER_ID}/versioning/branches",
+        headers=api.headers,
+    )
+    assert adv_branches.status_code == 200, adv_branches.text
+    branch_names = {b["name"] for b in adv_branches.json()}
+    assert "upgrade-1.21.1" in branch_names
 
     apply_adv = await api.client.post(
         f"/api/v1/servers/{ADV_SERVER_ID}/upgrades/{adv_upg_id}/apply",
@@ -1358,3 +1366,337 @@ async def test_p55_rbac_unauthenticated_and_activity_log_zero_secret_leakage(
     event_types = {item["event_type"] for item in act_res.json()["items"]}
     assert "server.p55_settings_updated" in event_types
     assert CF_SECRET_KEY not in act_res.text
+
+
+@pytest.mark.asyncio
+async def test_health_gate_factory_builds_real_evaluator_and_plan_accepts_keep_paths(
+    p55_api: Any,
+) -> None:
+    from app.api.v1.routers.modpacks_upgrades import get_upgrade_health_gate_factory
+    from app.modules.server.infrastructure.models import ServerModel
+    from app.modules.versioning.application.upgrade_health_gate import UpgradeHealthGateEvaluator
+
+    api = p55_api
+    # 1. Verify production factory returns real UpgradeHealthGateEvaluator honoring timeout/world
+    factory = get_upgrade_health_gate_factory()
+    async with database.session_factory() as session:
+        srv = await session.get(ServerModel, SIMPLE_SERVER_ID)
+        assert srv is not None
+        srv.health_gate_boot_timeout_seconds = 450
+        srv.primary_world = "survival_world"
+        gate = factory(
+            type("_Upg", (), {"target_mc": "1.21.1", "server_id": SIMPLE_SERVER_ID})(),
+            srv,
+        )
+
+    assert isinstance(gate, UpgradeHealthGateEvaluator)
+    assert gate._boot_timeout_seconds == 450
+    assert gate._world_name == "survival_world"
+    assert gate._target_mc == "1.21.1"
+
+    # 2. Seed missing-target-build plugin and plan with keep_paths=[path]
+    api.fake_modrinth._updates.clear()
+    kept_bytes = b"legacy-spigot-plugin-bytes"
+    k_sha256, k_sha512, k_sha1 = _hashes(kept_bytes)
+    api.cas.put_bytes(kept_bytes)
+
+    lf = LockfileV21(
+        format=2,
+        mc="1.20.4",
+        loader=LoaderRef(id="paper", version="latest"),
+        base_overrides={},
+        files=(
+            LockfileFile(
+                path="plugins/LegacyShop.jar",
+                sha256=k_sha256,
+                size=len(kept_bytes),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.MODRINTH,
+                sha512=k_sha512,
+                sha1=k_sha1,
+                project_id="legacy-shop",
+                version_id="v1",
+            ),
+        ),
+        lec=None,
+    )
+    LockfileService(api.layout).write(SIMPLE_SERVER_ID, lf)
+    (api.simple_root / "plugins").mkdir(parents=True, exist_ok=True)
+    (api.simple_root / "plugins" / "LegacyShop.jar").write_bytes(kept_bytes)
+
+    plan_kept = await api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/plan",
+        json={
+            "target_mc": "1.21.4",
+            "target_loader_id": "paper",
+            "target_loader_version": "latest",
+            "keep_paths": ["plugins/LegacyShop.jar"],
+        },
+        headers=api.headers,
+    )
+    assert plan_kept.status_code == 201, plan_kept.text
+    body = plan_kept.json()
+    assert body["status"] == "planned"
+    assert body["matrix"]["has_blockers"] is False
+    assert body["matrix"]["kept_paths"] == ["plugins/LegacyShop.jar"]
+    entry = body["matrix"]["entries"][0]
+    assert entry["path"] == "plugins/LegacyShop.jar"
+    assert entry["kept_by_operator"] is True
+    assert entry["action_label"] == "kept_current"
+    assert entry["is_blocker"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_pinned_upgrade_never_shadowed_by_planned_row_and_blocks_replan(
+    p55_api: Any,
+) -> None:
+    """GET /upgrades keeps active_pinned visible and POST /upgrades/plan rejects while pinned."""
+    import uuid
+
+    from app.modules.versioning.infrastructure.models import ServerUpgradeModel
+
+    pinned_id = str(uuid.uuid4())
+    planned_id = str(uuid.uuid4())
+    async with database.session_factory() as session:
+        session.add(
+            ServerUpgradeModel(
+                id=pinned_id,
+                server_id=SIMPLE_SERVER_ID,
+                kind="upgrade",
+                mode="simple",
+                status="active_pinned",
+                source_mc="1.20.4",
+                target_mc="1.21.4",
+                source_loader_id="paper",
+                target_loader_id="paper",
+                target_loader_version="latest",
+                pinned_until_confirm=True,
+                health_gate_passed=True,
+            )
+        )
+        session.add(
+            ServerUpgradeModel(
+                id=planned_id,
+                server_id=SIMPLE_SERVER_ID,
+                kind="upgrade",
+                mode="simple",
+                status="planned",
+                source_mc="1.21.4",
+                target_mc="1.21.11",
+                source_loader_id="paper",
+                target_loader_id="paper",
+                target_loader_version="latest",
+                pinned_until_confirm=False,
+            )
+        )
+        await session.commit()
+
+    listed = await p55_api.client.get(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades",
+        headers=p55_api.headers,
+    )
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["banner_active"] is True
+    assert body["active_upgrade"]["id"] == pinned_id
+    assert body["active_upgrade"]["status"] == "active_pinned"
+
+    replan = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/plan",
+        json={
+            "target_mc": "1.21.11",
+            "target_loader_id": "paper",
+            "target_loader_version": "latest",
+        },
+        headers=p55_api.headers,
+    )
+    assert replan.status_code == 409
+    assert "confirmation" in replan.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_health_gate_rollback_fails_operation_with_step_and_reason(
+    p55_api: Any,
+) -> None:
+    """When Health Gate fails and rolls back, operations.status MUST be FAILED (never COMPLETED)."""
+    p55_api.health_gate_state["passed"] = False
+    p55_api.health_gate_state["reason"] = "expected >= 4671 for MC 1.21.11, found 4189"
+
+    plan_res = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/plan",
+        json={
+            "target_mc": "1.21.1",
+            "target_loader_id": "fabric",
+            "target_loader_version": "0.16.5",
+            "target_lec_key": "fabric/1.21.1/0.16.5/1.0.1",
+        },
+        headers=p55_api.headers,
+    )
+    assert plan_res.status_code == 201, plan_res.text
+    upgrade_id = plan_res.json()["id"]
+
+    apply_res = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/{upgrade_id}/apply",
+        json={"resolved_conflicts": {}, "async_mode": False},
+        headers=p55_api.headers,
+    )
+    assert apply_res.status_code == 200, apply_res.text
+    upg = apply_res.json()
+    assert upg["status"] == "rolled_back"
+    assert "expected >= 4671 for MC 1.21.11" in (upg["error_message"] or "")
+    assert upg["operation_id"]
+
+    op_res = await p55_api.client.get(
+        f"/api/v1/operations/{upg['operation_id']}",
+        headers=p55_api.headers,
+    )
+    assert op_res.status_code == 200, op_res.text
+    op = op_res.json()
+    assert op["status"] == "FAILED"
+    assert op["failure_code"] == "UPGRADE_ROLLED_BACK"
+    assert "expected >= 4671 for MC 1.21.11" in (op["error_message"] or "")
+    step_ids = [s["step_id"] for s in op["steps"]]
+    assert step_ids == [
+        "PREPARE_AND_DOWNLOAD",
+        "STAGE_FILES",
+        "SWAP_LIVE_TREE",
+        "HEALTH_GATE",
+        "FINALIZE",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_background_server_upgrade_commits_incremental_steps_logs_and_clean_cancel(
+    p55_api: Any,
+) -> None:
+    """Background SERVER_UPGRADE commits live steps + logs and Cancel unlocks applying."""
+    p55_api.health_gate_state["passed"] = True
+    p55_api.health_gate_state["reason"] = None
+
+    # 1. Plan & run background SERVER_UPGRADE with a pause gate mid-flight
+    plan_res = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/plan",
+        json={
+            "target_mc": "1.21.1",
+            "target_loader_id": "fabric",
+            "target_loader_version": "0.16.5",
+            "target_lec_key": "fabric/1.21.1/0.16.5/1.0.1",
+        },
+        headers=p55_api.headers,
+    )
+    assert plan_res.status_code == 201, plan_res.text
+    upgrade_id = plan_res.json()["id"]
+
+    apply_res = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/{upgrade_id}/apply",
+        json={"resolved_conflicts": {}, "async_mode": True},
+        headers=p55_api.headers,
+    )
+    assert apply_res.status_code == 202, apply_res.text
+    applied_body = apply_res.json()
+    assert applied_body["status"] == "applying"
+    op_id = applied_body["operation_id"]
+    assert op_id
+
+    # Poll until completed (bounded, never hangs)
+    final_op: dict[str, Any] = {}
+    for _ in range(100):
+        op_res = await p55_api.client.get(
+            f"/api/v1/operations/{op_id}",
+            headers=p55_api.headers,
+        )
+        assert op_res.status_code == 200, op_res.text
+        final_op = op_res.json()
+        if final_op["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
+            break
+        await asyncio.sleep(0.05)
+
+    assert final_op["status"] == "COMPLETED", final_op
+    logs = final_op.get("metadata", {}).get("logs") or []
+    log_lines = [entry.get("line", "") for entry in logs]
+    assert len(log_lines) >= 4, f"Expected live operation logs, got: {log_lines}"
+    assert any("Staging server core" in line for line in log_lines)
+    assert any("Swapping live directory" in line for line in log_lines)
+    assert any("Health Gate" in line for line in log_lines)
+
+    # Confirm the upgrade so we can test cancellation on a fresh plan
+    confirm_res = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/{upgrade_id}/confirm",
+        headers=p55_api.headers,
+    )
+    assert confirm_res.status_code == 200, confirm_res.text
+
+    # 2. Test Cancel Operation cleanly cancels task + resets server_upgrades.status out of applying
+    plan2 = await p55_api.client.post(
+        f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/plan",
+        json={
+            "target_mc": "1.21.2",
+            "target_loader_id": "fabric",
+            "target_loader_version": "0.16.5",
+            "target_lec_key": "fabric/1.21.2/0.16.5/1.0.1",
+        },
+        headers=p55_api.headers,
+    )
+    assert plan2.status_code == 201, plan2.text
+    upgrade2_id = plan2.json()["id"]
+
+    gate_entered = asyncio.Event()
+    orig_exec = p55_api.upgrade_service.execute_simple_upgrade
+
+    async def _slow_exec(*args: Any, **kwargs: Any) -> Any:
+        on_log = kwargs.get("on_log")
+        if on_log is not None:
+            await on_log("Simulating long download for cancel test...")
+        gate_entered.set()
+        await asyncio.sleep(30.0)
+        return await orig_exec(*args, **kwargs)
+
+    p55_api.upgrade_service.execute_simple_upgrade = _slow_exec
+    try:
+        apply2 = await p55_api.client.post(
+            f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/{upgrade2_id}/apply",
+            json={"resolved_conflicts": {}, "async_mode": True},
+            headers=p55_api.headers,
+        )
+        assert apply2.status_code == 202, apply2.text
+        op2_id = apply2.json()["operation_id"]
+        await asyncio.wait_for(gate_entered.wait(), timeout=5.0)
+
+        # Mid-flight GET /operations/{id} must already show live logs & active step
+        mid_res = await p55_api.client.get(
+            f"/api/v1/operations/{op2_id}",
+            headers=p55_api.headers,
+        )
+        assert mid_res.status_code == 200
+        mid_op = mid_res.json()
+        assert mid_op["status"] == "RUNNING"
+        mid_logs = [e.get("line", "") for e in (mid_op.get("metadata", {}).get("logs") or [])]
+        assert any("Simulating long download" in line for line in mid_logs)
+
+        cancel_res = await p55_api.client.post(
+            f"/api/v1/operations/{op2_id}/cancel",
+            headers=p55_api.headers,
+        )
+        assert cancel_res.status_code == 202, cancel_res.text
+
+        cancelled_op: dict[str, Any] = {}
+        for _ in range(60):
+            r = await p55_api.client.get(
+                f"/api/v1/operations/{op2_id}",
+                headers=p55_api.headers,
+            )
+            cancelled_op = r.json()
+            if cancelled_op["status"] == "CANCELLED":
+                break
+            await asyncio.sleep(0.05)
+        assert cancelled_op["status"] == "CANCELLED", cancelled_op
+
+        upg2_res = await p55_api.client.get(
+            f"/api/v1/servers/{SIMPLE_SERVER_ID}/upgrades/{upgrade2_id}",
+            headers=p55_api.headers,
+        )
+        assert upg2_res.status_code == 200
+        assert upg2_res.json()["status"] == "planned"
+    finally:
+        p55_api.upgrade_service.execute_simple_upgrade = orig_exec

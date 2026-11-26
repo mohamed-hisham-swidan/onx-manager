@@ -65,9 +65,6 @@ export function TargetListSection({
               {targets.length} {targets.length === 1 ? "Target" : "Targets"}
             </span>
           </div>
-          <p className="text-xs text-text-muted mt-0.5">
-            Configured protocol ports and live public addresses for this server.
-          </p>
         </div>
 
         {!isReadOnly && isEnabled && (

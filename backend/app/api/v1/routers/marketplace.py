@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import require_permission
@@ -9,13 +11,32 @@ from app.api.v1.schemas.plugin import (
     PluginVersionResponse,
     PluginVersionsResponse,
 )
-from app.core.exceptions import DownloadError, NotFoundError
+from app.core.exceptions import (
+    DownloadError,
+    NotFoundError,
+    RateLimitExceeded,
+    ValidationError,
+)
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 
 router = APIRouter(prefix="/api/v1/marketplace", tags=["marketplace"])
 
 __all__ = ["router"]
+
+
+def _translate_download_error(exc: DownloadError, *, not_found_msg: str) -> None:
+    if exc.status == 404:
+        raise NotFoundError(not_found_msg) from exc
+    if exc.status == 400:
+        raise ValidationError(str(exc)) from exc
+    if exc.status == 429:
+        retry_after = exc.details.get("retry_after") or exc.details.get("ratelimit_reset") or 60
+        raise RateLimitExceeded(
+            message="Upstream marketplace rate limit exceeded",
+            details={"retry_after": retry_after},
+        ) from exc
+    raise exc
 
 
 @router.get("/search", response_model=PluginSearchResultsResponse)
@@ -25,16 +46,26 @@ async def search_marketplace(
     offset: int = Query(default=0, ge=0),
     project_type: str = Query(default="plugin"),
     loader: str = Query(default="", max_length=50),
+    sort: Literal["relevance", "downloads", "follows", "newest", "updated"] = Query(
+        default="relevance"
+    ),
+    game_version: str | None = Query(default=None, max_length=32),
     _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
-    page = await provider.search(
-        query,
-        limit=limit,
-        offset=offset,
-        project_type=project_type,
-        loader=loader or None,
-    )
+    cleaned_gv = game_version.strip() if game_version and game_version.strip() else None
+    try:
+        page = await provider.search(
+            query,
+            limit=limit,
+            offset=offset,
+            project_type=project_type,
+            loader=loader or None,
+            sort=sort,
+            game_version=cleaned_gv,
+        )
+    except DownloadError as e:
+        _translate_download_error(e, not_found_msg="Marketplace search failed")
     return PluginSearchResultsResponse(
         items=[PluginSearchResultResponse(**r.__dict__) for r in page.items],
         total_hits=page.total_hits,
@@ -52,9 +83,9 @@ async def get_marketplace_project(
     try:
         project = await provider.get_project(project_id)
     except DownloadError as e:
-        if e.status == 404:
-            raise NotFoundError(f"Marketplace project '{project_id}' not found") from e
-        raise
+        _translate_download_error(
+            e, not_found_msg=f"Marketplace project '{project_id}' not found"
+        )
     return PluginProjectResponse(**project.__dict__)
 
 
@@ -68,7 +99,10 @@ def _to_version_response(v: PluginVersionInfo) -> PluginVersionResponse:
         loaders=v.loaders,
         files=[PluginFileResponse(**f.__dict__) for f in v.files],
         dependencies=v.dependencies,
+        required_dependencies=list(getattr(v, "required_dependencies", []) or []),
+        changelog=getattr(v, "changelog", None),
         date_published=v.date_published,
+        version_type=getattr(v, "version_type", "release") or "release",
     )
 
 
@@ -83,9 +117,9 @@ async def get_marketplace_project_versions(
     try:
         page = await provider.get_project_versions(project_id, limit=limit, offset=offset)
     except DownloadError as e:
-        if e.status == 404:
-            raise NotFoundError(f"Marketplace project '{project_id}' not found") from e
-        raise
+        _translate_download_error(
+            e, not_found_msg=f"Marketplace project '{project_id}' not found"
+        )
     return PluginVersionsResponse(
         project_id=project_id,
         versions=[_to_version_response(v) for v in page.items],

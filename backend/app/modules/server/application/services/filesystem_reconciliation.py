@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     LaunchConfiguration,
+    LocationType,
     MemoryAllocation,
     PortNumber,
     RuntimeInfo,
@@ -297,7 +299,7 @@ class FilesystemReconciliationService:
     def _scan_filesystem(self, excluded_names: set[str] | None = None) -> list[FsEntry]:
         excluded = excluded_names or set()
         data_dir = AppSettings().servers_data_dir
-        data_path = Path(data_dir)
+        data_path = Path(os.path.abspath(data_dir))
         if not data_path.is_dir():
             return []
         entries: list[FsEntry] = []
@@ -423,9 +425,20 @@ class FilesystemReconciliationService:
             )
 
         reasons: list[str] = []
+        has_argfile = any(
+            Path(entry.path).glob(pattern)
+            for pattern in (
+                "libraries/net/neoforged/neoforge/*/unix_args.txt",
+                "libraries/net/neoforged/neoforge/*/win_args.txt",
+                "libraries/net/minecraftforge/forge/*/unix_args.txt",
+                "libraries/net/minecraftforge/forge/*/win_args.txt",
+                "libraries/org/quiltmc/quilt-loader/*/unix_args.txt",
+            )
+        )
         has_executable = bool(
             scanned.get("server_jar")
             or scanned.get("run_script")
+            or has_argfile
             or self._fs.exists(str(Path(entry.path) / "run.sh"))
             or self._fs.exists(str(Path(entry.path) / "run.bat"))
         )
@@ -708,6 +721,16 @@ class FilesystemReconciliationService:
                 )
             )
 
+    @staticmethod
+    def _deployment_differs(
+        deployment: ServerDeployment, entry: FsEntry, current_jar: str
+    ) -> bool:
+        if not deployment.root_path or not os.path.isabs(deployment.root_path):
+            return True
+        if os.path.abspath(deployment.root_path) != os.path.abspath(entry.path):
+            return True
+        return deployment.startup_jar != current_jar
+
     def _deployment_needs_update(self, server: Server, entry: FsEntry, scan: ScanOutcome) -> bool:
         if not server.deployment:
             return True
@@ -717,10 +740,7 @@ class FilesystemReconciliationService:
             disk_name = (scanned.get("name") or "").strip()
             if disk_name and disk_name != server.name:
                 return True
-        return (
-            server.deployment.root_path != entry.path
-            or server.deployment.startup_jar != current_jar
-        )
+        return self._deployment_differs(server.deployment, entry, current_jar)
 
     def _is_outside_data_dir(self, server: Server, data_dir: str) -> bool:
         dep = server.deployment
@@ -825,11 +845,10 @@ class FilesystemReconciliationService:
 
         if server.deployment:
             current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
-            if (
-                server.deployment.root_path != entry.path
-                or server.deployment.startup_jar != current_jar
-            ):
-                server.update_deployment(self._build_deployment(entry, scan))
+            if self._deployment_differs(server.deployment, entry, current_jar):
+                server.update_deployment(
+                    self._build_deployment(entry, scan, existing_deployment=server.deployment)
+                )
                 updated = True
 
         if updated:
@@ -894,11 +913,10 @@ class FilesystemReconciliationService:
 
         if server.deployment:
             current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
-            if (
-                server.deployment.root_path != entry.path
-                or server.deployment.startup_jar != current_jar
-            ):
-                server.update_deployment(self._build_deployment(entry, scan))
+            if self._deployment_differs(server.deployment, entry, current_jar):
+                server.update_deployment(
+                    self._build_deployment(entry, scan, existing_deployment=server.deployment)
+                )
         server.mark_broken()
 
         await self._repo.save(server)
@@ -926,11 +944,10 @@ class FilesystemReconciliationService:
 
         if server.deployment:
             current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
-            if (
-                server.deployment.root_path != entry.path
-                or server.deployment.startup_jar != current_jar
-            ):
-                server.update_deployment(self._build_deployment(entry, scan))
+            if self._deployment_differs(server.deployment, entry, current_jar):
+                server.update_deployment(
+                    self._build_deployment(entry, scan, existing_deployment=server.deployment)
+                )
         server.mark_repaired()
 
         await self._repo.save(server)
@@ -954,7 +971,9 @@ class FilesystemReconciliationService:
             if disk_name and disk_name != server.name:
                 server.rename(disk_name)
 
-        server.update_deployment(self._build_deployment(entry, scan))
+        server.update_deployment(
+            self._build_deployment(entry, scan, existing_deployment=server.deployment)
+        )
         await self._repo.save(server)
         result.updated.append(
             {
@@ -1032,6 +1051,12 @@ class FilesystemReconciliationService:
                     )
 
                 server.mark_deleted()
+                with contextlib.suppress(Exception):
+                    from app.modules.server.application.commands.delete_server import (
+                        _cleanup_server_scoped_records,
+                    )
+
+                    await _cleanup_server_scoped_records(self._session, sid)
                 await self._repo.delete(server.id)
                 result.deleted.append(
                     {
@@ -1155,7 +1180,14 @@ class FilesystemReconciliationService:
             simulation_distance=props.get("simulation_distance", 10),
         )
 
-    def _build_deployment(self, entry: FsEntry, scan: ScanOutcome) -> ServerDeployment:
+    def _build_deployment(
+        self,
+        entry: FsEntry,
+        scan: ScanOutcome,
+        *,
+        existing_deployment: ServerDeployment | None = None,
+        location_type: LocationType | None = None,
+    ) -> ServerDeployment:
         jar = (scan.scanned or {}).get("server_jar") or "server.jar"
         run_script = (scan.scanned or {}).get("run_script")
         has_run = bool(
@@ -1168,8 +1200,16 @@ class FilesystemReconciliationService:
             if (has_run or jar.endswith((".sh", ".bat")))
             else ""
         )
+        resolved_location_type = location_type or (
+            existing_deployment.location_type if existing_deployment else LocationType.LOCAL
+        )
+        resolved_location_uri = (
+            existing_deployment.location_uri if existing_deployment else ""
+        )
         return ServerDeployment(
-            root_path=entry.path,
+            location_type=resolved_location_type,
+            location_uri=resolved_location_uri,
+            root_path=os.path.abspath(entry.path),
             working_directory=".",
             startup_jar=jar,
             startup_command=startup_cmd,
@@ -1203,8 +1243,15 @@ class FilesystemReconciliationService:
             MinecraftVersion.parse(mc_version_str) if mc_version_str else MinecraftVersion(0, 0)
         )
 
+        runtime_provider = provider or default_provider_for_platform()
         props = self._build_server_properties(scan.scanned)
-        deployment = self._build_deployment(entry, scan)
+        deployment = self._build_deployment(
+            entry,
+            scan,
+            location_type=(
+                LocationType.DOCKER if runtime_provider == "docker" else LocationType.LOCAL
+            ),
+        )
 
         launch_config = None
         run_script = (scan.scanned or {}).get("run_script")
@@ -1222,7 +1269,6 @@ class FilesystemReconciliationService:
             script_cmd = ["bash", run_script or "run.sh", "nogui"]
             launch_config = LaunchConfiguration(startup_command=script_cmd)
 
-        runtime_provider = provider or default_provider_for_platform()
         return Server(
             server_id=server_id,
             name=name,
@@ -1233,7 +1279,7 @@ class FilesystemReconciliationService:
             properties=props,
             deployment=deployment,
             launch_config=launch_config,
-            runtime=RuntimeInfo(provider=runtime_provider),
+            runtime=RuntimeInfo(provider=runtime_provider, port=props.port.value),
         )
 
     # ------------------------------------------------------------------

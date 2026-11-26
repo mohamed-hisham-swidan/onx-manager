@@ -59,6 +59,7 @@ ALLOWED_LEC_TREES: dict[str, tuple[str, ...]] = {
     "forge": ("libraries",),
     "neoforge": ("libraries",),
     "paper": ("cache", "versions", "libraries"),
+    "purpur": ("cache", "versions", "libraries"),
 }
 
 FORBIDDEN_LEC_ROOT_FILES: frozenset[str] = frozenset(

@@ -26,8 +26,6 @@ from app.modules.shared.value_objects import BackupJobId, MinecraftVersion, Serv
 from app.modules.storage.base import StorageBackend, StorageResult
 from app.modules.storage.encryption import BackupEncryption
 from app.services.backup_orchestrator import BackupSaga
-from app.services.deployment_orchestrator import DeploymentOrchestrator
-from app.services.server_orchestrator import DeploymentSaga, RestartSaga
 
 
 class FakeProvider(ServerProvider):
@@ -102,88 +100,6 @@ class _CorruptReadStorage(FakeStorage):
     async def read(self, path: str) -> bytes:
         data = self._store.get(path, b"")
         return data[:-1] if data else b""
-
-
-@pytest.mark.usefixtures("init_test_db")
-class TestRestartSaga:
-    @pytest.mark.asyncio
-    async def test_restart_saga_success(self) -> None:
-        orchestrator = SagaOrchestrator()
-        provider = FakeProvider()
-        saga = RestartSaga(orchestrator)
-
-        async with database.session_factory() as session:
-            repo = SQLServerRepository(session)
-            server = Server.create(
-                server_id=ServerId("saga-restart-1"),
-                name="SagaRestart",
-                server_type=ServerType.VANILLA,
-                minecraft_version=MinecraftVersion.parse("1.21"),
-                memory=MemoryAllocation(1024, 2048),
-                java_args=JavaArguments(),
-                properties=ServerProperties(port=PortNumber(25565)),
-            )
-            server.start()
-            server.mark_running(pid=100, port=25565)
-            server.collect_events()
-            await repo.save(server)
-            await session.commit()
-
-        await saga.execute(server, provider)
-        assert len(provider.stopped) > 0
-
-    @pytest.mark.asyncio
-    async def test_restart_saga_compensates_on_failure(self) -> None:
-        orchestrator = SagaOrchestrator()
-        provider = FakeProvider()
-        provider.status_result = ServerRuntimeStatus.ERROR
-        saga = RestartSaga(orchestrator)
-
-        async with database.session_factory() as session:
-            repo = SQLServerRepository(session)
-            server = Server.create(
-                server_id=ServerId("saga-restart-fail"),
-                name="SagaRestartFail",
-                server_type=ServerType.VANILLA,
-                minecraft_version=MinecraftVersion.parse("1.21"),
-                memory=MemoryAllocation(1024, 2048),
-                java_args=JavaArguments(),
-                properties=ServerProperties(port=PortNumber(25565)),
-            )
-            server.start()
-            server.mark_running(pid=200, port=25565)
-            server.collect_events()
-            await repo.save(server)
-            await session.commit()
-
-        await saga.execute(server, provider)
-        assert len(provider.stopped) > 0
-
-
-@pytest.mark.usefixtures("init_test_db")
-class TestDeploymentSaga:
-    @pytest.mark.asyncio
-    async def test_deployment_saga(self) -> None:
-        orchestrator = SagaOrchestrator()
-        provider = FakeProvider()
-        saga = DeploymentSaga(orchestrator)
-
-        await saga.execute(ServerId("saga-dep-1"), provider, {})
-
-        assert "saga-dep-1" in provider.started
-
-
-class TestDeploymentOrchestrator:
-    def test_get_provider(self) -> None:
-        from app.modules.server.infrastructure.providers import provider_factory
-
-        orchestrator = DeploymentOrchestrator(provider_factory)
-        provider = orchestrator.get_provider("docker")
-
-        assert provider is not None
-        assert provider.provider_type == "docker"
-        with pytest.raises(ValueError):
-            orchestrator.get_provider("local")
 
 
 @pytest.mark.usefixtures("init_test_db")

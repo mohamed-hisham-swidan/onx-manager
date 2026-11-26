@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProjectVersionsList } from "./ProjectVersionsList";
@@ -245,7 +245,7 @@ describe("ProjectVersionsList", () => {
     });
   });
 
-  it("groups many raw game_versions into compact release pills and collapses snapshots", () => {
+  it("groups many raw game_versions into accurate contiguous release pills and collapses snapshots", () => {
     vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
       data: {
         project_id: "proj-1",
@@ -276,9 +276,120 @@ describe("ProjectVersionsList", () => {
 
     renderList();
 
-    expect(screen.getByText("1.21.x")).toBeInTheDocument();
+    expect(screen.getByText("1.21–1.21.4")).toBeInTheDocument();
     expect(screen.queryByText("1.21.2")).not.toBeInTheDocument();
     expect(screen.queryByText("24w14potato")).not.toBeInTheDocument();
     expect(screen.getByText("+2 snapshots")).toBeInTheDocument();
+  });
+
+  it("filters versions by platform, game version, channel, snapshot toggle (OFF by default), and toggles Notes & Install", () => {
+    const onInstallVersion = vi.fn();
+    vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
+      data: {
+        project_id: "proj-1",
+        versions: [
+          {
+            ...mockVersions[0],
+            version_id: "v-paper",
+            version_number: "1.0.0",
+            version_type: "release",
+            game_versions: ["1.21.1"],
+            loaders: ["paper"],
+            changelog: "## Changes\n- Fixed crash",
+          },
+          {
+            ...mockVersions[0],
+            version_id: "v-fabric",
+            version_number: "2.0.0-beta.1",
+            version_type: "beta",
+            game_versions: ["1.21.4"],
+            loaders: ["fabric"],
+            changelog: null,
+          },
+          {
+            ...mockVersions[0],
+            version_id: "v-snap",
+            version_number: "3.0.0-alpha.1",
+            version_type: "alpha",
+            game_versions: ["26.1-snapshot-1"],
+            loaders: ["fabric"],
+            changelog: null,
+          },
+        ],
+        selected: null,
+        notice: "",
+        notice_kind: "",
+        total: 3,
+      } as PluginVersionsResponse,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useMarketplaceProjectVersions>);
+
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <ProjectVersionsList projectId="proj-1" onInstallVersion={onInstallVersion} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Show snapshots is OFF by default, so snapshot-only v-snap is hidden initially
+    expect(screen.getByTestId("versions-filter-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("versions-snapshots-toggle")).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByTestId("version-card-v-snap")).not.toBeInTheDocument();
+    expect(screen.getByTestId("channel-badge-v-paper")).toHaveTextContent("Release");
+    expect(screen.getByTestId("channel-badge-v-fabric")).toHaveTextContent("Beta");
+
+    // Toggle snapshots ON -> snapshot-only version appears
+    fireEvent.click(screen.getByTestId("versions-snapshots-toggle"));
+    expect(screen.getByTestId("version-card-v-snap")).toBeInTheDocument();
+    expect(screen.getByTestId("channel-badge-v-snap")).toHaveTextContent("Alpha");
+
+    // Filter by Platform = Fabric
+    fireEvent.change(screen.getByRole("combobox", { name: "Filter by platform" }), {
+      target: { value: "fabric" },
+    });
+    expect(screen.queryByTestId("version-card-v-paper")).not.toBeInTheDocument();
+    expect(screen.getByTestId("version-card-v-fabric")).toBeInTheDocument();
+
+    // Filter by Channel = Beta
+    fireEvent.click(screen.getByRole("button", { name: "Beta" }));
+    expect(screen.queryByTestId("version-card-v-snap")).not.toBeInTheDocument();
+    expect(screen.getByTestId("version-card-v-fabric")).toBeInTheDocument();
+
+    // Reset filters
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+    expect(screen.getByTestId("version-card-v-paper")).toBeInTheDocument();
+    expect(screen.queryByTestId("version-card-v-snap")).not.toBeInTheDocument();
+
+    // Filter by Game Version = 1.21.1
+    fireEvent.change(screen.getByRole("combobox", { name: "Filter by game version" }), {
+      target: { value: "1.21.1" },
+    });
+    expect(screen.getByTestId("version-card-v-paper")).toBeInTheDocument();
+    expect(screen.queryByTestId("version-card-v-fabric")).not.toBeInTheDocument();
+
+    // Notes toggle & Install button
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(screen.getByTestId("version-notes-v-paper")).toHaveTextContent("Fixed crash");
+
+    fireEvent.click(screen.getByRole("button", { name: "Install version 1.0.0" }));
+    expect(onInstallVersion).toHaveBeenCalledWith(expect.objectContaining({ version_id: "v-paper" }));
+  });
+
+  it("renders ErrorState with Retry button when versions query fails", () => {
+    const refetch = vi.fn();
+    vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error("Failed loading versions"),
+      refetch,
+    } as unknown as ReturnType<typeof useMarketplaceProjectVersions>);
+
+    renderList();
+    expect(screen.getByText("Failed loading versions")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Try Again/i }));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -30,15 +30,15 @@ export function CompatibilityCard({
   );
   const envs = environmentLabels(clientSide, serverSide);
   const platformPillClasses =
-    "inline-flex items-center rounded-md bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary transition-colors";
+    "inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-muted px-2.5 py-1 text-xs font-medium text-text-primary transition-colors";
 
   function renderPlatformPill(loader: string) {
     const { label, icon } = getLoaderDisplay(loader);
     const href = buildPlatformHref?.(loader);
     if (!href) {
       return (
-        <span key={loader} className={`${platformPillClasses} gap-1`}>
-          <Icon name={icon} size={11} className="shrink-0" />
+        <span key={loader} className={platformPillClasses}>
+          <Icon name={icon} size={12} className="shrink-0 text-text-secondary" />
           {label}
         </span>
       );
@@ -47,9 +47,9 @@ export function CompatibilityCard({
       <Link
         key={loader}
         to={href}
-        className={`${platformPillClasses} gap-1 hover:bg-accent-primary/20 hover:text-accent-primary`}
+        className={`${platformPillClasses} hover:border-border-hover hover:bg-surface-hover`}
       >
-        <Icon name={icon} size={11} className="shrink-0" />
+        <Icon name={icon} size={12} className="shrink-0 text-text-secondary" />
         {label}
       </Link>
     );

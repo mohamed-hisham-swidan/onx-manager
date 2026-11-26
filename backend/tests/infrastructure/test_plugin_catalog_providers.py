@@ -210,11 +210,8 @@ class TestModrinthProviderSearch:
 
         await provider.search("worldedit", loader="paper")
         facets = captured_params.get("facets", "")
-        assert "categories:paper" in facets
-        # the OR-list of all server loaders must be replaced, not combined
-        assert "categories:spigot" not in facets
-        assert "categories:bukkit" not in facets
-        assert '["categories:paper"]' in facets
+        assert '["categories:paper","categories:spigot","categories:bukkit"]' in facets
+        assert "categories:purpur" not in facets
 
         await provider.search("sodium", project_type="mod", loader="NeoForge")
         assert '["categories:neoforge"]' in captured_params.get("facets", "")
@@ -323,6 +320,28 @@ class TestModrinthProviderGetProject:
         project = await provider.get_project("proj-3")
         assert project.author == ""
 
+    @pytest.mark.asyncio
+    async def test_get_project_prefers_followers_over_follows(self, monkeypatch):
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_url, _params=None):
+            return {
+                "id": "proj-followers",
+                "slug": "luckperms",
+                "title": "LuckPerms",
+                "description": "Permissions plugin",
+                "followers": 7100,
+                "follows": 0,
+                "downloads": 500000,
+                "loaders": ["paper"],
+                "categories": ["management"],
+            }
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        project = await provider.get_project("proj-followers")
+        assert project.follows == 7100
+
 
 class TestModrinthProviderGetProjectVersions:
     @pytest.mark.asyncio
@@ -368,6 +387,186 @@ class TestModrinthProviderGetProjectVersions:
         assert page.items[0].version_id == "v10"
         assert page.items[-1].version_id == "v19"
         assert page.total == 25
+
+    @pytest.mark.asyncio
+    async def test_get_project_versions_parses_changelog_and_deps(self, monkeypatch):
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_url, _params=None):
+            return [
+                {
+                    "id": "ver-1",
+                    "version_number": "2.1.0",
+                    "game_versions": ["1.21.1"],
+                    "loaders": ["paper"],
+                    "files": [
+                        {
+                            "filename": "Plugin-2.1.0.jar",
+                            "url": "https://cdn.modrinth.com/data/proj-1/versions/ver-1/Plugin-2.1.0.jar",
+                            "hashes": {"sha512": "a" * 128, "sha1": "b" * 40},
+                            "size": 1024,
+                            "primary": True,
+                        }
+                    ],
+                    "changelog": "## Fixed\n- Memory leak",
+                    "dependencies": [
+                        {"project_id": "dep-req-1", "dependency_type": "required"},
+                        {"project_id": "dep-req-1", "dependency_type": "required"},
+                        {"project_id": "dep-opt-1", "dependency_type": "optional"},
+                        {"project_id": "dep-incompat", "dependency_type": "incompatible"},
+                        {"version_id": "ver-only", "dependency_type": "required"},
+                        {"project_id": "dep-req-2", "dependency_type": "required"},
+                    ],
+                }
+            ]
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        page = await provider.get_project_versions("proj-1")
+        assert len(page.items) == 1
+        version = page.items[0]
+        assert version.changelog == "## Fixed\n- Memory leak"
+        assert version.required_dependencies == ["dep-req-1", "dep-req-2"]
+
+
+class TestModrinthProviderSearchSortCacheAndRatelimit:
+    @pytest.mark.asyncio
+    async def test_search_passes_sort_and_game_version_facet(self, monkeypatch):
+        import json
+
+        provider = ModrinthProvider()
+        captured = {}
+
+        async def mock_get_json(url, params=None):
+            captured["url"] = url
+            captured["params"] = params
+            return {"hits": [], "total_hits": 0, "limit": 20, "offset": 0}
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        await provider.search(
+            query="essentials",
+            project_type="plugin",
+            loader="paper",
+            sort="downloads",
+            game_version="1.21.1",
+        )
+
+        assert captured["params"]["index"] == "downloads"
+        facets = json.loads(captured["params"]["facets"])
+        assert ["project_type:plugin"] in facets
+        assert ["categories:paper", "categories:spigot", "categories:bukkit"] in facets
+        assert ["versions:1.21.1"] in facets
+
+    @pytest.mark.asyncio
+    async def test_search_ignores_invalid_game_version(self, monkeypatch):
+        import json
+
+        provider = ModrinthProvider()
+        captured = {}
+
+        async def mock_get_json(_url, params=None):
+            captured["params"] = params
+            return {"hits": [], "total_hits": 0, "limit": 20, "offset": 0}
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        await provider.search(query="test", game_version='1.21"]')
+        facets = json.loads(captured["params"]["facets"])
+        assert not any(
+            isinstance(group, list) and any(item.startswith("versions:") for item in group)
+            for group in facets
+        )
+
+    @pytest.mark.asyncio
+    async def test_ttl_cache_hit_and_clear_cache(self, monkeypatch):
+        import app.modules.plugin.infrastructure.providers.modrinth as modrinth_mod
+
+        ModrinthProvider.clear_cache()
+        provider = ModrinthProvider()
+        calls = 0
+
+        class _FakeResp:
+            status = 200
+            headers = {}
+
+            async def json(self):
+                return {"hits": [], "total_hits": 0}
+
+            async def text(self):
+                return ""
+
+        class _FakeCM:
+            async def __aenter__(self):
+                return _FakeResp()
+
+            async def __aexit__(self, *args):
+                return False
+
+        class _FakeClient:
+            def get(self, _url, **_kwargs):
+                nonlocal calls
+                calls += 1
+                return _FakeCM()
+
+        monkeypatch.setattr(modrinth_mod, "get_http_client", lambda: _FakeClient())
+
+        await provider.search(query="worldedit")
+        await provider.search(query="worldedit")
+        assert calls == 1
+
+        ModrinthProvider.clear_cache()
+        await provider.search(query="worldedit")
+        assert calls == 2
+        ModrinthProvider.clear_cache()
+
+    @pytest.mark.asyncio
+    async def test_get_json_honors_retry_after_on_429(self, monkeypatch):
+        import asyncio
+
+        import app.modules.plugin.infrastructure.providers.modrinth as modrinth_mod
+
+        ModrinthProvider.clear_cache()
+        provider = ModrinthProvider()
+        sleeps: list[float] = []
+        statuses = [429, 200]
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        class _FakeResp:
+            def __init__(self, status):
+                self.status = status
+                self.headers = {"Retry-After": "2"} if status == 429 else {}
+
+            async def json(self):
+                return {"id": "p1"}
+
+            async def text(self):
+                return "rate limited"
+
+        class _FakeCM:
+            def __init__(self, status):
+                self._status = status
+
+            async def __aenter__(self):
+                return _FakeResp(self._status)
+
+            async def __aexit__(self, *args):
+                return False
+
+        class _FakeClient:
+            def get(self, _url, **_kwargs):
+                return _FakeCM(statuses.pop(0))
+
+        monkeypatch.setattr(modrinth_mod, "get_http_client", lambda: _FakeClient())
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        data = await provider._get_json("/project/p1")
+        assert data == {"id": "p1"}
+        assert len(sleeps) == 1
+        assert sleeps[0] >= 2.0
+        ModrinthProvider.clear_cache()
 
 
 class TestModrinthProviderDownload:

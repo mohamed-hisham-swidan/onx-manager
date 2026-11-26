@@ -47,7 +47,7 @@ class BaselineAdoptionResult:
     warnings use Python warnings.warn in this batch.
     """
 
-    status: str  # created | already_present | skipped
+    status: str  # created | already_present | reconciled | skipped
     reason: str = ""
     lockfile_path: str = ""
     files_count: int = 0
@@ -143,8 +143,34 @@ def stage_and_ingest(
         os.close(fd)
 
 
-async def ensure_simple_baseline_lockfile(server_id: str) -> BaselineAdoptionResult:
-    """Ensure an authoritative baseline lockfile exists for a Simple server."""
+def _sha256_safe_file(server_root: Path, relpath: str) -> str:
+    """Compute SHA-256 of ``relpath`` safely using O_NOFOLLOW."""
+    fd = open_safe_path_fd(
+        str(server_root),
+        relpath,
+        flags=os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValidationError(f"Source file {relpath} is not a regular file")
+        hasher = hashlib.sha256()
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            hasher.update(chunk)
+        return hasher.hexdigest()
+    finally:
+        os.close(fd)
+
+
+async def ensure_simple_baseline_lockfile(
+    server_id: str,
+    *,
+    reconcile_addons: bool = False,
+) -> BaselineAdoptionResult:
+    """Ensure an authoritative baseline lockfile exists (and optionally reconcile live addons)."""
     # Step 1: validate segment
     validate_server_segment(server_id)
 
@@ -188,14 +214,15 @@ async def ensure_simple_baseline_lockfile(server_id: str) -> BaselineAdoptionRes
     cas = ArtifactCas(layout.cas)
 
     # Step 6: check if lockfile already exists
+    existing_lockfile: LockfileV21 | None = None
     if service.exists(server_id):
-        existing = service.read(server_id)
-        if existing is not None:
+        existing_lockfile = service.read(server_id)
+        if existing_lockfile is not None and not reconcile_addons:
             return BaselineAdoptionResult(
                 status="already_present",
                 reason="lockfile_already_exists",
                 lockfile_path=str(service.path_for(server_id)),
-                files_count=len(existing.files),
+                files_count=len(existing_lockfile.files),
             )
 
     # Step 7: scan server tree
@@ -226,25 +253,60 @@ async def ensure_simple_baseline_lockfile(server_id: str) -> BaselineAdoptionRes
             pass
 
     target_files = [f for f in report.files if f.classification in ("A-JAR", "A-CAS")]
+    existing_by_path = (
+        {f.path: f for f in existing_lockfile.files}
+        if existing_lockfile is not None
+        else {}
+    )
     ingested_files: list[LockfileFile] = []
     cas_ingested = 0
 
     for scanned_file in target_files:
+        prev_entry = existing_by_path.get(scanned_file.path)
+        if prev_entry is not None and cas.has(prev_entry.sha256):
+            disk_sha = _sha256_safe_file(server_root, scanned_file.path)
+            if disk_sha == prev_entry.sha256:
+                ingested_files.append(prev_entry)
+                continue
         lf_file = stage_and_ingest(server_root, scanned_file.path, server_meta_dir, cas)
         ingested_files.append(lf_file)
         cas_ingested += 1
 
     # Step 10: construct LockfileV21
-    mc_version = str(server.minecraft_version) if server.minecraft_version else "1.0"
-    loader = derive_loader_ref(server)
+    mc_version = (
+        existing_lockfile.mc
+        if existing_lockfile is not None
+        else (str(server.minecraft_version) if server.minecraft_version else "1.0")
+    )
+    loader = (
+        existing_lockfile.loader
+        if existing_lockfile is not None
+        else derive_loader_ref(server)
+    )
+    sorted_files = tuple(sorted(ingested_files, key=lambda f: f.path))
+    if (
+        existing_lockfile is not None
+        and sorted_files == existing_lockfile.files
+        and mc_version == existing_lockfile.mc
+        and loader == existing_lockfile.loader
+    ):
+        return BaselineAdoptionResult(
+            status="already_present",
+            reason="lockfile_already_exists",
+            lockfile_path=str(service.path_for(server_id)),
+            files_count=len(existing_lockfile.files),
+            quarantined=report.quarantined,
+            warnings=(),
+        )
+
     lockfile = LockfileV21(
         format=2,
         mc=mc_version,
         loader=loader,
-        base_overrides={},
-        files=tuple(sorted(ingested_files, key=lambda f: f.path)),
-        lec=None,
-        modpack=None,
+        base_overrides=existing_lockfile.base_overrides if existing_lockfile is not None else {},
+        files=sorted_files,
+        lec=existing_lockfile.lec if existing_lockfile is not None else None,
+        modpack=existing_lockfile.modpack if existing_lockfile is not None else None,
     )
 
     # Step 11: atomic write
@@ -252,7 +314,7 @@ async def ensure_simple_baseline_lockfile(server_id: str) -> BaselineAdoptionRes
 
     # Step 12: return result
     return BaselineAdoptionResult(
-        status="created",
+        status="reconciled" if existing_lockfile is not None else "created",
         lockfile_path=str(written_path),
         files_count=len(lockfile.files),
         cas_ingested=cas_ingested,

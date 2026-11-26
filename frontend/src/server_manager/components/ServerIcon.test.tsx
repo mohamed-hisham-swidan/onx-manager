@@ -79,4 +79,64 @@ describe("ServerIcon", () => {
 
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:http://localhost/mock-icon-url");
   });
+
+  it("renders direct iconDataUrl without calling downloadServerFile", async () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ServerIcon
+          serverId="srv-direct"
+          serverName="Direct Icon"
+          iconDataUrl={dataUrl}
+          status="running"
+          size={52}
+        />
+      </QueryClientProvider>
+    );
+
+    const img = await screen.findByTestId("server-icon-img");
+    expect(img).toHaveAttribute("src", dataUrl);
+    expect(mockDownloadServerFile).not.toHaveBeenCalled();
+  });
+
+  it("renders neutral loader emblem fallback when iconDataUrl is null without fetching or monogram", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ServerIcon
+          serverId="srv-null"
+          serverName="Alpha World"
+          serverType="paper"
+          iconDataUrl={null}
+          status="running"
+          size={52}
+        />
+      </QueryClientProvider>
+    );
+
+    const fallback = screen.getByTestId("server-icon-default");
+    expect(fallback).toBeInTheDocument();
+    expect(fallback).toHaveAttribute("data-loader-icon", "paper");
+    expect(fallback).toHaveTextContent("");
+    expect(fallback).not.toHaveTextContent("AW");
+    expect(mockDownloadServerFile).not.toHaveBeenCalled();
+  });
+
+  it("falls back to generic server icon when serverType is unknown", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ServerIcon
+          serverId="srv-unknown"
+          serverName="Custom Proxy"
+          serverType="custom-unknown"
+          iconDataUrl={null}
+          status="stopped"
+          size={48}
+        />
+      </QueryClientProvider>
+    );
+
+    const fallback = screen.getByTestId("server-icon-default");
+    expect(fallback).toHaveAttribute("data-loader-icon", "server");
+    expect(fallback).toHaveTextContent("");
+  });
 });

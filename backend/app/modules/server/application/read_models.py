@@ -1,21 +1,101 @@
 from __future__ import annotations
 
+import base64
+import contextlib
 import re
+import time
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import ServerDeployment
 
 _SERVER_NAME_RE = re.compile(r"^\s*server-name\s*=\s*(.*?)\s*$")
+_MAX_ICON_BYTES = 128 * 1024
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_MAX_ICON_CACHE_ENTRIES = 256
+_ICON_DATA_URL_CACHE: dict[tuple[str, int, int], str] = {}
+
+
+def _read_server_icon_data_url(deployment: ServerDeployment | None) -> str | None:
+    """Safely read and base64-encode ``server-icon.png`` with mtime caching."""
+    if deployment is None or not deployment.root_path:
+        return None
+    raw_dir = deployment.server_directory()
+    if not raw_dir:
+        return None
+    try:
+        base_dir = Path(raw_dir).resolve()
+        icon_candidate = base_dir / "server-icon.png"
+        if not icon_candidate.exists():
+            return None
+        resolved_icon = icon_candidate.resolve(strict=True)
+        if not resolved_icon.is_relative_to(base_dir) or not resolved_icon.is_file():
+            return None
+        st = resolved_icon.stat()
+    except OSError:
+        return None
+
+    if st.st_size <= 0 or st.st_size > _MAX_ICON_BYTES:
+        return None
+
+    cache_key = (str(resolved_icon), st.st_mtime_ns, st.st_size)
+    cached = _ICON_DATA_URL_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        raw_bytes = resolved_icon.read_bytes()
+    except OSError:
+        return None
+
+    if len(raw_bytes) > _MAX_ICON_BYTES or not raw_bytes.startswith(_PNG_SIGNATURE):
+        return None
+
+    encoded = base64.b64encode(raw_bytes).decode("ascii")
+    data_url = f"data:image/png;base64,{encoded}"
+    if len(_ICON_DATA_URL_CACHE) >= _MAX_ICON_CACHE_ENTRIES:
+        oldest_key = next(iter(_ICON_DATA_URL_CACHE))
+        _ICON_DATA_URL_CACHE.pop(oldest_key, None)
+    _ICON_DATA_URL_CACHE[cache_key] = data_url
+    return data_url
+
+
+def _resolve_uptime_seconds(server: Server) -> int | None:
+    """Return live uptime in seconds when server is running, otherwise None."""
+    if server.status != ServerStatus.RUNNING:
+        return None
+
+    with contextlib.suppress(Exception):
+        from app.modules.server.application.supervisor import RuntimeSupervisor
+
+        supervisor = RuntimeSupervisor.get_for(str(server.id))
+        if supervisor is not None and supervisor.is_running:
+            return max(0, int(supervisor.uptime))
+
+    rt = server.runtime
+    if rt is None:
+        return None
+    if rt.running_start_time is not None:
+        return max(0, int(time.time() - rt.running_start_time))
+    if rt.start_time is not None:
+        return max(0, int(time.time() - rt.start_time))
+    if rt.uptime_seconds and rt.uptime_seconds > 0:
+        return max(0, int(rt.uptime_seconds))
+    return 0
 
 
 def resolve_display_name(server: Server) -> str:
-    """Resolve the server display name from the on-disk server.properties.
+    """Resolve the server display name, prioritizing the authoritative DB name.
 
-    server.properties is the source of truth for the server name. When the
-    deployment root is known and the file declares a non-empty ``server-name``,
-    that value wins; otherwise the manager DB name is used as the fallback.
+    SQLite ``server.name`` is the source of truth so renames apply cleanly across
+    Simple and Advanced modes. Falls back to ``server-name=`` in on-disk
+    ``server.properties`` only when ``server.name`` is empty.
     """
+    if server.name and server.name.strip():
+        return server.name
+
     deployment = server.deployment
     if deployment is None or not deployment.root_path:
         return server.name
@@ -98,6 +178,14 @@ class ServerReadModel:
         mode: str = "simple",
         branch_name: str | None = None,
         pending_settings_branch: dict | None = None,
+        max_memory_mb: int | None = None,
+        cpu_cores: float | None = None,
+        uptime_seconds: int | None = None,
+        deployment_host: str | None = None,
+        public_address: str | None = None,
+        active_branch: str | None = None,
+        icon_data_url: str | None = None,
+        provisioning_progress: dict[str, Any] | None = None,
     ) -> None:
         self.server_id = server_id
         self.name = name
@@ -118,9 +206,28 @@ class ServerReadModel:
         self.startup_timeout_seconds = startup_timeout_seconds
         self.branch_name = branch_name
         self.pending_settings_branch = pending_settings_branch
+        self.max_memory_mb = max_memory_mb
+        self.cpu_cores = cpu_cores
+        self.uptime_seconds = uptime_seconds
+        self.deployment_host = deployment_host
+        self.public_address = public_address
+        self.active_branch = active_branch
+        self.icon_data_url = icon_data_url
+        self.provisioning_progress = provisioning_progress
 
     @classmethod
     def from_domain(cls, server: Server) -> ServerReadModel:
+        from app.modules.server.application.services.provisioning_telemetry import (
+            ProvisioningTelemetryStore,
+        )
+
+        rt = server.runtime
+        cpu_cores = (
+            float(server.cpu.cores)
+            if (server.cpu is not None and server.cpu.cores > 0)
+            else None
+        )
+        deployment_host = (rt.host or None) if rt else None
         return cls(
             server_id=str(server.id),
             name=resolve_display_name(server),
@@ -139,6 +246,12 @@ class ServerReadModel:
             provisioning_retryable=server.provisioning_retryable,
             startup_timeout_seconds=server.startup_timeout_seconds,
             mode=server.mode.value,
+            max_memory_mb=server.memory.max_mb if server.memory else None,
+            cpu_cores=cpu_cores,
+            uptime_seconds=_resolve_uptime_seconds(server),
+            deployment_host=deployment_host,
+            icon_data_url=_read_server_icon_data_url(server.deployment),
+            provisioning_progress=ProvisioningTelemetryStore.get_snapshot(str(server.id)),
         )
 
 
@@ -188,6 +301,11 @@ class ServerDetailReadModel(ServerReadModel):
         mode: str = "simple",
         branch_name: str | None = None,
         pending_settings_branch: dict | None = None,
+        uptime_seconds: int | None = None,
+        public_address: str | None = None,
+        active_branch: str | None = None,
+        icon_data_url: str | None = None,
+        provisioning_progress: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             server_id=server_id,
@@ -207,6 +325,16 @@ class ServerDetailReadModel(ServerReadModel):
             provisioning_retryable=provisioning_retryable,
             startup_timeout_seconds=startup_timeout_seconds,
             mode=mode,
+            branch_name=branch_name,
+            pending_settings_branch=pending_settings_branch,
+            max_memory_mb=max_memory_mb,
+            cpu_cores=cpu_cores,
+            uptime_seconds=uptime_seconds,
+            deployment_host=deployment_host,
+            public_address=public_address,
+            active_branch=active_branch,
+            icon_data_url=icon_data_url,
+            provisioning_progress=provisioning_progress,
         )
         self.min_memory_mb = min_memory_mb
         self.max_memory_mb = max_memory_mb
@@ -237,6 +365,10 @@ class ServerDetailReadModel(ServerReadModel):
 
     @classmethod
     def from_domain(cls, server: Server) -> ServerDetailReadModel:
+        from app.modules.server.application.services.provisioning_telemetry import (
+            ProvisioningTelemetryStore,
+        )
+
         dep = server.deployment
         rt = server.runtime
         return cls(
@@ -281,4 +413,7 @@ class ServerDetailReadModel(ServerReadModel):
             provisioning_retryable=server.provisioning_retryable,
             startup_timeout_seconds=server.startup_timeout_seconds,
             mode=server.mode.value,
+            uptime_seconds=_resolve_uptime_seconds(server),
+            icon_data_url=_read_server_icon_data_url(server.deployment),
+            provisioning_progress=ProvisioningTelemetryStore.get_snapshot(str(server.id)),
         )

@@ -66,9 +66,16 @@ export function CommitDiffModal({
   const modsModified = diff?.mods?.modified || [];
   const totalModChanges = modsAdded.length + modsRemoved.length + modsModified.length;
 
-  const configsAdded: string[] = diff?.configs?.added ? Object.keys(diff.configs.added) : [];
-  const configsModified: string[] = diff?.configs?.modified ? Object.keys(diff.configs.modified) : [];
-  const configsDeleted: string[] = diff?.configs?.removed ? Object.keys(diff.configs.removed) : [];
+  const toStringList = (val: unknown): string[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.map(String);
+    if (typeof val === "object") return Object.keys(val as Record<string, unknown>);
+    return [];
+  };
+
+  const configsAdded: string[] = toStringList(diff?.configs?.added);
+  const configsModified: string[] = toStringList(diff?.configs?.modified);
+  const configsDeleted: string[] = toStringList(diff?.configs?.removed);
   const totalConfigChanges = configsAdded.length + configsModified.length + configsDeleted.length;
 
   const envAdded: string[] = diff?.env_vars?.added ? Object.keys(diff.env_vars.added) : [];

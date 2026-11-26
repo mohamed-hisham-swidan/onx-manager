@@ -7,6 +7,7 @@ import { ServerSettingsPage } from "./ServerSettingsPage";
 import type { ServerDetailResponse } from "@/server_manager/types";
 
 const mockDeleteMutate = vi.fn();
+const mockUpdateMutateAsync = vi.fn();
 const mockServer: ServerDetailResponse = {
   server_id: "srv-settings-1",
   name: "Production SMP",
@@ -54,22 +55,37 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
     isLoading: mockIsLoading,
     error: mockError,
   })),
+  useUpdateServer: vi.fn(() => ({
+    mutateAsync: mockUpdateMutateAsync,
+    isPending: false,
+  })),
   useDeleteServer: vi.fn(() => ({
     mutate: mockDeleteMutate,
     isPending: false,
   })),
 }));
 
-vi.mock("@/server_manager/components/ServerSettingsSection", () => ({
-  ServerSettingsSection: () => <div data-testid="settings-section">Settings Section Form</div>,
-}));
-
 vi.mock("@/server_manager/components/ServerModeConversionCard", () => ({
   ServerModeConversionCard: () => <div data-testid="server-mode-conversion-card">Conversion Card</div>,
 }));
 
+vi.mock("@/server_manager/components/p55/ServerP55SettingsCard", () => ({
+  ServerP55SettingsCard: () => <div data-testid="server-p55-settings-card">P55 Card</div>,
+}));
+
 function renderSettingsPage(serverId = "srv-settings-1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc.setQueryData(["auth", "me"], {
+    user_id: "u1",
+    username: "admin",
+    email: null,
+    display_name: "Admin",
+    is_active: true,
+    roles: ["owner"],
+    permissions: ["admin:full"],
+    created_at: "",
+    last_login_at: null,
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/servers/${serverId}/settings`]}>
@@ -88,6 +104,7 @@ describe("ServerSettingsPage", () => {
     mockIsLoading = false;
     mockError = null;
     mockDeleteMutate.mockClear();
+    mockUpdateMutateAsync.mockClear();
   });
 
   it("shows loading skeletons while loading", () => {
@@ -102,23 +119,20 @@ describe("ServerSettingsPage", () => {
     expect(screen.getByText("Failed to load server configuration")).toBeInTheDocument();
   });
 
-  it("renders settings header and settings form", () => {
+  it("renders General tab by default inside the 2-column settings shell", () => {
     renderSettingsPage();
-    expect(screen.getByRole("heading", { name: "Server Settings & Configuration" })).toBeInTheDocument();
-    expect(screen.getByTestId("settings-section")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByTestId("server-settings-form")).toBeInTheDocument();
   });
 
-  it("renders Danger Zone section with Delete Server button in settings", () => {
-    renderSettingsPage();
-    const dangerZone = screen.getByTestId("server-danger-zone");
-    expect(dangerZone).toBeInTheDocument();
-    expect(dangerZone).toHaveTextContent("Danger Zone: Delete Server");
-    expect(screen.getByRole("button", { name: "Delete Server" })).toBeInTheDocument();
-  });
-
-  it("opens delete confirmation modal when Delete Server is clicked", async () => {
+  it("renders Danger Zone tab with Delete Server button and opens confirmation modal", async () => {
     const user = userEvent.setup();
     renderSettingsPage();
+
+    await user.click(document.getElementById("server-settings-tab-danger")!);
+    const dangerZone = screen.getByTestId("server-danger-zone");
+    expect(dangerZone).toBeInTheDocument();
+    expect(dangerZone).toHaveTextContent("Delete Server");
 
     await user.click(screen.getByRole("button", { name: "Delete Server" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -129,6 +143,7 @@ describe("ServerSettingsPage", () => {
     const user = userEvent.setup();
     renderSettingsPage();
 
+    await user.click(document.getElementById("server-settings-tab-danger")!);
     await user.click(screen.getByRole("button", { name: "Delete Server" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
@@ -145,8 +160,8 @@ describe("ServerSettingsPage", () => {
 
     renderSettingsPage();
 
+    await user.click(document.getElementById("server-settings-tab-danger")!);
     await user.click(screen.getByRole("button", { name: "Delete Server" }));
-    // In dialog, confirmLabel is "Delete Server"
     const dialogConfirmBtn = screen.getAllByRole("button", { name: "Delete Server" })[1];
     await user.click(dialogConfirmBtn);
 
@@ -154,13 +169,32 @@ describe("ServerSettingsPage", () => {
     expect(screen.getByTestId("servers-fleet")).toBeInTheDocument();
   });
 
-  it("integrates ServerModeConversionCard above the danger zone", () => {
+  it("renders Upgrades & Mode tab with P55 settings and ServerModeConversionCard", async () => {
+    const user = userEvent.setup();
     renderSettingsPage();
-    const card = screen.getByTestId("server-mode-conversion-card");
-    expect(card).toBeInTheDocument();
-    expect(card).toHaveTextContent("Conversion Card");
-    // Placement: below settings form/P55 card, above the danger zone
-    expect(screen.getByTestId("settings-section")).toBeInTheDocument();
-    expect(screen.getByTestId("server-danger-zone")).toBeInTheDocument();
+
+    await user.click(document.getElementById("server-settings-tab-lifecycle")!);
+    expect(screen.getByTestId("server-version-loader-card")).toBeInTheDocument();
+    expect(screen.getByTestId("open-change-version-btn")).toHaveTextContent("Change Version");
+    expect(screen.getByTestId("server-p55-settings-card")).toBeInTheDocument();
+    expect(screen.getByTestId("server-mode-conversion-card")).toBeInTheDocument();
+  });
+
+  it("opens Upgrades & Mode and the Change Version drawer from ?tab=lifecycle&action=change-version", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter
+          initialEntries={["/servers/srv-settings-1/settings?tab=lifecycle&action=change-version"]}
+        >
+          <Routes>
+            <Route path="/servers/:serverId/settings" element={<ServerSettingsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("server-settings-tab-lifecycle")).toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Change Version" })).toBeInTheDocument();
   });
 });

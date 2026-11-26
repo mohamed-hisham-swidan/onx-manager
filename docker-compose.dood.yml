@@ -54,11 +54,11 @@ services:
     volumes:
       # Host Docker daemon socket (grants root-equivalent access to host daemon)
       - /var/run/docker.sock:/var/run/docker.sock
-      # Host servers data directory for sibling container bind mounts
-      - ${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers
+      # Host servers data directory for sibling container bind mounts (must be an absolute host path)
+      - ${ONX_HOST_DATA_DIR:?Set ONX_HOST_DATA_DIR to the absolute host path of your servers directory}:/app/data/servers
       # Host state directory for DooD sibling mounts and storage
       - ${ONX_HOST_STATE_HOST_DIR:-./backend/data/host-state}:/app/data/host-state
     environment:
       # Informs DockerProvider of the host-side directory path for sibling mounts
-      - ONX_HOST_DATA_DIR=${ONX_HOST_DATA_DIR:-./backend/data/servers}
+      - ONX_HOST_DATA_DIR=${ONX_HOST_DATA_DIR:?Set ONX_HOST_DATA_DIR to the absolute host path of your servers directory}
       - ONX_HOST_STATE_HOST_DIR=${ONX_HOST_STATE_HOST_DIR:-}

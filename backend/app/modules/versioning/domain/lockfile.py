@@ -113,7 +113,7 @@ def parse_lec_key(key: str) -> LecKeyParts:
 
     segments = norm.split("/")
     loader = segments[0]
-    allowed_loaders = ("paper", "fabric", "quilt", "neoforge", "forge")
+    allowed_loaders = ("paper", "purpur", "fabric", "quilt", "neoforge", "forge")
     if loader not in allowed_loaders:
         raise LockfileInvalidError(
             f"Unknown loader in LEC key: {_bounded_repr(loader)}", field="lec.key"

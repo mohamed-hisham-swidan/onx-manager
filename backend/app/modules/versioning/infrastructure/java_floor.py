@@ -51,7 +51,7 @@ def resolve_java_floor_from_mc_version(minecraft_version: str | MinecraftVersion
             return 21
         if parsed >= MinecraftVersion(1, 18, 0):
             return 17
-        if parsed >= MinecraftVersion(1, 17, 1):
+        if parsed >= MinecraftVersion(1, 17, 0):
             return 16
         return 8
     # Unknown modern numbering: conservatively use the Java 21 floor.

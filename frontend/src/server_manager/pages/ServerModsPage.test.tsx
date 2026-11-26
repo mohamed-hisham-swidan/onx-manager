@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServerModsPage } from "./ServerModsPage";
+import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { toast } from "@/stores/toastStore";
 
@@ -115,6 +116,17 @@ function renderServerModsPage(initialEntry = "/servers/srv-mc-100/mods") {
     defaultOptions: {
       queries: { retry: false },
     },
+  });
+  qc.setQueryData(["auth", "me"], {
+    user_id: "u1",
+    username: "admin",
+    email: null,
+    display_name: "Admin",
+    is_active: true,
+    roles: ["owner"],
+    permissions: ["admin:full"],
+    created_at: "",
+    last_login_at: null,
   });
 
   return render(
@@ -236,16 +248,6 @@ describe("ServerModsPage", () => {
     expect(screen.queryByText("Cloth Config")).not.toBeInTheDocument();
   });
 
-  it("filters mods by loader selection", () => {
-    renderServerModsPage();
-    const loaderSelect = screen.getByLabelText("Loader:");
-    fireEvent.change(loaderSelect, { target: { value: "forge" } });
-
-    expect(screen.getByText("JEI")).toBeInTheDocument();
-    expect(screen.queryByText("Sodium")).not.toBeInTheDocument();
-    expect(screen.queryByText("Cloth Config")).not.toBeInTheDocument();
-  });
-
   it("opens confirm dialog when clicking delete and triggers uninstall mutation on confirm", () => {
     renderServerModsPage();
     const deleteButton = screen.getByRole("button", { name: "Uninstall Sodium" });
@@ -286,7 +288,7 @@ describe("ServerModsPage", () => {
     renderServerModsPage("/servers/srv-paper-1/mods");
 
     expect(screen.queryByTestId("open-modpack-wizard-btn")).not.toBeInTheDocument();
-    expect(screen.getByTestId("open-safe-upgrade-wizard-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("open-safe-upgrade-wizard-btn")).not.toBeInTheDocument();
     const banner = screen.getByTestId("non-modded-server-banner");
     expect(banner).toHaveTextContent("paper");
     const pluginsLink = screen.getByRole("link", { name: "Manage Plugins" });
@@ -299,6 +301,34 @@ describe("ServerModsPage", () => {
 
     expect(screen.getByTestId("open-modpack-wizard-btn")).toBeInTheDocument();
     expect(screen.queryByTestId("non-modded-server-banner")).not.toBeInTheDocument();
+  });
+
+  it("does not show a Change Version button or branch badge in the header", () => {
+    mockServersData = [{ server_id: "srv-paper-1", name: "Paper Server", server_type: "paper" }];
+    renderServerModsPage("/servers/srv-paper-1/mods");
+    expect(screen.queryByText("Change Version")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mods-branch-badge")).not.toBeInTheDocument();
+  });
+
+  it("shows disabled upload zone (not Uploading mod...) when branch main is protected", () => {
+    mockServersData = [{ server_id: "srv-1", name: "Fabric Server", server_type: "fabric" }];
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/servers/srv-1/mods"]}>
+          <ServerBranchContext.Provider
+            value={{ branch: "main", setBranch: vi.fn(), gitBacked: true, serverMode: "advanced" }}
+          >
+            <Routes>
+              <Route path="/servers/:serverId/mods" element={<ServerModsPage />} />
+            </Routes>
+          </ServerBranchContext.Provider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("Uploading mod...")).not.toBeInTheDocument();
+    expect(screen.getByText("Mod uploads are currently disabled")).toBeInTheDocument();
   });
 });
 

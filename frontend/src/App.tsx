@@ -93,8 +93,25 @@ export default function App() {
                   <Route path="console" element={<ServerDetailPage />} />
                   <Route path="files" element={<ServerFilesPage />} />
                   <Route path="network" element={<ServerExposurePage />} />
+                  <Route path="backups" element={<BackupListPage />} />
                   <Route path="mods" element={<ServerModsPage />} />
+                  <Route
+                    path="mods/marketplace"
+                    element={<PluginMarketplacePage lockedProjectType="mod" />}
+                  />
+                  <Route
+                    path="mods/marketplace/:projectId"
+                    element={<PluginDetailPage lockedProjectType="mod" />}
+                  />
                   <Route path="plugins" element={<PluginListPage />} />
+                  <Route
+                    path="plugins/marketplace"
+                    element={<PluginMarketplacePage lockedProjectType="plugin" />}
+                  />
+                  <Route
+                    path="plugins/marketplace/:projectId"
+                    element={<PluginDetailPage lockedProjectType="plugin" />}
+                  />
                   <Route path="versioning" element={<ServerVersioningPage />} />
                   <Route path="activity" element={<ServerActivityPage />} />
                   <Route path="settings" element={<ServerSettingsPage />} />

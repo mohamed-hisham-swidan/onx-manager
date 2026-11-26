@@ -1,104 +1,160 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
 import { useConsoleStream } from "@/hooks/useWebSocket";
-import { useWSStore } from "@/stores/wsStore";
+import {
+  useWSStore,
+  useEffectiveConnectionState,
+  useIsChannelDegraded,
+} from "@/stores/wsStore";
 import { ConnectionState } from "@/websocket/types";
+import { useClipboard } from "@/hooks/useClipboard";
 import { Icon } from "@/components/ui/Icon";
 import { CrashReportViewerModal } from "./CrashReportViewerModal";
+import {
+  MAX_CONSOLE_LINES,
+  getLevelTagClass,
+  getLevelTextClass,
+  mergeDeduplicatedLines,
+  parseConsoleLine,
+  sliceLinesAfterWatermark,
+  stripAnsiAndMcFormatting,
+  tokenizeConsoleLine,
+  type ConsoleLevelFilter,
+} from "./console/consoleLogParser";
+import { ConsoleToolbar } from "./console/ConsoleToolbar";
+import { ConsoleCommandBar } from "./console/ConsoleCommandBar";
 
 function useApi() {
   return createAuthenticatedApi();
 }
 
+const MAX_COMMAND_HISTORY = 50;
+const RECENT_CRASH_WINDOW_MS = 10 * 60 * 1000;
+
 interface ServerConsoleProps {
   serverId: string;
+  serverName?: string;
   branch?: string;
   serverStatus?: string;
   tps?: number | null;
   players?: number;
+  maxPlayers?: number;
   provider?: string | null;
   host?: string | null;
   port?: number | null;
   compactHeader?: boolean;
+  canConsole?: boolean;
+  uptimeSeconds?: number | null;
 }
 
-const containerBadgeClass =
-  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
-  "uppercase tracking-wider bg-status-info-bg text-status-info border border-status-info-border font-sans";
+function renderHighlightedText(text: string, query: string): ReactNode {
+  const trimmed = query.trim();
+  if (!trimmed) return text;
 
-const hostBadgeClass =
-  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
-  "uppercase tracking-wider bg-accent-primary/10 text-accent-primary border border-accent-primary/30 font-sans";
+  const lowerText = text.toLowerCase();
+  const lowerQuery = trimmed.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let matchIdx = lowerText.indexOf(lowerQuery, cursor);
+  let keyIdx = 0;
 
-function stripMcFormatting(text: string): string {
-  // Remove Minecraft section-sign color/style codes (§0-§9, §a-§f, §k-§o, §r, §x)
-  return text.replace(/\u00a7[0-9a-fk-orx]/gi, "");
+  while (matchIdx !== -1) {
+    if (matchIdx > cursor) {
+      parts.push(text.slice(cursor, matchIdx));
+    }
+    parts.push(
+      <mark
+        key={keyIdx++}
+        className="bg-terminal-highlight-bg text-terminal-text rounded-xs px-0.5"
+      >
+        {text.slice(matchIdx, matchIdx + trimmed.length)}
+      </mark>,
+    );
+    cursor = matchIdx + trimmed.length;
+    matchIdx = lowerText.indexOf(lowerQuery, cursor);
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return parts.length > 0 ? parts : text;
 }
 
-function getLineStyle(line: string): { className: string; level: string } {
-  if (line.startsWith("> ")) {
-    return { className: "text-status-success font-semibold", level: "command" };
+function isCrashRecent(
+  timestamp: string | undefined,
+  serverStatus: string | undefined,
+  uptimeSeconds: number | null | undefined,
+): boolean {
+  if (serverStatus === "crashed") return true;
+  if (!timestamp) return false;
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) return false;
+
+  const now = Date.now();
+  // If server is running healthy and has been up longer than the crash age, treat crash as historical
+  if (serverStatus === "running" && typeof uptimeSeconds === "number" && uptimeSeconds > 0) {
+    const startedAtMs = now - uptimeSeconds * 1000;
+    if (parsed < startedAtMs) {
+      return false;
+    }
   }
-  const upper = line.toUpperCase();
-  if (
-    upper.includes("[ERROR]") ||
-    upper.includes("[FATAL]") ||
-    upper.includes("[SEVERE]") ||
-    upper.includes("ERROR:") ||
-    upper.includes("FATAL:") ||
-    upper.includes("EXCEPTION:")
-  ) {
-    return { className: "text-rose-400 font-semibold", level: "error" };
-  }
-  if (upper.includes("[WARN]") || upper.includes("[WARNING]") || upper.includes("WARN:")) {
-    return { className: "text-amber-400", level: "warn" };
-  }
-  if (upper.includes("[INFO]") || upper.includes("INFO:")) {
-    return { className: "text-sky-300", level: "info" };
-  }
-  return { className: "text-gray-300", level: "default" };
+  return now - parsed <= RECENT_CRASH_WINDOW_MS;
 }
 
 export function ServerConsole({
   serverId,
+  serverName,
   branch,
   serverStatus,
   tps,
   players,
+  maxPlayers,
   provider,
   host,
   port,
   compactHeader = false,
+  canConsole = true,
+  uptimeSeconds,
 }: ServerConsoleProps) {
   const isBranchMode = Boolean(branch && branch !== "main");
-  const isContainer = provider === "docker" || provider === "container";
   const displayAddress = host ? (port ? `${host}:${port}` : host) : null;
   const api = useApi();
+  const queryClient = useQueryClient();
+  const { copy } = useClipboard();
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const [input, setInput] = useState("");
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
-  const [liveLines, setLiveLines] = useState<string[]>([]);
+  const [streamedLines, setStreamedLines] = useState<string[]>([]);
+  const [clearedWatermark, setClearedWatermark] = useState<string[] | null>(null);
+  const [sentCommands, setSentCommands] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState<ConsoleLevelFilter>("all");
+  const [showIsoTimestamps, setShowIsoTimestamps] = useState(false);
   const [followLog, setFollowLog] = useState(true);
   const [isCrashModalOpen, setIsCrashModalOpen] = useState(false);
 
   const isWsConnected = useWSStore((s) => s.connected);
   const connectionState = useWSStore((s) => s.connectionState);
-  const isRunning = serverStatus === "running";
+  const effectiveConnectionState = useEffectiveConnectionState();
+  const isConsoleChannelDegraded = useIsChannelDegraded(`server:${serverId}:console`);
+  const isRunning = serverStatus === "running" || serverStatus === "starting";
 
   const consoleScopeKey = `${serverId}:${branch ?? "main"}`;
   const [prevScopeKey, setPrevScopeKey] = useState(consoleScopeKey);
   if (prevScopeKey !== consoleScopeKey) {
     setPrevScopeKey(consoleScopeKey);
-    setLiveLines([]);
-    setCommandHistory([]);
+    setStreamedLines([]);
+    setClearedWatermark(null);
+    setSearchQuery("");
+    setLevelFilter("all");
+    setFollowLog(true);
   }
 
-  // Fetch initial console history (with offline fallback on disk)
-  // Stage E: Disable 3s polling query while WS connection is active to avoid double-fetching.
+  // Fetch initial console history (with offline fallback on disk).
+  // Disable 3s polling query while WS connection is active and console channel is healthy.
   const { data: history, refetch: refetchHistory } = useQuery({
     queryKey: queryKeys.console.history(serverId, branch),
     queryFn: () => api.getServerConsole(serverId, 200, branch),
@@ -106,13 +162,27 @@ export function ServerConsole({
       ? isRunning
         ? 3000
         : false
-      : isWsConnected
+      : !isRunning || (isWsConnected && !isConsoleChannelDegraded)
         ? false
         : 3000,
   });
 
-  // Reconnect re-tail: when WS connection re-establishes (from RECONNECTING/DISCONNECTED to CONNECTED),
-  // or when returning to a hidden tab, backfill recent lines via HTTP tail and reset accumulated live lines.
+  // Merge newly fetched HTTP tail lines without wiping existing live/command lines
+  // and without resurrecting lines already cleared by the user.
+  const syncMissedTail = useCallback(async () => {
+    const result = await refetchHistory();
+    const fetched = result.data?.lines;
+    if (fetched && fetched.length > 0) {
+      const linesToMerge = clearedWatermark
+        ? sliceLinesAfterWatermark(clearedWatermark, fetched)
+        : fetched;
+      if (linesToMerge.length > 0) {
+        setStreamedLines((prev) => mergeDeduplicatedLines(prev, linesToMerge, MAX_CONSOLE_LINES));
+      }
+    }
+  }, [refetchHistory, clearedWatermark]);
+
+  // Reconnect re-tail: backfill missed lines on WS reconnect without wiping buffer
   const prevConnectionStateRef = useRef(connectionState);
   useEffect(() => {
     const prev = prevConnectionStateRef.current;
@@ -120,28 +190,40 @@ export function ServerConsole({
       (prev === ConnectionState.RECONNECTING || prev === ConnectionState.DISCONNECTED) &&
       connectionState === ConnectionState.CONNECTED
     ) {
-      refetchHistory().then(() => {
-        setLiveLines([]);
-      });
+      void syncMissedTail();
     }
     prevConnectionStateRef.current = connectionState;
-  }, [connectionState, refetchHistory]);
+  }, [connectionState, syncMissedTail]);
 
+  // Clear stale crash/offline console lines immediately when server transitions into starting
+  const prevServerStatusRef = useRef(serverStatus);
+  useEffect(() => {
+    const prev = prevServerStatusRef.current;
+    prevServerStatusRef.current = serverStatus;
+    const wasInactive = prev === "crashed" || prev === "stopped" || prev === "created";
+    if (wasInactive && serverStatus === "starting") {
+      setStreamedLines([]);
+      setClearedWatermark(null);
+      setFollowLog(true);
+      queryClient.setQueryData(queryKeys.console.history(serverId, branch), { lines: [] });
+      void refetchHistory();
+    }
+  }, [serverStatus, serverId, branch, queryClient, refetchHistory]);
+
+  // Tab visibility re-tail: merge missed tail lines without clearing existing live lines
   useEffect(() => {
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") {
-        refetchHistory().then(() => {
-          setLiveLines([]);
-        });
+        void syncMissedTail();
       }
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [refetchHistory]);
+  }, [syncMissedTail]);
 
-  // Fetch recent crash reports for crash detection banner
+  // Fetch recent crash reports
   const { data: crashReports, isLoading: isLoadingCrashes } = useQuery({
     queryKey: queryKeys.console.crashReports(serverId),
     queryFn: () => api.getServerCrashReports(serverId, 5),
@@ -150,7 +232,9 @@ export function ServerConsole({
 
   // Subscribe to WebSocket console stream (main runtime only)
   const handleIncomingLines = useCallback((lines: string[]) => {
-    setLiveLines((prev) => [...prev, ...lines]);
+    if (!lines.length) return;
+    // De-duplicate overlap with already-buffered lines (reconnect / backfill replays).
+    setStreamedLines((prev) => mergeDeduplicatedLines(prev, lines, MAX_CONSOLE_LINES));
   }, []);
 
   useConsoleStream(isBranchMode ? null : serverId, handleIncomingLines);
@@ -177,74 +261,142 @@ export function ServerConsole({
       const responseLines = rawOutput
         .replace(/\r\n/g, "\n")
         .split("\n")
-        .map((line) => stripMcFormatting(line).trimEnd())
+        .map((line) => stripAnsiAndMcFormatting(line).trimEnd())
         .filter((line) => line.length > 0);
-      setCommandHistory((prev) => [...prev, `> ${command}`, ...responseLines]);
+      setStreamedLines((prev) =>
+        [...prev, `> ${command}`, ...responseLines].slice(-MAX_CONSOLE_LINES),
+      );
       if (followLog && containerRef.current) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
       }
     },
     onError: (err, command) => {
       const msg = err instanceof Error ? err.message : "Failed to execute command";
-      setCommandHistory((prev) => [...prev, `> ${command}`, `[ERROR] ${msg}`]);
+      setStreamedLines((prev) =>
+        [...prev, `> ${command}`, `[ERROR] ${msg}`].slice(-MAX_CONSOLE_LINES),
+      );
       if (followLog && containerRef.current) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
       }
     },
   });
 
-  // Combine initial history, WS live lines, and local command history
-  const allLines = useMemo(() => {
-    const base = history?.lines ?? [];
-    return [...base, ...liveLines, ...commandHistory];
-  }, [history?.lines, liveLines, commandHistory]);
+  // Unified chronological ring buffer capped at MAX_CONSOLE_LINES
+  const rawLines = useMemo(() => {
+    const historyLines = history?.lines ?? [];
+    const base = clearedWatermark
+      ? sliceLinesAfterWatermark(clearedWatermark, historyLines)
+      : historyLines;
+    if (base.length === 0) return streamedLines.slice(-MAX_CONSOLE_LINES);
+    if (streamedLines.length === 0) return base.slice(-MAX_CONSOLE_LINES);
+    return mergeDeduplicatedLines(base, streamedLines, MAX_CONSOLE_LINES);
+  }, [clearedWatermark, history?.lines, streamedLines]);
 
-  // Filter lines by search query if present
+  const parsedLines = useMemo(
+    () => rawLines.map((raw, idx) => parseConsoleLine(raw, idx)),
+    [rawLines],
+  );
+
+  const levelCounts = useMemo(() => {
+    let info = 0;
+    let warn = 0;
+    let error = 0;
+    for (const entry of parsedLines) {
+      if (entry.level === "info") info++;
+      else if (entry.level === "warn") warn++;
+      else if (entry.level === "error") error++;
+    }
+    return { all: parsedLines.length, info, warn, error };
+  }, [parsedLines]);
+
+  // Apply level filter and search filter
   const filteredLines = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return allLines;
-    return allLines.filter((l) => l.toLowerCase().includes(query));
-  }, [allLines, searchQuery]);
+    return parsedLines.filter((entry) => {
+      if (levelFilter !== "all" && entry.level !== levelFilter) {
+        return false;
+      }
+      if (!query) return true;
+      const text = showIsoTimestamps ? entry.clean : entry.display;
+      return text.toLowerCase().includes(query);
+    });
+  }, [parsedLines, levelFilter, searchQuery, showIsoTimestamps]);
 
-  // Handle auto-scrolling with followLog
+  // Auto-scroll when followLog is enabled
   useEffect(() => {
     if (!followLog) return;
     const container = containerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-  }, [allLines, followLog]);
+  }, [filteredLines, followLog]);
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || sendCommand.isPending) return;
-    sendCommand.mutate(input.trim());
-    setInput("");
+  const handleScroll = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom > 40 && followLog) {
+      setFollowLog(false);
+    } else if (distanceFromBottom <= 8 && !followLog) {
+      setFollowLog(true);
+    }
+  };
+
+  const handleJumpToLatest = () => {
+    setFollowLog(true);
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  };
+
+  const handleSendCommand = (cmd: string) => {
+    setSentCommands((prev) => [...prev, cmd].slice(-MAX_COMMAND_HISTORY));
+    sendCommand.mutate(cmd);
   };
 
   const handleClear = () => {
-    setCommandHistory([]);
-    setLiveLines([]);
+    setClearedWatermark(rawLines.slice(-MAX_CONSOLE_LINES));
+    setStreamedLines([]);
   };
 
-  const tpsColorClass =
-    liveTps != null
-      ? liveTps >= 19.5
-        ? "text-status-success"
-        : liveTps >= 16.0
-          ? "text-status-warning"
-          : "text-status-danger"
-      : "text-text-muted";
+  const handleCopyLogs = () => {
+    const content = filteredLines
+      .map((line) => (showIsoTimestamps ? line.clean : line.display))
+      .join("\n");
+    void copy(content, "Console logs copied to clipboard");
+  };
+
+  const handleDownloadLogs = () => {
+    const content = filteredLines
+      .map((line) => (showIsoTimestamps ? line.clean : line.display))
+      .join("\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeName = (serverName || serverId).replace(/[^a-zA-Z0-9_-]+/g, "-");
+    link.href = url;
+    link.download = `${safeName}-console.log`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const hasCrashReports = Boolean(crashReports && crashReports.length > 0);
   const latestCrash = hasCrashReports ? crashReports![0] : null;
+  const showLoudCrashBanner =
+    Boolean(latestCrash) &&
+    isCrashRecent(latestCrash?.timestamp, serverStatus, uptimeSeconds);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Crash Detected Alert Banner */}
-      {hasCrashReports && latestCrash && (
+    <div
+      data-testid="server-console-container"
+      className="flex flex-col min-h-0 h-[460px] lg:h-[clamp(400px,calc(100dvh-14.5rem),640px)]"
+    >
+      {/* Smart Crash Detected Alert Banner (loud only when crashed or recent crash) */}
+      {showLoudCrashBanner && latestCrash && (
         <div
           data-testid="crash-alert-banner"
-          className="mb-3 p-3 rounded-xl bg-status-danger-bg border border-status-danger-border text-status-danger flex items-center justify-between gap-3 shadow-lg animate-fade-in"
+          className="mb-3 p-3 rounded-xl bg-status-danger-bg border border-status-danger-border text-status-danger flex items-center justify-between gap-3 shadow-xs animate-fade-in"
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-1.5 rounded-lg bg-status-danger-bg text-status-danger border border-status-danger-border shrink-0">
@@ -265,7 +417,7 @@ export function ServerConsole({
                   </span>
                 )}
               </div>
-              <p className="text-text-muted text-[11px] truncate mt-0.5">
+              <p className="text-text-secondary text-[11px] truncate mt-0.5">
                 {latestCrash.filename} • {latestCrash.suggested_remediation}
               </p>
             </div>
@@ -274,259 +426,147 @@ export function ServerConsole({
             type="button"
             data-testid="crash-banner-view-btn"
             onClick={() => setIsCrashModalOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-status-danger hover:opacity-90 text-accent-contrast-text text-xs font-semibold shrink-0 transition-colors shadow"
+            className="px-3 py-1.5 rounded-lg bg-status-danger hover:opacity-90 text-accent-contrast-text text-xs font-semibold shrink-0 transition-opacity shadow-xs cursor-pointer"
           >
             View Crash Report
           </button>
         </div>
       )}
 
-      <div className="flex flex-col flex-1 min-h-0 bg-terminal-bg text-terminal-text font-mono text-xs rounded-xl border border-border-default overflow-hidden mb-3">
-        {/* Console Header Bar */}
-        <div className="flex items-center justify-between px-3.5 py-2 bg-surface-card/90 border-b border-border-subtle text-xs select-none flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-text-secondary font-sans font-medium text-xs flex-wrap">
-            <span
-              className={`flex h-2 w-2 rounded-full ${
-                isRunning ? "bg-status-success animate-pulse" : "bg-text-muted"
-              }`}
-            />
-            <span>Server Console</span>
-            {isBranchMode && (
-              <span
-                data-testid="console-branch-badge"
-                className="inline-flex items-center gap-1 rounded border border-accent-primary/30 bg-accent-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-primary"
-              >
-                Branch: {branch}
-              </span>
-            )}
-
-            {!compactHeader && (
-              <>
-                {/* High-Contrast Status Capsule */}
-                {isRunning ? (
-                  <span
-                    data-testid="console-status-capsule"
-                    className="inline-flex items-center gap-1.5 rounded-full border border-status-success/40 bg-status-success-bg px-2.5 py-0.5 font-mono text-[11px] font-bold text-status-success shadow-xs"
-                  >
-                    <span className="text-[9px] leading-none" aria-hidden="true">●</span>
-                    <span>ONLINE · PORT {port ?? 25565}</span>
-                  </span>
-                ) : (
-                  <span
-                    data-testid="console-status-capsule"
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-2.5 py-0.5 font-mono text-[11px] font-bold text-text-secondary shadow-xs"
-                  >
-                    <span className="text-[9px] leading-none" aria-hidden="true">○</span>
-                    <span>OFFLINE · CONTAINER HALTED</span>
-                  </span>
-                )}
-
-                {/* Active Player Counter Badge */}
-                <div
-                  data-testid="console-player-counter-capsule"
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-elevated border border-border-default text-[11px] text-text-secondary font-mono"
-                  title="Active Players"
-                >
-                  <Icon name="users" size={12} className="text-text-muted" />
-                  <span>{livePlayers ?? 0} / 20 Players</span>
-                </div>
-                {isContainer ? (
-                  <span
-                    data-testid="console-provider-badge"
-                    className={containerBadgeClass}
-                    title="Runtime: Docker Container"
-                  >
-                    <Icon name="server" size={11} className="text-status-info" />
-                    <span>Container</span>
-                  </span>
-                ) : (
-                  <span
-                    data-testid="console-provider-badge"
-                    className={hostBadgeClass}
-                    title="Runtime: Host Filesystem / Process"
-                  >
-                    <Icon name="folder" size={11} className="text-accent-primary" />
-                    <span>File / Host</span>
-                  </span>
-                )}
-                {displayAddress && (
-                  <span
-                    data-testid="console-ip-badge"
-                    className={
-                      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +
-                      "font-medium bg-surface-muted text-text-secondary border border-border-default font-sans"
-                    }
-                    title={
-                      isContainer
-                        ? `Container IP: ${displayAddress}`
-                        : `Host IP: ${displayAddress}`
-                    }
-                  >
-                    <Icon name="globe" size={10} className="text-text-muted" />
-                    <span className="font-mono">{displayAddress}</span>
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Crash Reports Button */}
-            {hasCrashReports && (
-              <button
-                type="button"
-                data-testid="view-crash-reports-btn"
-                onClick={() => setIsCrashModalOpen(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-status-danger-bg text-status-danger border border-status-danger-border hover:opacity-90 text-[11px] font-sans font-medium transition-colors"
-                title="View Crash Reports"
-              >
-                <Icon name="alert" size={11} className="text-status-danger" />
-                <span>Crash ({crashReports!.length})</span>
-              </button>
-            )}
-
-            {/* TPS Usage Badge */}
-            <div
-              data-testid="console-tps-badge"
-              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-terminal-bg border border-border-subtle font-mono text-[11px]"
-              title={
-                liveTps != null
-                  ? `Server Tick Rate: ${liveTps.toFixed(1)} / 20.0 TPS`
-                  : "TPS unknown"
+      {/* Terminal Frame */}
+      <div className="flex flex-col flex-1 min-h-0 bg-terminal-bg text-terminal-text font-mono text-xs rounded-xl border border-terminal-border overflow-hidden mb-3">
+        <ConsoleToolbar
+          serverId={serverId}
+          isRunning={isRunning}
+          isBranchMode={isBranchMode}
+          branch={branch}
+          compactHeader={compactHeader}
+          port={port}
+          provider={provider}
+          displayAddress={displayAddress}
+          liveTps={liveTps}
+          livePlayers={livePlayers}
+          maxPlayers={maxPlayers}
+          effectiveConnectionState={effectiveConnectionState}
+          isConsoleChannelDegraded={isConsoleChannelDegraded}
+          crashReportCount={crashReports?.length ?? 0}
+          onOpenCrashReports={() => setIsCrashModalOpen(true)}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          matchCount={filteredLines.length}
+          levelFilter={levelFilter}
+          onLevelFilterChange={setLevelFilter}
+          levelCounts={levelCounts}
+          showIsoTimestamps={showIsoTimestamps}
+          onToggleIsoTimestamps={() => setShowIsoTimestamps((prev) => !prev)}
+          followLog={followLog}
+          onToggleFollowLog={() => {
+            setFollowLog((prev) => {
+              const next = !prev;
+              if (next && containerRef.current) {
+                containerRef.current.scrollTop = containerRef.current.scrollHeight;
               }
-            >
-              <span className="text-text-muted font-sans font-semibold text-[10px] uppercase tracking-wider">
-                TPS
-              </span>
-              <span className={`font-bold ${tpsColorClass}`}>
-                {liveTps != null ? liveTps.toFixed(1) : "—"}
-              </span>
-              {liveTps != null && (
-                <span className="text-[10px] text-text-muted">
-                  ({Math.min(100, Math.round((liveTps / 20) * 100))}%)
-                </span>
-              )}
-            </div>
+              return next;
+            });
+          }}
+          hasLines={parsedLines.length > 0}
+          onCopyLogs={handleCopyLogs}
+          onDownloadLogs={handleDownloadLogs}
+          onClearLogs={handleClear}
+        />
 
-            {/* Players Badge */}
-            {livePlayers != null && (
-              <div
-                data-testid="console-players-badge"
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-terminal-bg border border-border-subtle text-[11px] text-terminal-text font-mono"
-                title={`${livePlayers} player(s) online`}
-              >
-                <Icon name="users" size={12} className="text-text-muted" />
-                <span>{livePlayers}</span>
-              </div>
-            )}
-
-            {/* Clear History Button */}
-            {(commandHistory.length > 0 || liveLines.length > 0) && (
-              <button
-                type="button"
-                onClick={handleClear}
-                className="text-text-muted hover:text-text-primary transition-colors text-[11px] font-sans px-1.5 py-0.5 rounded hover:bg-surface-hover"
-                title="Clear local command history"
-              >
-                Clear
-              </button>
+        {/* Responsive Viewport with Floating Jump-to-Latest Pill */}
+        <div className="relative flex-1 min-h-0 flex flex-col">
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            data-testid="console-output-viewport"
+            className="flex-1 min-h-0 overflow-y-auto p-3 space-y-0.5 select-text leading-relaxed"
+          >
+            {filteredLines.length === 0 ? (
+              <p className="text-terminal-muted font-sans">
+                {searchQuery || levelFilter !== "all"
+                  ? "No logs matching your active filter."
+                  : "No console output yet."}
+              </p>
+            ) : (
+              filteredLines.map((entry) => {
+                const text = showIsoTimestamps ? entry.clean : entry.display;
+                const tokens = tokenizeConsoleLine(text, entry.level);
+                const messageClass = getLevelTextClass(entry.level, tokens.isMilestone);
+                return (
+                  <div
+                    key={entry.id}
+                    data-log-level={entry.level}
+                    title={entry.isoTimestamp ? `Timestamp: ${entry.isoTimestamp}` : undefined}
+                    className="whitespace-pre-wrap break-all text-terminal-text"
+                  >
+                    {tokens.isoPrefix && (
+                      <span data-log-token="iso" className="text-terminal-timestamp">
+                        {renderHighlightedText(tokens.isoPrefix, searchQuery)}
+                      </span>
+                    )}
+                    {tokens.commandPrompt && (
+                      <span data-log-token="prompt" className="text-terminal-info font-bold">
+                        {tokens.commandPrompt}
+                      </span>
+                    )}
+                    {tokens.headerPrefix && (
+                      <span data-log-token="timestamp" className="text-terminal-timestamp">
+                        {renderHighlightedText(tokens.headerPrefix, searchQuery)}
+                      </span>
+                    )}
+                    {tokens.levelTag && (
+                      <span data-log-token="level" className={getLevelTagClass(tokens.levelTag)}>
+                        {renderHighlightedText(tokens.levelTag, searchQuery)}
+                      </span>
+                    )}
+                    {tokens.headerSuffix && (
+                      <span data-log-token="header-close" className="text-terminal-timestamp">
+                        {renderHighlightedText(tokens.headerSuffix, searchQuery)}
+                      </span>
+                    )}
+                    {tokens.sourceTag && (
+                      <>
+                        <span data-log-token="source" className="text-terminal-source font-medium">
+                          {renderHighlightedText(tokens.sourceTag, searchQuery)}
+                        </span>
+                        {tokens.sourceSeparator}
+                      </>
+                    )}
+                    {tokens.message && (
+                      <span data-log-token="message" className={messageClass}>
+                        {renderHighlightedText(tokens.message, searchQuery)}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
-        </div>
 
-        {/* Console Search & Control Subheader Toolbar */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-surface-muted/60 border-b border-border-subtle text-xs gap-3">
-          <div className="flex items-center gap-2 flex-1 max-w-md">
-            <div className="relative flex-1">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-text-muted">
-                <Icon name="search" size={12} />
-              </span>
-              <input
-                data-testid="console-search-input"
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search logs (case-insensitive)..."
-                className="w-full pl-7 pr-7 py-1 text-xs font-mono bg-terminal-bg border border-border-subtle rounded-md text-terminal-text placeholder:text-text-muted focus:outline-none focus:border-border-focus"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute inset-y-0 right-0 pr-2 flex items-center text-text-muted hover:text-text-primary"
-                  aria-label="Clear search"
-                >
-                  <Icon name="x" size={11} />
-                </button>
-              )}
-            </div>
-            {searchQuery && (
-              <span
-                data-testid="console-search-matches"
-                className="text-text-muted text-[11px] font-sans whitespace-nowrap"
-              >
-                {filteredLines.length} {filteredLines.length === 1 ? "match" : "matches"}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Follow Log Auto-Scroll Toggle */}
+          {!followLog && filteredLines.length > 0 && (
             <button
               type="button"
-              data-testid="follow-log-toggle"
-              onClick={() => setFollowLog((prev) => !prev)}
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-sans font-medium transition-colors ${
-                followLog
-                  ? "bg-status-success-bg text-status-success border border-status-success-border"
-                  : "bg-surface-muted text-text-muted border border-border-subtle hover:text-text-primary"
-              }`}
-              title={followLog ? "Auto-scrolling enabled" : "Auto-scrolling paused"}
+              data-testid="console-jump-latest-btn"
+              onClick={handleJumpToLatest}
+              className="absolute bottom-3 right-4 inline-flex items-center gap-1.5 rounded-full border border-terminal-border bg-terminal-surface px-3 py-1.5 text-[11px] font-sans font-semibold text-terminal-text shadow-md hover:border-terminal-info hover:text-terminal-info transition-colors cursor-pointer"
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  followLog ? "bg-status-success" : "bg-text-muted"
-                }`}
-              />
-              <span>Follow Log</span>
+              <Icon name="chevron-down" size={12} />
+              <span>Jump to latest</span>
             </button>
-          </div>
-        </div>
-
-        {/* Output container (33rem is a tunable constant for estimated chrome above and below the log) */}
-        <div ref={containerRef} className="h-[calc(100dvh-33rem)] min-h-[420px] overflow-y-auto p-3 space-y-0.5 select-text">
-          {filteredLines.length === 0 ? (
-            <p className="text-text-muted font-sans">
-              {searchQuery ? "No logs matching your search filter." : "No console output yet."}
-            </p>
-          ) : (
-            filteredLines.map((line, i) => {
-              const { className } = getLineStyle(line);
-              return (
-                <div key={i} className={`whitespace-pre-wrap break-all ${className}`}>
-                  {line}
-                </div>
-              );
-            })
           )}
         </div>
       </div>
 
-      <form onSubmit={handleSend} className="flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Enter a command..."
-          className="flex-1 px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm text-text-primary font-mono focus:outline-none focus:ring-2 focus:ring-border-focus"
-        />
-        <button
-          type="submit"
-          disabled={sendCommand.isPending || !input.trim()}
-          className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          {sendCommand.isPending ? "Sending..." : "Send"}
-        </button>
-      </form>
+      {/* Command Bar with History & Quick Chips */}
+      <ConsoleCommandBar
+        onSend={handleSendCommand}
+        isSending={sendCommand.isPending}
+        isRunning={isRunning}
+        canConsole={canConsole}
+        commandHistory={sentCommands}
+      />
 
       {/* Crash Report Modal */}
       <CrashReportViewerModal
@@ -534,7 +574,7 @@ export function ServerConsole({
         onClose={() => setIsCrashModalOpen(false)}
         reports={crashReports ?? []}
         isLoading={isLoadingCrashes}
-        serverName={serverId}
+        serverName={serverName || serverId}
       />
     </div>
   );

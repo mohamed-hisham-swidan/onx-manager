@@ -27,7 +27,7 @@ export function useServerMetrics(serverId: string) {
     queryKey: queryKeys.monitoring.metrics(serverId),
     queryFn: () => api.getMetrics(serverId, MAX_POINTS),
     refetchInterval: isWsConnected ? false : 2000,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     enabled: !!serverId,
     staleTime: 1000,
   });

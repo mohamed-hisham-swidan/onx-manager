@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -8,6 +9,7 @@ from app.api.v1.schemas.common import BaseResponse
 from app.core.timeutil import format_datetime_utc
 from app.modules.operations.domain.aggregate import Operation
 from app.modules.operations.domain.entities import OperationStep
+from app.modules.operations.domain.enums import StepStatus
 
 
 class CreateOperationRequest(BaseModel):
@@ -34,14 +36,35 @@ class OperationStepResponse(BaseResponse):
     completed_at: str | None = None
 
     @classmethod
-    def from_domain(cls, step: OperationStep) -> OperationStepResponse:
+    def from_domain(
+        cls,
+        step: OperationStep,
+        *,
+        parent_terminal: bool = False,
+        parent_finished_at: datetime | None = None,
+    ) -> OperationStepResponse:
+        elapsed = step.elapsed_ms
+        if step.started_at is not None:
+            start = (
+                step.started_at
+                if step.started_at.tzinfo is not None
+                else step.started_at.replace(tzinfo=UTC)
+            )
+            if step.status == StepStatus.IN_PROGRESS and not parent_terminal:
+                live_ms = max(0, int((datetime.now(UTC) - start).total_seconds() * 1000))
+                elapsed = max(elapsed, live_ms)
+            elif elapsed <= 0 and (step.completed_at is not None or parent_finished_at is not None):
+                end_dt = step.completed_at or parent_finished_at or start
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=UTC)
+                elapsed = max(0, int((end_dt - start).total_seconds() * 1000))
         return cls(
             id=step.id,
             step_id=step.step_id,
             sequence=step.sequence,
             status=step.status.value,
             progress=step.progress,
-            elapsed_ms=step.elapsed_ms,
+            elapsed_ms=elapsed,
             message_key=step.message_key,
             safe_to_retry=step.safe_to_retry,
             context=step.context,
@@ -97,7 +120,14 @@ class OperationDetailResponse(OperationSummaryResponse):
     @classmethod
     def from_domain(cls, op: Operation) -> OperationDetailResponse:
         summary = OperationSummaryResponse.from_domain(op)
-        steps = [OperationStepResponse.from_domain(s) for s in op.steps]
+        steps = [
+            OperationStepResponse.from_domain(
+                s,
+                parent_terminal=op.is_terminal,
+                parent_finished_at=op.finished_at,
+            )
+            for s in op.steps
+        ]
         return cls(
             **summary.model_dump(),
             metadata=op.metadata,

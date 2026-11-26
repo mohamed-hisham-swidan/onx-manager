@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
-import type { ServerBranch, ServerCommit, ServerTestRun } from "@/server_manager/types";
+import type { ServerBranch, ServerCommit } from "@/server_manager/types";
 
 // ==========================================
 // 1. Create Branch Modal
@@ -66,7 +66,7 @@ export function CreateBranchModal({
           <button
             type="submit"
             disabled={isPending || !branchName.trim()}
-            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isPending ? "Creating..." : "Create Branch"}
           </button>
@@ -213,7 +213,7 @@ export function CreateCommitModal({
               currentBranchObj?.status === "archived" ||
               (isDirectCommitBlocked && (!allowForceBypass || !forceBypass || !forceReason.trim()))
             }
-            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
           >
             {isPending ? "Committing..." : forceBypass ? "Force Commit Snapshot" : "Commit Snapshot"}
           </button>
@@ -294,297 +294,6 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
 }
 
 // ==========================================
-// 5. Test Run Log Modal
-// ==========================================
-interface ViewLogsModalProps {
-  testRun: ServerTestRun | null;
-  onClose: () => void;
-}
-
-export function ViewLogsModal({ testRun, onClose }: ViewLogsModalProps) {
-  return (
-    <Modal
-      open={!!testRun}
-      onClose={onClose}
-      title={testRun ? `Test Run Console Output (${testRun.id.slice(0, 8)})` : "Test Run Console Output"}
-      size="2xl"
-      showCloseButton={true}
-      closeButtonAriaLabel="Close"
-      closeOnBackdrop={false}
-      className="max-h-[85vh] flex flex-col"
-    >
-      {testRun && (
-        <div className="flex flex-col flex-1 min-h-0 space-y-4">
-          <pre className="overflow-y-auto rounded-lg bg-surface-page border border-border-subtle p-3 text-xs font-mono text-status-success flex-1 whitespace-pre-wrap max-h-[60vh]">
-            {testRun.log_output || "No log output recorded."}
-          </pre>
-          <div className="flex justify-end pt-2 border-t border-border-subtle">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-    </Modal>
-  );
-}
-
-// ==========================================
-// 6. Bot Verification Settings Modal
-// ==========================================
-interface BotSettingsModalProps {
-  isOpen: boolean;
-  botCount: number;
-  onBotCountChange: (val: number) => void;
-  duration: number;
-  onDurationChange: (val: number) => void;
-  tech: string;
-  onTechChange: (val: string) => void;
-  placement: string;
-  onPlacementChange: (val: string) => void;
-  retention: string;
-  onRetentionChange: (val: string) => void;
-  onSubmit: () => void;
-  onClose: () => void;
-  isPending?: boolean;
-}
-
-export function BotSettingsModal({
-  isOpen,
-  botCount,
-  onBotCountChange,
-  duration,
-  onDurationChange,
-  tech,
-  onTechChange,
-  placement,
-  onPlacementChange,
-  retention,
-  onRetentionChange,
-  onSubmit,
-  onClose,
-  isPending = false,
-}: BotSettingsModalProps) {
-  const [rawBotCount, setRawBotCount] = useState<string>(String(botCount));
-  const [rawDuration, setRawDuration] = useState<string>(String(duration));
-  const [prevProps, setPrevProps] = useState({ isOpen, botCount, duration });
-
-  if (isOpen !== prevProps.isOpen || botCount !== prevProps.botCount || duration !== prevProps.duration) {
-    setPrevProps({ isOpen, botCount, duration });
-    if (isOpen) {
-      setRawBotCount(String(botCount));
-      setRawDuration(String(duration));
-    }
-  }
-
-  const handleBotCountBlur = () => {
-    const parsed = parseInt(rawBotCount, 10);
-    const valid = isNaN(parsed) || parsed < 1 ? 1 : parsed;
-    setRawBotCount(String(valid));
-    onBotCountChange(valid);
-  };
-
-  const handleDurationBlur = () => {
-    const parsed = parseInt(rawDuration, 10);
-    const valid = isNaN(parsed) || parsed < 1 ? 1 : parsed;
-    setRawDuration(String(valid));
-    onDurationChange(valid);
-  };
-
-  const stepBotCount = (delta: number) => {
-    const cur = parseInt(rawBotCount, 10) || 1;
-    const next = Math.max(1, cur + delta);
-    setRawBotCount(String(next));
-    onBotCountChange(next);
-  };
-
-  const stepDuration = (delta: number) => {
-    const cur = parseInt(rawDuration, 10) || 1;
-    const next = Math.max(1, cur + delta);
-    setRawDuration(String(next));
-    onDurationChange(next);
-  };
-
-  return (
-    <Modal
-      open={isOpen}
-      onClose={onClose}
-      title="Bot Verification Server Defaults"
-      description="Configure baseline parameters applied when launching dry-runs on this server."
-      size="md"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!isPending) {
-            const finalBot = Math.max(1, parseInt(rawBotCount, 10) || 1);
-            const finalDur = Math.max(1, parseInt(rawDuration, 10) || 1);
-            onBotCountChange(finalBot);
-            onDurationChange(finalDur);
-            onSubmit();
-          }
-        }}
-        className="space-y-4"
-      >
-        <div className="space-y-3 text-xs">
-          <div>
-            <label htmlFor="settings-bot-count-input" className="block font-medium text-text-secondary mb-1">
-              Default Bot Count
-            </label>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label="Decrease default bot count"
-                onClick={() => stepBotCount(-1)}
-                disabled={isPending}
-                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
-              >
-                -
-              </button>
-              <input
-                id="settings-bot-count-input"
-                type="number"
-                min={1}
-                value={rawBotCount}
-                onChange={(e) => setRawBotCount(e.target.value)}
-                onBlur={handleBotCountBlur}
-                disabled={isPending}
-                className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50 text-center"
-              />
-              <button
-                type="button"
-                aria-label="Increase default bot count"
-                onClick={() => stepBotCount(1)}
-                disabled={isPending}
-                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
-              >
-                +
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="settings-duration-input" className="block font-medium text-text-secondary mb-1">
-              Default Duration (Minutes)
-            </label>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label="Decrease default duration"
-                onClick={() => stepDuration(-1)}
-                disabled={isPending}
-                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
-              >
-                -
-              </button>
-              <input
-                id="settings-duration-input"
-                type="number"
-                min={1}
-                value={rawDuration}
-                onChange={(e) => setRawDuration(e.target.value)}
-                onBlur={handleDurationBlur}
-                disabled={isPending}
-                className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50 text-center"
-              />
-              <button
-                type="button"
-                aria-label="Increase default duration"
-                onClick={() => stepDuration(1)}
-                disabled={isPending}
-                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
-              >
-                +
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="settings-tech-select" className="block font-medium text-text-secondary mb-1">
-              Default Bot Technology
-            </label>
-            <select
-              id="settings-tech-select"
-              value={tech}
-              onChange={(e) => onTechChange(e.target.value)}
-              disabled={isPending}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
-            >
-              <option value="auto">Auto (Server-type aware)</option>
-              <option value="mineflayer">Mineflayer (External Protocol)</option>
-              <option value="fakeplayer_next">FakePlayerNext (Paper In-Process)</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="settings-placement-select" className="block font-medium text-text-secondary mb-1">
-              Default Placement Mode
-            </label>
-            <select
-              id="settings-placement-select"
-              value={placement}
-              onChange={(e) => onPlacementChange(e.target.value)}
-              disabled={isPending}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
-            >
-              <option value="sidecar">Sidecar (Container Isolation)</option>
-              <option value="in_container">In Container</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="settings-retention-select" className="block font-medium text-text-secondary mb-1">
-              Previous Tree Retention Policy
-            </label>
-            <select
-              id="settings-retention-select"
-              aria-label="Previous Tree Retention Policy"
-              value={retention}
-              onChange={(e) => onRetentionChange(e.target.value)}
-              disabled={isPending}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
-            >
-              <option value="until_health_gate">Until Health Gate Passes (Default)</option>
-              <option value="until_confirm">Until Operator Confirms Upgrade</option>
-              <option value="1h">1 Hour</option>
-              <option value="6h">6 Hours</option>
-              <option value="24h">24 Hours</option>
-              <option value="72h">72 Hours</option>
-              <option value="168h">168 Hours (7 Days)</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-3 border-t border-border-subtle">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isPending}
-            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isPending}
-            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isPending ? "Saving..." : "Save Defaults"}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// ==========================================
 // Merge Branch Modal
 // ==========================================
 interface MergeBranchModalProps {
@@ -592,10 +301,11 @@ interface MergeBranchModalProps {
   serverId: string;
   branches: any[];
   selectedBranch?: string;
+  onMerged?: () => void;
   onClose: () => void;
 }
 
-export function MergeBranchModal({ isOpen, serverId, branches, selectedBranch, onClose }: MergeBranchModalProps) {
+export function MergeBranchModal({ isOpen, serverId, branches, selectedBranch, onMerged, onClose }: MergeBranchModalProps) {
   const [targetBranch, setTargetBranch] = useState(selectedBranch || "main");
   const [sourceBranch, setSourceBranch] = useState("");
   const [message, setMessage] = useState("");
@@ -629,6 +339,7 @@ export function MergeBranchModal({ isOpen, serverId, branches, selectedBranch, o
         force_bypass_protection: forceBypass,
       });
       if (Array.isArray(res?.warnings)) setWarnings(res.warnings);
+      onMerged?.();
       onClose();
     } catch (e: any) {
       const detail = e?.detail ?? null;
@@ -690,8 +401,8 @@ export function MergeBranchModal({ isOpen, serverId, branches, selectedBranch, o
         )}
         {error && <div className="text-xs text-status-danger">{error}</div>}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-border-default px-3 py-1.5 text-xs">Cancel</button>
-          <button type="button" onClick={submit} disabled={pending} className="rounded-lg bg-accent-primary px-3 py-1.5 text-xs text-white">
+          <button type="button" onClick={onClose} className="rounded-lg border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-hover cursor-pointer">Cancel</button>
+          <button type="button" onClick={submit} disabled={pending} className="rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer disabled:opacity-50">
             {pending ? "Merging..." : "Merge"}
           </button>
         </div>
@@ -701,7 +412,7 @@ export function MergeBranchModal({ isOpen, serverId, branches, selectedBranch, o
 }
 
 // ==========================================
-// Class-C & Secret Vault Modal
+// Live Data & Secret Vault Modal
 // ==========================================
 interface ClassCVaultModalProps {
   isOpen: boolean;
@@ -769,42 +480,100 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
   };
 
   return (
-    <Modal open={isOpen} onClose={onClose} title="Class-C & Secret Vault">
+    <Modal open={isOpen} onClose={onClose} title="Live Data & Secret Vault">
       <div className="space-y-3">
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setTab("snapshots")} className="text-xs">Snapshots</button>
-          <button type="button" onClick={() => setTab("dynamic")} className="text-xs">Dynamic Class-C</button>
-          <button type="button" onClick={() => setTab("secrets")} className="text-xs">Secrets</button>
+        <div className="flex gap-2 border-b border-border-subtle pb-2">
+          <button
+            type="button"
+            onClick={() => setTab("snapshots")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
+              tab === "snapshots"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            }`}
+          >
+            Snapshots
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("dynamic")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
+              tab === "dynamic"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            }`}
+          >
+            Live Runtime
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("secrets")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
+              tab === "secrets"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            }`}
+          >
+            Secrets
+          </button>
         </div>
         {tab === "snapshots" && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <label className="text-xs"><input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> Pin snapshot</label>
-              <button type="button" onClick={async () => {
-                await apiCall((api) => api.createClassCSnapshot(serverId, { pinned }));
-                await reloadVault();
-              }} className="rounded-lg bg-accent-primary px-2 py-1 text-xs text-white">Create Class-C Snapshot</button>
+            <div className="flex items-center justify-between gap-2">
+              <label className="inline-flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pinned}
+                  onChange={(e) => setPinned(e.target.checked)}
+                  className="rounded border-border-default text-accent-primary focus:ring-accent-primary"
+                />
+                Pin snapshot
+              </label>
+              <button
+                type="button"
+                onClick={async () => {
+                  await apiCall((api) => api.createClassCSnapshot(serverId, { pinned }));
+                  await reloadVault();
+                }}
+                className="rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer"
+              >
+                Create Live Data Snapshot
+              </button>
             </div>
             {snapshots.map((s: any) => (
-              <div key={s.snapshot_id} className="flex items-center justify-between text-xs border rounded p-2">
-                <div>
-                  <div>{s.snapshot_id}</div>
-                  <div>{s.created_at} {s.entry_count} {s.archive_size_bytes} {s.manifest_sha256?.slice(0, 8)}</div>
-                  {s.pinned && <span className="text-[10px]">Pinned</span>}
+              <div key={s.snapshot_id} className="flex items-center justify-between gap-2 text-xs border border-border-subtle bg-surface-page rounded-lg p-2.5">
+                <div className="min-w-0">
+                  <div className="font-mono text-text-primary truncate">{s.snapshot_id}</div>
+                  <div className="text-text-muted">{s.created_at} {s.entry_count} {s.archive_size_bytes} {s.manifest_sha256?.slice(0, 8)}</div>
+                  {s.pinned && <span className="text-[10px] font-medium text-text-accent">Pinned</span>}
                 </div>
-                <div className="flex gap-1">
-                  <button type="button" onClick={async () => {
-                    try {
-                      await apiCall((api) => api.restoreClassCSnapshot(serverId, s.snapshot_id));
-                    } catch (e: any) {
-                      setMessage(e?.message ?? "Server must be stopped before restoring a Class-C snapshot");
-                    }
-                    await reloadVault();
-                  }}>Restore</button>
-                  <button type="button" disabled={s.pinned} title={s.pinned ? "Pinned snapshot cannot be deleted until pins are released" : undefined} onClick={async () => {
-                    await apiCall((api) => api.deleteClassCSnapshot(serverId, s.snapshot_id));
-                    await reloadVault();
-                  }}>Delete</button>
+                <div className="flex gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await apiCall((api) => api.restoreClassCSnapshot(serverId, s.snapshot_id));
+                      } catch (e: any) {
+                        setMessage(e?.message ?? "Server must be stopped before restoring a live data snapshot");
+                      }
+                      await reloadVault();
+                    }}
+                    className="rounded border border-border-default bg-surface-card px-2 py-1 text-xs text-text-primary hover:bg-surface-hover cursor-pointer"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    disabled={s.pinned}
+                    title={s.pinned ? "Pinned snapshot cannot be deleted until pins are released" : undefined}
+                    onClick={async () => {
+                      await apiCall((api) => api.deleteClassCSnapshot(serverId, s.snapshot_id));
+                      await reloadVault();
+                    }}
+                    className="rounded border border-border-default bg-surface-card px-2 py-1 text-xs text-status-danger hover:bg-status-danger-bg disabled:opacity-40 cursor-pointer"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
@@ -813,12 +582,18 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
         {tab === "dynamic" && (
           <div className="space-y-2">
             {dynamic.map((e: any) => (
-              <div key={e.relpath} className="flex items-center justify-between text-xs border rounded p-2">
-                <div>{e.relpath} {e.promoted_at} {e.main_commit_sha}</div>
-                <button type="button" onClick={async () => {
-                  await apiCall((api) => api.resetDynamicClassC(serverId, e.relpath));
-                  await reloadVault();
-                }}>Reset to Class B (Track from main)</button>
+              <div key={e.relpath} className="flex items-center justify-between gap-2 text-xs border border-border-subtle bg-surface-page rounded-lg p-2.5">
+                <div className="text-text-primary truncate">{e.relpath} {e.promoted_at} {e.main_commit_sha}</div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await apiCall((api) => api.resetDynamicClassC(serverId, e.relpath));
+                    await reloadVault();
+                  }}
+                  className="rounded border border-border-default bg-surface-card px-2 py-1 text-xs text-text-primary hover:bg-surface-hover cursor-pointer shrink-0"
+                >
+                  Track in Git (from main)
+                </button>
               </div>
             ))}
           </div>
@@ -826,30 +601,42 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
         {tab === "secrets" && (
           <div className="space-y-2">
             {secrets.map((s: any) => (
-              <div key={s.key_name} className="flex items-center justify-between text-xs border rounded p-2">
-                <div>{s.key_name} {s.placeholder} {s.kek_version} {s.updated_at}</div>
-                <button type="button" onClick={async () => {
-                  await apiCall((api) => api.deleteSecret(serverId, s.key_name));
-                  await reloadVault();
-                }}>Delete</button>
+              <div key={s.key_name} className="flex items-center justify-between gap-2 text-xs border border-border-subtle bg-surface-page rounded-lg p-2.5">
+                <div className="text-text-primary truncate">{s.key_name} {s.placeholder} {s.kek_version} {s.updated_at}</div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await apiCall((api) => api.deleteSecret(serverId, s.key_name));
+                    await reloadVault();
+                  }}
+                  className="rounded border border-border-default bg-surface-card px-2 py-1 text-xs text-status-danger hover:bg-status-danger-bg cursor-pointer shrink-0"
+                >
+                  Delete
+                </button>
               </div>
             ))}
-            <div className="space-y-2 border-t pt-2">
-              <input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Branch" className="w-full rounded-lg border px-2 py-1 text-xs" />
-              <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="Config File Path (Class B)" className="w-full rounded-lg border px-2 py-1 text-xs" />
-              <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Secret Key Name" className="w-full rounded-lg border px-2 py-1 text-xs" />
-              <input type="password" autoComplete="off" value={secretValue} onChange={(e) => setSecretValue(e.target.value)} placeholder="Secret Plaintext Value" className="w-full rounded-lg border px-2 py-1 text-xs" />
-              <button type="button" onClick={async () => {
-                const value = secretValue;
-                setSecretValue("");
-                try {
-                  await apiCall((api) => api.extractSecret(serverId, { branch, path, key_name: keyName, secret_value: value }));
-                  await reloadVault();
-                } catch (e: any) {
-                  setMessage(e?.message ?? "Extract failed");
-                }
-              }} className="rounded-lg bg-accent-primary px-2 py-1 text-xs text-white">Extract Secret</button>
-              {message && <div className="text-xs">{message}</div>}
+            <div className="space-y-2 border-t border-border-subtle pt-3">
+              <input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Branch" className="w-full rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-hidden focus:border-accent-primary" />
+              <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="Config File Path" className="w-full rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-hidden focus:border-accent-primary" />
+              <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Secret Key Name" className="w-full rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-hidden focus:border-accent-primary" />
+              <input type="password" autoComplete="off" value={secretValue} onChange={(e) => setSecretValue(e.target.value)} placeholder="Secret Plaintext Value" className="w-full rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-hidden focus:border-accent-primary" />
+              <button
+                type="button"
+                onClick={async () => {
+                  const value = secretValue;
+                  setSecretValue("");
+                  try {
+                    await apiCall((api) => api.extractSecret(serverId, { branch, path, key_name: keyName, secret_value: value }));
+                    await reloadVault();
+                  } catch (e: any) {
+                    setMessage(e?.message ?? "Extract failed");
+                  }
+                }}
+                className="rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer"
+              >
+                Extract Secret
+              </button>
+              {message && <div className="text-xs text-text-secondary">{message}</div>}
             </div>
           </div>
         )}

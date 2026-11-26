@@ -242,3 +242,52 @@ async def test_delete_step_aborts_if_directory_exists_at_execution_time(
 
     assert result.total_deleted == 0
     repo.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_normalizes_relative_root_path_and_preserves_docker_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from app.modules.server.application.services.identity_writer import write_server_identity
+    from app.modules.server.domain.value_objects import LocationType, ServerDeployment
+
+    monkeypatch.chdir(tmp_path)
+    rel_data_dir = Path("data") / "servers"
+    server_dir = (tmp_path / rel_data_dir / "adv-srv").resolve()
+    _populate_mc_dir(server_dir)
+
+    sid = "b555555555555555555555555555555"
+    write_server_identity(server_dir, uid=sid, provider="docker")
+
+    server = _create_server(sid, "adv-srv", server_dir)
+    server.update_deployment(
+        ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path="data/servers/adv-srv",
+            working_directory=".",
+            startup_jar="server.jar",
+        )
+    )
+
+    repo = MagicMock()
+    repo.list = AsyncMock(return_value=[server])
+    repo.save = AsyncMock()
+    repo.delete = AsyncMock()
+
+    mock_settings = MagicMock()
+    mock_settings.servers_data_dir = str(rel_data_dir)
+
+    service = FilesystemReconciliationService(repo=repo)
+    with patch(
+        "app.modules.server.application.services.filesystem_reconciliation.AppSettings",
+        return_value=mock_settings,
+    ):
+        await service.reconcile()
+
+    repo.save.assert_awaited()
+    assert server.deployment is not None
+    assert os.path.isabs(server.deployment.root_path)
+    assert server.deployment.root_path == str(server_dir)
+    assert server.deployment.location_type == LocationType.DOCKER

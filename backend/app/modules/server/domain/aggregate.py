@@ -134,7 +134,10 @@ class Server(AggregateRoot):
         self._group_id = group_id
         self._status = ServerStatus.CREATED
         self._deployment = deployment
-        self._runtime = runtime or RuntimeInfo(provider=default_provider_for_platform())
+        self._runtime = runtime or RuntimeInfo(
+            provider=default_provider_for_platform(),
+            port=properties.port.value,
+        )
         self._launch_config = launch_config
         self._missing_since = missing_since
         self._owner_id = owner_id
@@ -342,6 +345,10 @@ class Server(AggregateRoot):
 
     def start(self) -> None:
         self._transition_to(ServerStatus.STARTING)
+        self._runtime.port = self._properties.port.value
+        self._runtime.status = "starting"
+        self._runtime.last_log_lines = []
+        self._runtime.last_crash_time = None
         self._add_event(ServerStartingEvent(server_id=self._id))
 
     def record_runtime_starting(
@@ -408,6 +415,7 @@ class Server(AggregateRoot):
         self._runtime = RuntimeInfo(
             status="stopped",
             provider=self._runtime.provider,
+            port=self._properties.port.value,
             restart_count=self._runtime.restart_count,
             external_id="",
         )
@@ -443,6 +451,7 @@ class Server(AggregateRoot):
         self._runtime = RuntimeInfo(
             status="restoring",
             provider=self._runtime.provider,
+            port=self._properties.port.value,
             restart_count=self._runtime.restart_count,
             external_id="",
         )
@@ -452,6 +461,7 @@ class Server(AggregateRoot):
         self._runtime = RuntimeInfo(
             status="stopped",
             provider=self._runtime.provider,
+            port=self._properties.port.value,
             restart_count=self._runtime.restart_count,
             external_id="",
         )
@@ -470,6 +480,7 @@ class Server(AggregateRoot):
         self._runtime = RuntimeInfo(
             status="crashed",
             provider=self._runtime.provider,
+            port=self._properties.port.value,
             last_crash_time=datetime.now(UTC).timestamp(),
             restart_count=self._runtime.restart_count,
             external_id=self._runtime.external_id,
@@ -534,6 +545,11 @@ class Server(AggregateRoot):
             if "port" in kwargs and isinstance(kwargs["port"], int):
                 kwargs["port"] = PortNumber(kwargs["port"])
             self._properties = ServerProperties(**kwargs)
+            if "port" in changed_keys and self._status not in (
+                ServerStatus.RUNNING,
+                ServerStatus.STARTING,
+            ):
+                self._runtime.port = self._properties.port.value
             self._updated_at = datetime.now(UTC)
             self._add_event(
                 ServerConfigChangedEvent(server_id=self._id, changed_keys=changed_keys),

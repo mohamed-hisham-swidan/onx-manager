@@ -467,15 +467,20 @@ def _validate_relative_entry(relpath: str) -> str:
 def discover_complement_entries(
     live_dir: str | os.PathLike[str],
     staging_dir: str | os.PathLike[str],
+    *,
+    superseded_paths: Iterable[str] = (),
 ) -> list[str]:
     """Return live entries that the staged export does not own.
 
     A directory owned by the export is descended into so its unowned children
     are carried; an unowned directory is carried whole and not descended.
-    Symlinks are rejected (fail closed).
+    Entries in ``superseded_paths`` (e.g. replaced plugins, old root server JAR,
+    or stale loader caches) are omitted so they remain in ``.prev`` instead of
+    contaminating the upgraded tree. Symlinks are rejected (fail closed).
     """
     live = _existing_plain_directory(live_dir, "live_dir")
     staging = _existing_plain_directory(staging_dir, "staging_dir")
+    superseded = frozenset(_validate_relative_entry(p) for p in superseded_paths if p)
 
     carried: list[str] = []
     for dirpath, dirnames, filenames in os.walk(live, topdown=True, followlinks=False):
@@ -491,6 +496,9 @@ def discover_complement_entries(
                     details={"relpath": candidate.relative_to(live).as_posix()[:128]},
                 )
             relpath = candidate.relative_to(live).as_posix()
+            if relpath in superseded:
+                dirnames.remove(name)
+                continue
             if not os.path.lexists(staging / relpath):
                 carried.append(relpath)
                 dirnames.remove(name)
@@ -503,9 +511,60 @@ def discover_complement_entries(
                     details={"relpath": candidate.relative_to(live).as_posix()[:128]},
                 )
             relpath = candidate.relative_to(live).as_posix()
+            if relpath in superseded:
+                continue
             if not os.path.lexists(staging / relpath):
                 carried.append(relpath)
     return sorted(carried)
+
+
+def _compute_upgrade_superseded_paths(
+    live: Path,
+    staging: Path,
+    request: LiveRefreshRequest,
+) -> set[str]:
+    """Identify legacy files/caches in ``live`` that must NOT be carried over on upgrade."""
+    superseded: set[str] = set()
+    deployed = request.deployed_lockfile
+    target = request.target_lockfile
+
+    if deployed is not None and target is not None:
+        target_paths = {f.path for f in target.files}
+        for old_file in deployed.files:
+            if old_file.path not in target_paths:
+                superseded.add(old_file.path)
+
+    if not request.is_full_upgrade:
+        return superseded
+
+    staging_has_server_jar = (staging / "server.jar").exists()
+    loader_changed_or_upgrading = (
+        target is not None
+        and (
+            deployed is None
+            or deployed.mc != target.mc
+            or deployed.loader.id != target.loader.id
+            or deployed.loader.version != target.loader.version
+            or target.lec is not None
+        )
+    )
+    if staging_has_server_jar or loader_changed_or_upgrading:
+        with contextlib.suppress(OSError):
+            for entry in os.scandir(live):
+                if entry.name.lower().endswith(".jar") and not entry.is_dir(follow_symlinks=False):
+                    superseded.add(entry.name)
+
+    if loader_changed_or_upgrading:
+        for cache_rel in (
+            "cache",
+            "versions",
+            "libraries",
+            ".fabric/server",
+            "plugins/.paper-remapped",
+        ):
+            superseded.add(cache_rel)
+
+    return superseded
 
 
 def _move_entry(source: Path, target: Path) -> None:
@@ -656,6 +715,7 @@ class RefreshOrchestrator:
         *,
         repository: RefreshJournalRepository | None = None,
         servers_data_dir: str | os.PathLike[str] | None = None,
+        live_root: str | os.PathLike[str] | None = None,
     ) -> None:
         self._layout = layout
         self._repository = repository or RefreshJournalRepository(layout)
@@ -663,6 +723,7 @@ class RefreshOrchestrator:
             layout,
             repository=self._repository,
             servers_data_dir=servers_data_dir,
+            live_root=live_root,
         )
 
     @property
@@ -727,7 +788,64 @@ class RefreshOrchestrator:
             for record in await self._repository.list_retained_previous_trees()
             if record.server_id == segment
         ]
+        # Orphaned ROLLING_BACK / ROLLED_BACK / FAILED journals (e.g. a prior
+        # refresh whose rollback failed mid-flight after RCON disconnect), as well
+        # as any until_confirm journal whose retained tree no longer exists on
+        # disk or whose linked ServerUpgradeModel is already terminal, must never
+        # permanently deadlock future refreshes.
+        orphan_cleanup_ids: set[str] = set()
         for record in retained:
+            if record.phase in ("ROLLING_BACK", "ROLLED_BACK", "FAILED", "FAILED_CLEAN"):
+                orphan_cleanup_ids.add(record.journal_id)
+                if not record.terminal:
+                    await self._repository.transition(
+                        record.journal_id,
+                        fencing_token=record.fencing_token,
+                        phase="FAILED_CLEAN",
+                        error=record.error or "Orphaned rollback finalized before new refresh",
+                    )
+                continue
+
+            if (
+                record.retention_policy == RETENTION_UNTIL_CONFIRM
+                and record.phase != "UPGRADE_CONFIRMED"
+            ):
+                candidate = (
+                    record.staging_path if record.used_exchange else record.previous_path
+                )
+                tree_missing = not candidate
+                if candidate:
+                    try:
+                        checked = self._path_guard.validate_swap_path(
+                            record.server_id,
+                            candidate,
+                            field="previous_path",
+                            live_root=getattr(record, "live_path", None),
+                        )
+                        if not os.path.lexists(checked):
+                            tree_missing = True
+                    except ValidationError:
+                        tree_missing = False
+                if tree_missing:
+                    orphan_cleanup_ids.add(record.journal_id)
+                    if not record.terminal:
+                        with contextlib.suppress(Exception):
+                            await self._repository.transition(
+                                record.journal_id,
+                                fencing_token=record.fencing_token,
+                                phase="FAILED_CLEAN",
+                                error=record.error
+                                or "Retained previous tree missing on disk",
+                            )
+                    continue
+
+                if await self._journal_linked_upgrade_is_terminal(record.journal_id):
+                    orphan_cleanup_ids.add(record.journal_id)
+                    continue
+
+        for record in retained:
+            if record.journal_id in orphan_cleanup_ids:
+                continue
             if (
                 record.retention_policy == RETENTION_UNTIL_CONFIRM
                 and record.phase != "UPGRADE_CONFIRMED"
@@ -744,6 +862,8 @@ class RefreshOrchestrator:
         # journal index) would degrade rollback to a re-export that may not even
         # be possible (F1).
         for record in retained:
+            if record.journal_id in orphan_cleanup_ids:
+                continue
             if not record.terminal:
                 raise ConflictError(
                     f"A non-terminal refresh journal {record.journal_id} "
@@ -756,7 +876,10 @@ class RefreshOrchestrator:
             candidate = record.staging_path if record.used_exchange else record.previous_path
             if candidate:
                 path = self._path_guard.validate_swap_path(
-                    record.server_id, candidate, field="previous_path"
+                    record.server_id,
+                    candidate,
+                    field="previous_path",
+                    live_root=getattr(record, "live_path", None),
                 )
                 if os.path.lexists(path):
                     if path.is_symlink() or not path.is_dir():
@@ -770,13 +893,36 @@ class RefreshOrchestrator:
             await self._repository.mark_previous_tree_cleaned(record.journal_id)
         return tuple(sorted(removed))
 
+    async def _journal_linked_upgrade_is_terminal(self, journal_id: str) -> bool:
+        """Return True if a ServerUpgradeModel explicitly linked to ``journal_id`` is terminal."""
+        session_factory = getattr(self._repository, "_session_factory", None)
+        if session_factory is None:
+            return False
+        try:
+            from sqlalchemy import text
+
+            async with session_factory() as session:
+                res = await session.execute(
+                    text("SELECT status FROM server_upgrades WHERE journal_id = :jid"),
+                    {"jid": journal_id},
+                )
+                statuses = [str(row[0]) for row in res.fetchall() if row and row[0]]
+                return bool(statuses) and all(
+                    s in ("confirmed", "rolled_back", "failed") for s in statuses
+                )
+        except Exception:
+            return False
+
     def previous_tree_for(self, journal: RefreshJournalRecord) -> Path:
         """Resolve the retained previous tree path for a journal (path-validated)."""
         candidate = journal.staging_path if journal.used_exchange else journal.previous_path
         if not candidate:
             candidate = str(previous_tree_path(journal.live_path))
         return self._path_guard.validate_swap_path(
-            journal.server_id, candidate, field="previous_path"
+            journal.server_id,
+            candidate,
+            field="previous_path",
+            live_root=journal.live_path,
         )
 
     def clean_previous_tree(self, journal: RefreshJournalRecord) -> bool:
@@ -810,6 +956,7 @@ class RefreshOrchestrator:
         exchange_supported: bool | None = None,
         now: datetime | None = None,
         guard: FencingGuard | None = None,
+        superseded_paths: Iterable[str] = (),
     ) -> CarrySwapResult:
         """Journal CARRYING, carry the complement, swap, then journal CARRIED.
 
@@ -837,7 +984,12 @@ class RefreshOrchestrator:
             fencing_token=token,
             phase="CARRYING",
         )
-        planned = await asyncio.to_thread(discover_complement_entries, live, staging)
+        planned = await asyncio.to_thread(
+            discover_complement_entries,
+            live,
+            staging,
+            superseded_paths=superseded_paths,
+        )
         carrying = await self._repository.transition(
             journal.journal_id,
             fencing_token=token,
@@ -1222,6 +1374,7 @@ class TriadRollbackService:
         reset_main_ref: Callable[[str, str], None] | None = None,
         repo_lease: RepoLeaseManager | None = None,
         servers_data_dir: str | os.PathLike[str] | None = None,
+        live_root: str | os.PathLike[str] | None = None,
     ) -> None:
         self._layout = layout
         self._repository = repository or RefreshJournalRepository(layout)
@@ -1229,6 +1382,7 @@ class TriadRollbackService:
             layout,
             repository=self._repository,
             servers_data_dir=servers_data_dir,
+            live_root=live_root,
         )
         self._class_c = class_c_service or ClassCSnapshotService(
             layout,
@@ -1299,7 +1453,10 @@ class TriadRollbackService:
             error=reason or None,
         )
         live = self._orchestrator._path_guard.validate_swap_path(
-            segment, journal.live_path, field="live_path"
+            segment,
+            journal.live_path,
+            field="live_path",
+            live_root=journal.live_path,
         )
         if live.is_symlink() or not live.is_dir():
             raise ValidationError("live_path is not a plain directory", field="live_path")
@@ -1625,6 +1782,7 @@ class LiveRefreshService:
         lifecycle_lease: Any | None = None,
         repo_lease: RepoLeaseManager,
         servers_data_dir: str | os.PathLike[str] | None = None,
+        live_root: str | os.PathLike[str] | None = None,
         stability_window: float = 0.0,
         fencing_token: int = 1,
         lease_wait_timeout: float = 60.0,
@@ -1648,6 +1806,7 @@ class LiveRefreshService:
             layout,
             repository=self._repository,
             servers_data_dir=servers_data_dir,
+            live_root=live_root,
         )
         self._class_c = class_c_service or ClassCSnapshotService(
             layout,
@@ -1676,6 +1835,7 @@ class LiveRefreshService:
             reset_main_ref=reset_main_ref,
             repo_lease=repo_lease,
             servers_data_dir=servers_data_dir,
+            live_root=live_root,
         )
 
     # ------------------------------------------------------------------
@@ -1779,6 +1939,7 @@ class LiveRefreshService:
         | None = None,
         health_gate: Any | None = None,
         stage_export: StageExportPort | None = None,
+        on_stage: Callable[[str], Awaitable[None]] | None = None,
     ) -> LiveRefreshResult:
         """Run the seven-step refresh; roll back automatically on failure."""
         _require_posix_live_refresh()
@@ -1831,6 +1992,7 @@ class LiveRefreshService:
                     pre_stage_hook=pre_stage_hook,
                     health_gate=health_gate,
                     stage_export_override=stage_export,
+                    on_stage=on_stage,
                 )
             except BaseException as exc:
                 await self._compensate(journal, token, exc, guard)
@@ -2038,6 +2200,7 @@ class LiveRefreshService:
         | None = None,
         health_gate: Any | None = None,
         stage_export_override: StageExportPort | None = None,
+        on_stage: Callable[[str], Awaitable[None]] | None = None,
     ) -> LiveRefreshResult:
         backup = self._require_backup()
         stage_export = stage_export_override or self._require_stage_export()
@@ -2096,31 +2259,49 @@ class LiveRefreshService:
         journal = await self._transition(
             journal.journal_id, guard=guard, token=token, phase="STAGING"
         )
+        if on_stage is not None:
+            await on_stage("STAGE_FILES")
         if guard is not None:
             await guard.assert_live()
         with staging_enospc_guard(staging, live_dir=live):
-            staged = stage_export(
-                staging,
-                effective_target_main_sha,
-                export_id=journal.export_id or request.export_id,
-                fencing_verifier=(guard.check if guard is not None else _noop_fencing_verifier),
-            )
-            awaitable = _as_awaitable(staged)
-            if awaitable is not None:
-                await awaitable
+            fencing_verifier = guard.check if guard is not None else _noop_fencing_verifier
+            if inspect.iscoroutinefunction(stage_export):
+                await stage_export(
+                    staging,
+                    effective_target_main_sha,
+                    export_id=journal.export_id or request.export_id,
+                    fencing_verifier=fencing_verifier,
+                )
+            else:
+                staged = await asyncio.to_thread(
+                    stage_export,
+                    staging,
+                    effective_target_main_sha,
+                    export_id=journal.export_id or request.export_id,
+                    fencing_verifier=fencing_verifier,
+                )
+                awaitable = _as_awaitable(staged)
+                if awaitable is not None:
+                    await awaitable
 
+        superseded_paths = _compute_upgrade_superseded_paths(live, staging, request)
+        if on_stage is not None:
+            await on_stage("SWAP_LIVE_TREE")
         carried = await self._orchestrator.carry_and_swap(
             journal,
             fencing_token=token,
             retention_policy=policy,
             now=self._now(),
             guard=guard,
+            superseded_paths=superseded_paths,
         )
         journal = carried.journal
 
         journal = await self._transition(
             journal.journal_id, guard=guard, token=token, phase="STARTING"
         )
+        if on_stage is not None:
+            await on_stage("HEALTH_GATE")
         mark_refresh_start = getattr(runtime, "mark_refresh_start", None)
         if callable(mark_refresh_start):
             mark_refresh_start(self._now())
@@ -2143,6 +2324,8 @@ class LiveRefreshService:
                 failed_step=getattr(raw_health, "failed_step", None),
                 reason=getattr(raw_health, "reason", None),
             )
+        if on_stage is not None:
+            await on_stage("FINALIZE")
         if not health.passed:
             rolled = await self._rollback.rollback(
                 segment,
@@ -2235,10 +2418,16 @@ class LiveRefreshService:
             try:
                 if current.carried_entries and os.path.lexists(current.staging_path):
                     live = self._orchestrator._path_guard.validate_swap_path(
-                        current.server_id, current.live_path, field="live_path"
+                        current.server_id,
+                        current.live_path,
+                        field="live_path",
+                        live_root=current.live_path,
                     )
                     staging = self._orchestrator._path_guard.validate_swap_path(
-                        current.server_id, current.staging_path, field="staging_path"
+                        current.server_id,
+                        current.staging_path,
+                        field="staging_path",
+                        live_root=current.live_path,
                     )
                     await asyncio.to_thread(
                         restore_carried_entries,

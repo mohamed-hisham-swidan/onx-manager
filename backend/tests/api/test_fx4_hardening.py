@@ -88,24 +88,39 @@ async def test_docker_rcon_cli_passes_double_dash_before_command() -> None:
     )
 
     recorded_docker_args: list[tuple] = []
+    sent_commands: list[str] = []
 
     async def mock_docker_cmd(*args: str, **_kwargs: Any) -> tuple[int, str]:
         recorded_docker_args.append(args)
         return 0, "Server output"
 
-    with patch.object(provider, "_docker_command", side_effect=mock_docker_cmd):
+    mock_rcon = AsyncMock()
+    mock_rcon.connect = AsyncMock()
+    mock_rcon.close = AsyncMock()
+
+    async def _send(cmd: str) -> str:
+        sent_commands.append(cmd)
+        return "Server output"
+
+    mock_rcon.send_command = AsyncMock(side_effect=_send)
+
+    with (
+        patch.object(
+            provider,
+            "_resolve_rcon_credentials",
+            AsyncMock(return_value=("127.0.0.1", 25575, "secret")),
+        ),
+        patch(
+            "app.modules.server.infrastructure.providers.docker.AsyncRCONClient",
+            return_value=mock_rcon,
+        ),
+        patch.object(provider, "_docker_command", side_effect=mock_docker_cmd),
+    ):
         await provider.execute_command(handle, "-h")
 
     exec_calls = [c for c in recorded_docker_args if c[0] == "exec"]
-    assert len(exec_calls) == 1
-    # Arguments must be: "exec", container_name, "rcon-cli", "--", "-h"
-    assert exec_calls[0] == (
-        "exec",
-        "onx-srv-docker-cmd",
-        "rcon-cli",
-        "--",
-        "-h",
-    )
+    assert exec_calls == []
+    assert sent_commands == ["-h"]
 
 
 # -----------------------------------------------------------------------------

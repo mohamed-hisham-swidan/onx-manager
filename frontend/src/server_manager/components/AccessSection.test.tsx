@@ -92,12 +92,12 @@ describe("AccessSection Component", () => {
 
     renderAccessSection();
 
-    expect(await screen.findByText("Instance Access Control")).toBeInTheDocument();
+    expect(await screen.findByText("User Registration Mode")).toBeInTheDocument();
     expect(screen.getByText("LOCAL MODE")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Switch to GLOBAL Mode/i })).toBeInTheDocument();
   });
 
-  it("2. Displays Access Denied for Non-Owner user", async () => {
+  it("2. Displays Owner Access Required for Non-Owner user", async () => {
     mockGetMe.mockResolvedValueOnce({
       user_id: "u-admin",
       roles: ["admin"],
@@ -112,9 +112,9 @@ describe("AccessSection Component", () => {
 
     renderAccessSection();
 
-    expect(await screen.findByText("Access Denied")).toBeInTheDocument();
+    expect(await screen.findByText("Owner Access Required")).toBeInTheDocument();
     expect(
-      screen.getByText("Only the instance Owner can view or modify Access Mode settings.")
+      screen.getByText("Only the instance Owner can view or modify Remote & Access settings.")
     ).toBeInTheDocument();
   });
 
@@ -140,7 +140,7 @@ describe("AccessSection Component", () => {
     expect(mockUpdateAccessMode).not.toHaveBeenCalled();
     expect(screen.getByText("Switch to GLOBAL Access Mode?")).toBeInTheDocument();
     expect(
-      screen.getByText(/Changing the instance Access Mode to GLOBAL will immediately disable open self-registration/i)
+      screen.getByText(/Open sign-ups will close immediately\. New users will need an invitation link/i)
     ).toBeInTheDocument();
   });
 
@@ -248,7 +248,7 @@ describe("AccessSection Component", () => {
 
     expect(screen.getByText("Switch to LOCAL Access Mode?")).toBeInTheDocument();
     expect(
-      screen.getByText(/Changing the instance Access Mode to LOCAL will immediately enable open self-registration/i)
+      screen.getByText(/Open sign-ups will open immediately with default Viewer permissions/i)
     ).toBeInTheDocument();
   });
 });

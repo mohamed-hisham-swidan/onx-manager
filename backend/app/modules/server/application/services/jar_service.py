@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
+import hashlib
+import inspect
 import logging
 import os
 import re
 import secrets
 import string
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -153,12 +156,6 @@ SOFTWARE_METADATA: dict[str, dict] = {
         "name": "Spigot",
         "description": "Most widely-used Minecraft server software with plugin support.",
         "url": "https://spigotmc.org",
-        "supports_versions": True,
-    },
-    "bukkit": {
-        "name": "Bukkit",
-        "description": "Original plugin API for Minecraft servers.",
-        "url": "https://bukkit.org",
         "supports_versions": True,
     },
 }
@@ -649,10 +646,6 @@ async def fetch_spigot_versions() -> list[str]:
     ]
 
 
-async def fetch_bukkit_versions() -> list[str]:
-    return await fetch_spigot_versions()
-
-
 async def fetch_quilt_versions() -> list[str]:
     try:
         async with (
@@ -698,7 +691,6 @@ VERSION_FETCHERS: dict[str, Callable[[], Awaitable[list[str]]]] = {
     "forge": fetch_forge_versions,
     "neoforge": fetch_neoforge_versions,
     "spigot": fetch_spigot_versions,
-    "bukkit": fetch_bukkit_versions,
 }
 
 
@@ -766,12 +758,126 @@ def validate_jar(path: str, fs: FileSystem | None = None) -> None:
         raise CorruptedDownloadError(path, f"invalid ZIP/JAR header: {header.hex()!r}")
 
 
+DownloadProgressCallback = Callable[
+    [str, int, int | None, float | None, float | None, int, int],
+    Awaitable[None] | None,
+]
+
+_ACTIVE_DOWNLOAD_CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "jar_service_download_context",
+    default=None,
+)
+_DOWNLOAD_PROGRESS_THROTTLE_SECONDS: float = 0.22
+
+
+@contextlib.contextmanager
+def download_progress_context(
+    on_progress: DownloadProgressCallback | None,
+    *,
+    file_index: int = 1,
+    file_total: int = 1,
+    display_filename: str | None = None,
+):
+    """Bind a download progress callback for the current async task."""
+    token = _ACTIVE_DOWNLOAD_CONTEXT.set(
+        {
+            "on_progress": on_progress,
+            "file_index": file_index,
+            "file_total": file_total,
+            "display_filename": display_filename,
+        }
+    )
+    try:
+        yield
+    finally:
+        _ACTIVE_DOWNLOAD_CONTEXT.reset(token)
+
+
+def resolve_display_jar_filename(
+    server_type: str,
+    minecraft_version: str,
+    url: str | None = None,
+) -> str:
+    """Return a friendly JAR filename for progress display."""
+    if url:
+        tail = url.rsplit("/", 1)[-1].split("?")[0].strip()
+        if tail.endswith(".jar") and tail != "server.jar":
+            return tail
+    safe_type = (server_type or "server").strip().lower()
+    safe_ver = (minecraft_version or "").strip()
+    if safe_ver:
+        return f"{safe_type}-{safe_ver}.jar"
+    return f"{safe_type}.jar"
+
+
+def compute_file_sha256(path: str, fs: FileSystem | None = None) -> str | None:
+    """Compute SHA-256 hex digest of a downloaded JAR if readable on disk."""
+    target_fs = fs or local_fs
+    try:
+        if not target_fs.exists(path):
+            return None
+        if target_fs is local_fs and os.path.isfile(path):
+            digest = hashlib.sha256()
+            with open(path, "rb") as fh:
+                while chunk := fh.read(65536):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        return hashlib.sha256(target_fs.read_binary(path)).hexdigest()
+    except OSError:
+        return None
+
+
+async def _invoke_progress_callback(
+    callback: DownloadProgressCallback,
+    filename: str,
+    bytes_downloaded: int,
+    total_bytes: int | None,
+    speed_bps: float | None,
+    eta_seconds: float | None,
+    file_index: int,
+    file_total: int,
+) -> None:
+    try:
+        res = callback(
+            filename,
+            bytes_downloaded,
+            total_bytes,
+            speed_bps,
+            eta_seconds,
+            file_index,
+            file_total,
+        )
+        if inspect.isawaitable(res):
+            await res
+    except Exception as exc:  # noqa: BLE001 - progress callback must never abort download
+        logger.debug("Download progress callback error ignored: %s", exc)
+
+
+def _extract_content_length(resp: Any) -> int | None:
+    raw_cl = getattr(resp, "content_length", None)
+    if isinstance(raw_cl, int) and not isinstance(raw_cl, bool) and raw_cl > 0:
+        return raw_cl
+    headers = getattr(resp, "headers", None)
+    if isinstance(headers, Mapping):
+        header_val = headers.get("Content-Length") or headers.get("content-length")
+        if isinstance(header_val, (str, int)) and not isinstance(header_val, bool):
+            with contextlib.suppress(TypeError, ValueError):
+                parsed = int(header_val)
+                if parsed > 0:
+                    return parsed
+    return None
+
+
 async def download_server_jar(
     server_id: str,
     server_type: str,
     minecraft_version: str,
     deployment: ServerDeployment | None = None,
     fs: FileSystem | None = None,
+    on_progress: DownloadProgressCallback | None = None,
+    file_index: int = 1,
+    file_total: int = 1,
+    display_filename: str | None = None,
 ) -> str:
     fs = fs or local_fs
     dest = _resolve_jar_dest(deployment, server_id)
@@ -801,32 +907,52 @@ async def download_server_jar(
     jar_url = await _resolve_download_url_async(server_type, minecraft_version)
     fs.ensure_dir(parent)
 
+    ctx = _ACTIVE_DOWNLOAD_CONTEXT.get() or {}
+    effective_cb = on_progress if on_progress is not None else ctx.get("on_progress")
+    effective_index = (
+        file_index if on_progress is not None else int(ctx.get("file_index", file_index))
+    )
+    effective_total = (
+        file_total if on_progress is not None else int(ctx.get("file_total", file_total))
+    )
+    effective_name = (
+        display_filename
+        or ctx.get("display_filename")
+        or resolve_display_jar_filename(server_type, minecraft_version, jar_url)
+    )
+
     content: bytes | None = None
-    for attempt in range(JAR_MAX_RETRIES + 1):
-        try:
-            content = await _do_download(jar_url, dest=dest)
-        except (DownloadError, DownloadTimeoutError) as e:
-            if attempt < JAR_MAX_RETRIES:
-                wait = 1.0 * (2**attempt)
-                logger.warning(
-                    "Download attempt %d failed for %s (%s: %s), retrying in %.1fs",
-                    attempt + 1,
+    with download_progress_context(
+        effective_cb,
+        file_index=effective_index,
+        file_total=effective_total,
+        display_filename=effective_name,
+    ):
+        for attempt in range(JAR_MAX_RETRIES + 1):
+            try:
+                content = await _do_download(jar_url, dest=dest)
+            except (DownloadError, DownloadTimeoutError) as e:
+                if attempt < JAR_MAX_RETRIES:
+                    wait = 1.0 * (2**attempt)
+                    logger.warning(
+                        "Download attempt %d failed for %s (%s: %s), retrying in %.1fs",
+                        attempt + 1,
+                        jar_url,
+                        type(e).__name__,
+                        e,
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                logger.error(
+                    "Download permanently failed for %s (%s: %s)",
                     jar_url,
                     type(e).__name__,
                     e,
-                    wait,
                 )
-                await asyncio.sleep(wait)
-                continue
-            logger.error(
-                "Download permanently failed for %s (%s: %s)",
-                jar_url,
-                type(e).__name__,
-                e,
-            )
-            raise e
-        else:
-            break
+                raise e
+            else:
+                break
 
     if content is not None:
         fs.write_binary_atomic(dest, content)
@@ -839,6 +965,10 @@ async def download_installer_jar(
     url: str,
     dest: str,
     fs: FileSystem | None = None,
+    on_progress: DownloadProgressCallback | None = None,
+    file_index: int = 1,
+    file_total: int = 1,
+    display_filename: str | None = None,
 ) -> str:
     """Download an arbitrary server-related JAR (e.g. the Forge installer) to
     ``dest`` using the same timeout/retry/validation pattern as server JARs.
@@ -847,31 +977,47 @@ async def download_installer_jar(
     parent = str(Path(dest).parent)
     fs.ensure_dir(parent)
 
+    ctx = _ACTIVE_DOWNLOAD_CONTEXT.get() or {}
+    effective_cb = on_progress if on_progress is not None else ctx.get("on_progress")
+    effective_index = (
+        file_index if on_progress is not None else int(ctx.get("file_index", file_index))
+    )
+    effective_total = (
+        file_total if on_progress is not None else int(ctx.get("file_total", file_total))
+    )
+    effective_name = display_filename or ctx.get("display_filename") or Path(dest).name
+
     content: bytes | None = None
-    for attempt in range(JAR_MAX_RETRIES + 1):
-        try:
-            content = await _do_download(url, dest=dest)
-        except (TimeoutError, DownloadError, DownloadTimeoutError) as exc:
-            if attempt < JAR_MAX_RETRIES:
-                wait = 1.0 * (2**attempt)
-                logger.warning(
-                    "Download attempt %d failed for %s (%s: %s), retrying in %.1fs",
-                    attempt + 1,
-                    url,
-                    type(exc).__name__,
-                    exc,
-                    wait,
+    with download_progress_context(
+        effective_cb,
+        file_index=effective_index,
+        file_total=effective_total,
+        display_filename=effective_name,
+    ):
+        for attempt in range(JAR_MAX_RETRIES + 1):
+            try:
+                content = await _do_download(url, dest=dest)
+            except (TimeoutError, DownloadError, DownloadTimeoutError) as exc:
+                if attempt < JAR_MAX_RETRIES:
+                    wait = 1.0 * (2**attempt)
+                    logger.warning(
+                        "Download attempt %d failed for %s (%s: %s), retrying in %.1fs",
+                        attempt + 1,
+                        url,
+                        type(exc).__name__,
+                        exc,
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                logger.error(
+                    "Download permanently failed for %s (%s: %s)", url, type(exc).__name__, exc
                 )
-                await asyncio.sleep(wait)
-                continue
-            logger.error(
-                "Download permanently failed for %s (%s: %s)", url, type(exc).__name__, exc
-            )
-            raise InstallerDownloadError(
-                detail=f"Download failed for {url}: {exc}", url=url
-            ) from exc
-        else:
-            break
+                raise InstallerDownloadError(
+                    detail=f"Download failed for {url}: {exc}", url=url
+                ) from exc
+            else:
+                break
 
     if content is not None:
         fs.write_binary_atomic(dest, content)
@@ -880,13 +1026,33 @@ async def download_installer_jar(
     return dest
 
 
-async def _do_download(url: str, dest: str | None = None) -> bytes | None:
+async def _do_download(
+    url: str,
+    dest: str | None = None,
+    *,
+    on_progress: DownloadProgressCallback | None = None,
+    file_index: int = 1,
+    file_total: int = 1,
+    display_filename: str | None = None,
+) -> bytes | None:
     timeout = aiohttp.ClientTimeout(
         total=None,
         connect=JAR_DOWNLOAD_CONNECT_TIMEOUT,
         sock_connect=JAR_DOWNLOAD_CONNECT_TIMEOUT,
         sock_read=JAR_DOWNLOAD_SOCK_READ_TIMEOUT,
     )
+    ctx = _ACTIVE_DOWNLOAD_CONTEXT.get() or {}
+    cb = on_progress if on_progress is not None else ctx.get("on_progress")
+    eff_index = file_index if on_progress is not None else int(ctx.get("file_index", file_index))
+    eff_total = file_total if on_progress is not None else int(ctx.get("file_total", file_total))
+    url_tail = url.rsplit("/", 1)[-1].split("?")[0].strip()
+    eff_name = (
+        display_filename
+        or ctx.get("display_filename")
+        or (Path(dest).name if dest else None)
+        or (url_tail if url_tail else "server.jar")
+    )
+
     part_path = f"{dest}.part" if dest else None
     try:
         async with (
@@ -895,6 +1061,51 @@ async def _do_download(url: str, dest: str | None = None) -> bytes | None:
         ):
             if resp.status != 200:
                 raise DownloadError(url, resp.status)
+
+            total_bytes = _extract_content_length(resp)
+            bytes_downloaded = 0
+            started_mono = time.monotonic()
+            last_emit_mono = started_mono
+            last_emit_bytes = 0
+            smoothed_bps: float | None = None
+
+            if cb is not None:
+                await _invoke_progress_callback(
+                    cb, eff_name, 0, total_bytes, None, None, eff_index, eff_total
+                )
+
+            async def _track_chunk(chunk_len: int) -> None:
+                nonlocal bytes_downloaded, last_emit_mono, last_emit_bytes, smoothed_bps
+                bytes_downloaded += chunk_len
+                if cb is None:
+                    return
+                now = time.monotonic()
+                elapsed_since_emit = now - last_emit_mono
+                if elapsed_since_emit < _DOWNLOAD_PROGRESS_THROTTLE_SECONDS:
+                    return
+                dt = max(elapsed_since_emit, 1e-6)
+                instant_bps = (bytes_downloaded - last_emit_bytes) / dt
+                smoothed_bps = (
+                    instant_bps
+                    if smoothed_bps is None
+                    else (0.35 * instant_bps + 0.65 * smoothed_bps)
+                )
+                last_emit_mono = now
+                last_emit_bytes = bytes_downloaded
+                eta: float | None = None
+                if total_bytes is not None and total_bytes > 0 and smoothed_bps > 0:
+                    eta = max(0.0, (total_bytes - bytes_downloaded) / smoothed_bps)
+                await _invoke_progress_callback(
+                    cb,
+                    eff_name,
+                    bytes_downloaded,
+                    total_bytes,
+                    smoothed_bps,
+                    eta,
+                    eff_index,
+                    eff_total,
+                )
+
             if dest is not None:
                 assert part_path is not None
                 parent = Path(dest).parent
@@ -905,14 +1116,54 @@ async def _do_download(url: str, dest: str | None = None) -> bytes | None:
                         if not chunk:
                             break
                         f.write(chunk)
+                        await _track_chunk(len(chunk))
                 os.replace(part_path, dest)
+                if cb is not None:
+                    total_elapsed = max(time.monotonic() - started_mono, 1e-6)
+                    final_bps = (
+                        smoothed_bps
+                        if smoothed_bps is not None
+                        else (bytes_downloaded / total_elapsed)
+                    )
+                    final_total = total_bytes if total_bytes is not None else bytes_downloaded
+                    await _invoke_progress_callback(
+                        cb,
+                        eff_name,
+                        bytes_downloaded,
+                        final_total if final_total > 0 else total_bytes,
+                        final_bps,
+                        0.0 if total_bytes is not None else None,
+                        eff_index,
+                        eff_total,
+                    )
                 return None
+
             buffer = bytearray()
             while True:
                 chunk = await resp.content.read(65536)
                 if not chunk:
                     break
                 buffer.extend(chunk)
+                await _track_chunk(len(chunk))
+
+            if cb is not None:
+                total_elapsed = max(time.monotonic() - started_mono, 1e-6)
+                final_bps = (
+                    smoothed_bps
+                    if smoothed_bps is not None
+                    else (bytes_downloaded / total_elapsed)
+                )
+                final_total = total_bytes if total_bytes is not None else bytes_downloaded
+                await _invoke_progress_callback(
+                    cb,
+                    eff_name,
+                    bytes_downloaded,
+                    final_total if final_total > 0 else total_bytes,
+                    final_bps,
+                    0.0 if total_bytes is not None else None,
+                    eff_index,
+                    eff_total,
+                )
             return bytes(buffer)
     except TimeoutError as e:
         if part_path and os.path.exists(part_path):
@@ -944,7 +1195,6 @@ def _get_resolver(server_type: str) -> Callable[[str], Awaitable[str]]:
         "fabric": _resolve_fabric_url,
         "quilt": _resolve_quilt_url,
         "spigot": _resolve_spigot_url,
-        "bukkit": _resolve_bukkit_url,
         "forge": _resolve_forge_url,
         "neoforge": _resolve_neoforge_url,
     }
@@ -1192,10 +1442,6 @@ async def _resolve_quilt_url(version: str) -> str:
 
 async def _resolve_spigot_url(version: str) -> str:
     return f"https://download.getbukkit.org/spigot/spigot-{version}.jar"
-
-
-async def _resolve_bukkit_url(version: str) -> str:
-    return f"https://download.getbukkit.org/craftbukkit/craftbukkit-{version}.jar"
 
 
 async def _resolve_forge_url(version: str) -> str:

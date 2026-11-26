@@ -273,8 +273,8 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
         if not os.path.exists(server_dir):
             raise NotFoundError(f"Server directory '{server_dir}' not found on disk")
 
-        # 2. Assert storage capability supports reflink
-        StorageCapabilityProbe.assert_supports_reflink(server_dir)
+        # 2. Check storage capability (reflink preferred; falls back to standard copy on ext4/NTFS)
+        supports_reflink = StorageCapabilityProbe.probe_path(server_dir)
 
         # 3. Resolve or auto-create branch
         from app.modules.versioning.domain.value_objects import BranchStatus
@@ -295,10 +295,14 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
 
         expected_head = branch.head_commit_id
 
-        # 4. Create COW world snapshot
+        # 4. Create world snapshot (reflink when supported, standard copy fallback on ext4/NTFS)
         snapshot_id = str(uuid.uuid4())
         snapshot_dir = Path(server_dir) / ".onx" / "snapshots" / snapshot_id
-        size_bytes = BtrfsZfsSnapshotDriver.create_snapshot(server_dir, snapshot_dir)
+        size_bytes = BtrfsZfsSnapshotDriver.create_snapshot(
+            server_dir,
+            snapshot_dir,
+            allow_copy_fallback=not supports_reflink,
+        )
 
         world_snapshot = ServerWorldSnapshot(
             id=snapshot_id,

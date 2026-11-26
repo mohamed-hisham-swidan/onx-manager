@@ -99,10 +99,14 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-1">
-                    Spawn Protection
+                  <label
+                    htmlFor="wizard-spawn-protection"
+                    className="block text-sm font-medium text-text-secondary mb-1"
+                  >
+                    Spawn Protection Radius
                   </label>
                   <input
+                    id="wizard-spawn-protection"
                     type="number"
                     value={data.spawnProtection}
                     placeholder="16"
@@ -152,7 +156,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
         <button
           type="button"
           onClick={onNext}
-          className="px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-white text-sm font-medium transition-colors shadow-xs cursor-pointer"
+          className="px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors shadow-xs cursor-pointer"
         >
           Next
         </button>

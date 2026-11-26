@@ -159,6 +159,62 @@ async def set_panel_exposure(
     return _to_panel_exposure_response(check_command_result(result))
 
 
+def _is_blocked_ssrf_probe_host(host: str) -> bool:
+    """Reject loopback/private/link-local/metadata IPs on user-supplied external probes."""
+    import ipaddress
+
+    cleaned = (host or "").strip().strip("[]").lower()
+    if not cleaned:
+        return True
+    if cleaned in ("localhost", "localhost.localdomain", "metadata.google.internal"):
+        return True
+    try:
+        ip = ipaddress.ip_address(cleaned)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+    except ValueError:
+        return False
+
+
+def _parse_probe_host_port(result: dict) -> tuple[str, int] | None:
+    """Resolve the (host, port) target for a live Minecraft SLP reachability probe."""
+    targets = result.get("targets") or []
+    is_active = (
+        result.get("desired_state") == "ENABLED"
+        and result.get("aggregate_status") == "ACTIVE"
+    )
+    if is_active and targets:
+        primary = next((t for t in targets if t.get("service_type") == "java"), targets[0])
+        raw_addr = (primary.get("public_address") or "").strip()
+        if raw_addr:
+            clean = raw_addr
+            if "://" in clean:
+                clean = clean.split("://", 1)[1]
+            clean = clean.split("/", 1)[0].strip()
+            if clean:
+                host_part = clean
+                port_val = 25565
+                if clean.startswith("[") and "]" in clean:
+                    host_part, _, rest = clean[1:].partition("]")
+                    if rest.startswith(":") and rest[1:].isdigit():
+                        port_val = int(rest[1:])
+                elif ":" in clean:
+                    h, p = clean.rsplit(":", 1)
+                    if h and p.isdigit():
+                        host_part = h
+                        port_val = int(p)
+                if _is_blocked_ssrf_probe_host(host_part):
+                    return None
+                return host_part, port_val
+    return None
+
+
 @router.get(
     "/servers/{server_id}/exposure",
     response_model=ServerExposureResponse,
@@ -166,12 +222,49 @@ async def set_panel_exposure(
 async def get_server_exposure(
     server_id: str,
     branch: str | None = Query(default=None),
+    probe: bool = Query(default=False),
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
     _current_user: dict = Depends(require_exposure_grant("server.{id}.exposure.view")),  # noqa: B008
 ) -> ServerExposureResponse:
     result = await query_bus.ask(
         GetServerExposureQuery(server_id=server_id, branch_name=branch or "main")
     )
+    if probe:
+        from app.modules.versioning.infrastructure.mc_slp import probe_minecraft_slp
+
+        parsed_target = _parse_probe_host_port(result)
+        if parsed_target is None:
+            result = {
+                **result,
+                "reachability": {
+                    "reachable": False,
+                    "target_address": "",
+                    "latency_ms": None,
+                    "version_name": None,
+                    "protocol_version": None,
+                    "players_online": None,
+                    "players_max": None,
+                    "motd": None,
+                    "error": "No active public external address available to probe",
+                },
+            }
+        else:
+            host, port = parsed_target
+            slp = await probe_minecraft_slp(host, port, timeout_seconds=4.0)
+            result = {
+                **result,
+                "reachability": {
+                    "reachable": slp.reachable,
+                    "target_address": f"{host}:{port}",
+                    "latency_ms": slp.latency_ms,
+                    "version_name": slp.version_name,
+                    "protocol_version": slp.protocol_version,
+                    "players_online": slp.players_online,
+                    "players_max": slp.players_max,
+                    "motd": slp.motd,
+                    "error": slp.error,
+                },
+            }
     return ServerExposureResponse(**result)
 
 
@@ -241,10 +334,11 @@ async def remove_server_exposure(
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> None:
+    effective_branch = branch if isinstance(branch, str) and branch else "main"
     result = await command_bus.send(
         RemoveServerExposureCommand(
             server_id=server_id,
-            branch_name=branch or "main",
+            branch_name=effective_branch,
             actor_id=current_user.get("user_id", ""),
         )
     )

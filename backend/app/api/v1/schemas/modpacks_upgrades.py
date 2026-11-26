@@ -66,7 +66,7 @@ class LecPrewarmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lec_key: str | None = Field(default=None, min_length=3, max_length=256)
-    loader_id: Literal["fabric", "quilt", "forge", "neoforge", "paper"] | None = None
+    loader_id: Literal["fabric", "quilt", "forge", "neoforge", "paper", "purpur"] | None = None
     mc_version: str | None = Field(default=None, min_length=1, max_length=32)
     loader_version: str | None = Field(default=None, min_length=1, max_length=64)
     installer_version: str | None = Field(default=None, min_length=1, max_length=64)
@@ -205,14 +205,16 @@ class PlanUpgradeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_mc: str = Field(..., min_length=1, max_length=32)
-    target_loader_id: Literal["fabric", "quilt", "forge", "neoforge", "paper"]
+    target_loader_id: Literal["fabric", "quilt", "forge", "neoforge", "paper", "purpur"]
     target_loader_version: str = Field(..., min_length=1, max_length=64)
     target_lec_key: str | None = Field(default=None, min_length=3, max_length=256)
     staged_pack_id: str | None = Field(default=None, min_length=1, max_length=64)
     excluded_paths: list[str] = Field(default_factory=list, max_length=500)
+    keep_paths: list[str] = Field(default_factory=list, max_length=500)
     version_types: list[Literal["release", "beta", "alpha"]] = Field(
         default_factory=lambda: ["release"], min_length=1, max_length=3
     )
+    verify_public_network: bool | None = None
 
     @field_validator("target_lec_key")
     @classmethod
@@ -239,6 +241,7 @@ class ApplyUpgradeRequest(BaseModel):
 
     resolved_conflicts: dict[str, str] = Field(default_factory=dict)
     async_mode: bool = False
+    verify_public_network: bool | None = None
 
 
 class RollbackUpgradeRequest(BaseModel):

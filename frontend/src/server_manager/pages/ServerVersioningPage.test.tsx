@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { ServerVersioningPage } from "./ServerVersioningPage";
 import type { GitHubConnectionStatusResponse } from "@/server_manager/types";
 const mockApi = {
@@ -196,21 +196,28 @@ describe("ServerVersioningPage", () => {
     vi.mocked(mockApi.listGitHubWebhookDeliveries).mockResolvedValue([]);
   });
 
+  const SettingsRouteProbe = () => {
+    const loc = useLocation();
+    return <div data-testid="settings-route-target">{`${loc.pathname}${loc.search}`}</div>;
+  };
+
   const renderPage = () =>
     render(
       <MemoryRouter initialEntries={["/servers/srv-vers-1/versioning"]}>
         <Routes>
           <Route path="/servers/:serverId/versioning" element={<ServerVersioningPage />} />
+          <Route path="/servers/:serverId/settings" element={<SettingsRouteProbe />} />
         </Routes>
       </MemoryRouter>
     );
 
-  it("renders branches, preflight COW status, and commit timeline", async () => {
+  it("renders branches and commit timeline without legacy Btrfs storage banner or bot test list", async () => {
     renderPage();
 
-    expect(await screen.findByText("Versions & Isolated Testing")).toBeInTheDocument();
-    expect(await screen.findByText(/Instant storage cloning: available/i)).toBeInTheDocument();
-    expect(screen.getByTitle(/copy-on-write \/ Btrfs \/ ZFS/i)).toBeInTheDocument();
+    expect(await screen.findByText("Versions & Sandboxes")).toBeInTheDocument();
+    expect(screen.queryByText(/Instant storage cloning/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Run Isolated Test/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verification Defaults/i)).not.toBeInTheDocument();
     expect(await screen.findByText("Initial baseline configuration")).toBeInTheDocument();
     expect(screen.getByText("c-111222")).toBeInTheDocument();
   });
@@ -219,20 +226,20 @@ describe("ServerVersioningPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument();
+      expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument();
     });
 
     expect(screen.getByRole("button", { name: "Live Refresh" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rollback" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm Upgrade" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Class-C & Secret Vault" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Live Data & Secret Vault" })).toBeInTheDocument();
     expect(screen.getByText("Merge Branch")).toBeInTheDocument();
   });
 
   it("clicking Live Refresh calls refreshServer", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Live Refresh" }));
     await waitFor(() => expect(mockApi.refreshServer).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ retention_policy: "until_health_gate" })));
   });
@@ -259,7 +266,7 @@ describe("ServerVersioningPage", () => {
     const user = userEvent.setup();
     mockApi.mergeServerCommits.mockRejectedValueOnce(Object.assign(new Error("conflict"), { detail: { conflicts: [{ path: "a", key_path: "k", base: "b", ours: "o", theirs: "t" }], findings: [{ x: 1 }] } }));
     renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
     await user.click(screen.getByText("Merge Branch"));
     const modal = await screen.findByRole("dialog", { name: "Merge Branch" });
     expect(modal).toBeInTheDocument();
@@ -270,25 +277,14 @@ describe("ServerVersioningPage", () => {
     expect(screen.getByText(/\{"x":1\}/)).toBeInTheDocument();
   });
 
-  it("Previous Tree Retention Policy saves previous_tree_retention", async () => {
+  it("Live Data & Secret Vault modal lists and extracts secret clearing password", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Verification Defaults" }));
-    const select = await screen.findByLabelText("Previous Tree Retention Policy");
-    await user.selectOptions(select, "24h");
-    await user.click(screen.getByRole("button", { name: "Save Defaults" }));
-    await waitFor(() => expect(mockApi.updateBotSettings).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ previous_tree_retention: "24h" })));
-  });
-
-  it("Class-C & Secret Vault modal lists and extracts secret clearing password", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Class-C & Secret Vault" }));
+    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Live Data & Secret Vault" }));
     expect(await screen.findByText("snap1")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Dynamic Class-C" }));
-    expect(await screen.findByRole("button", { name: "Reset to Class B (Track from main)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Live Runtime" }));
+    expect(await screen.findByRole("button", { name: "Track in Git (from main)" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Secrets" }));
     expect(await screen.findByText(/\$\{ONX_SECRET_DB_PASSWORD\}/)).toBeInTheDocument();
     const pwd = screen.getByPlaceholderText("Secret Plaintext Value") as HTMLInputElement;
@@ -297,18 +293,6 @@ describe("ServerVersioningPage", () => {
     await user.click(screen.getByRole("button", { name: "Extract Secret" }));
     await waitFor(() => expect(pwd.value).toBe(""));
     expect(mockApi.extractSecret).toHaveBeenCalled();
-  });
-
-  it("displays warning state when instant storage cloning is unavailable", async () => {
-    vi.mocked(mockApi.getPreflightStatus).mockResolvedValue({
-      ...mockPreflight,
-      reflink_supported: false,
-    });
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText(/Instant storage cloning: unavailable/i)).toBeInTheDocument();
-    });
   });
 
   it("opens create branch dialog and creates a new branch", async () => {
@@ -362,56 +346,7 @@ describe("ServerVersioningPage", () => {
     });
   });
 
-  it("opens TestRunModal, validates preflight, and launches isolated test", async () => {
-    vi.mocked(mockApi.runIsolatedTest).mockResolvedValue({ test_id: "test-run-456" });
-    vi.mocked(mockApi.getTestStatus).mockResolvedValue({
-      id: "test-run-456",
-      server_id: "srv-vers-1",
-      commit_id: "c-111222333",
-      node_id: "local",
-      status: "RUNNING",
-      ephemeral_port: 25570,
-      log_output: "Server starting...",
-      failure_reason: null,
-      created_at: "2026-09-14T10:10:00Z",
-      expires_at: null,
-      bot_count: 10,
-      duration_minutes: 15,
-      placement_mode: "sidecar",
-      bot_tech: "auto",
-    });
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("Run Isolated Test")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Run Isolated Test"));
-
-    expect(screen.getByText("Launch Isolated Bot Test")).toBeInTheDocument();
-    expect(screen.getByLabelText("Verification Bot Count")).toHaveValue(10);
-
-    // Unrestricted input test: enter custom scale
-    fireEvent.change(screen.getByLabelText("Verification Bot Count"), {
-      target: { value: "50" },
-    });
-    expect(screen.getByLabelText("Verification Bot Count")).toHaveValue(50);
-
-    fireEvent.click(screen.getByRole("button", { name: "Launch Test Run" }));
-
-    await waitFor(() => {
-      expect(mockApi.runIsolatedTest).toHaveBeenCalledWith("srv-vers-1", {
-        commit_id: "c-111222333",
-        bot_count: 50,
-        duration_minutes: 15,
-        placement_mode: "sidecar",
-        bot_tech: "auto",
-      });
-    });
-  });
-
-  it("renders dark theme classes on empty state panels when branch has no commits", async () => {
+  it("renders semantic surface classes on empty commit timeline when branch has no commits", async () => {
     vi.mocked(mockApi.getServerCommits).mockResolvedValue([]);
     renderPage();
 
@@ -421,57 +356,11 @@ describe("ServerVersioningPage", () => {
       ).toBeInTheDocument();
     });
 
-    // Verify empty state container has dark:bg-gray-800 and not dark:bg-gray-850
     const emptyCommitMsg = screen.getByText(/No snapshot commits yet on branch/i);
     const commitPanel = emptyCommitMsg.closest(".rounded-xl");
     expect(commitPanel).not.toBeNull();
-    expect(commitPanel).toHaveClass("dark:bg-gray-800");
-    expect(commitPanel?.className).not.toContain("gray-850");
-
-    // Verify isolated test runs empty state container has dark:bg-gray-800 and not dark:bg-gray-850
-    const emptyTestMsg = screen.getByText(/No isolated test runs active or recorded/i);
-    const testPanel = emptyTestMsg.closest(".rounded-xl");
-    expect(testPanel).not.toBeNull();
-    expect(testPanel).toHaveClass("dark:bg-gray-800");
-    expect(testPanel?.className).not.toContain("gray-850");
-  });
-
-  it("displays recorded test runs and opens console logs modal", async () => {
-    const mockRuns = [
-      {
-        id: "test-run-123456",
-        server_id: "srv-vers-1",
-        commit_id: "c-111222333",
-        status: "PASSED",
-        bot_count: 10,
-        bot_tech: "mineflayer",
-        duration_minutes: 15,
-        placement_mode: "sidecar",
-        ephemeral_port: 25566,
-        failure_reason: null,
-        log_output: "[STARTUP] Spawning test container\n[TEST] 10/10 bots joined\n[DONE] Verification passed",
-        created_at: "2026-09-15T10:00:00Z",
-      },
-    ];
-    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue(mockRuns);
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("1 runs recorded")).toBeInTheDocument();
-      expect(screen.getByText("ID: test-run")).toBeInTheDocument();
-      expect(screen.getByText("PASSED")).toBeInTheDocument();
-    });
-
-    const logsBtn = screen.getByRole("button", { name: "Logs" });
-    fireEvent.click(logsBtn);
-
-    expect(screen.getByText(/Test Run Console Output/i)).toBeInTheDocument();
-    expect(screen.getByText(/10\/10 bots joined/i)).toBeInTheDocument();
-
-    const closeButtons = screen.getAllByRole("button", { name: "Close" });
-    fireEvent.click(closeButtons[0]);
-    expect(screen.queryByText(/Test Run Console Output/i)).not.toBeInTheDocument();
+    expect(commitPanel).toHaveClass("bg-surface-card");
+    expect(screen.queryByText(/No isolated test runs active or recorded/i)).not.toBeInTheDocument();
   });
 
   it("renders 3-step visual workflow guide banner collapsed by default and allows expanding and collapsing", async () => {
@@ -490,7 +379,7 @@ describe("ServerVersioningPage", () => {
     fireEvent.click(expandBtn);
     expect(screen.getByText("Step 1: Snapshot World (Commit)")).toBeInTheDocument();
     expect(screen.getByText("Step 2: Isolate (Branch / Worktree)")).toBeInTheDocument();
-    expect(screen.getByText("Step 3: Automated Bot Dry-Run (Verify)")).toBeInTheDocument();
+    expect(screen.getByText("Step 3: Branch Sandbox & Live Promotion")).toBeInTheDocument();
 
     // No duplicate action buttons inside guide
     expect(screen.queryByRole("button", { name: "Create Snapshot" })).not.toBeInTheDocument();
@@ -502,15 +391,14 @@ describe("ServerVersioningPage", () => {
     expect(screen.getByRole("button", { name: /Expand Guide/i })).toBeInTheDocument();
   });
 
-  it("groups secondary commit actions in More commit actions menu while keeping primary test action visible", async () => {
+  it("groups secondary commit actions in More commit actions menu without legacy bot test button", async () => {
     renderPage();
 
     await waitFor(() => {
       expect(screen.getByText("Initial baseline configuration")).toBeInTheDocument();
     });
 
-    // Primary action visible
-    expect(screen.getByRole("button", { name: "Run Isolated Test" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run Isolated Test" })).not.toBeInTheDocument();
 
     // Secondary actions initially not in DOM
     expect(screen.queryByRole("button", { name: "Tag" })).not.toBeInTheDocument();
@@ -525,60 +413,6 @@ describe("ServerVersioningPage", () => {
     expect(screen.getByRole("button", { name: "Inspect Manifest" })).toBeInTheDocument();
   });
 
-  it("displays live summary badge counts, re-run button, and allows re-running test from run list", async () => {
-    const mockRuns = [
-      {
-        id: "test-run-passed-1",
-        server_id: "srv-vers-1",
-        commit_id: "c-111222333",
-        status: "PASSED",
-        bot_count: 10,
-        bot_tech: "fakeplayer_next",
-        duration_minutes: 15,
-        placement_mode: "sidecar",
-        ephemeral_port: 25566,
-        failure_reason: null,
-        log_output: "All ok",
-        created_at: "2026-09-15T10:00:00Z",
-      },
-      {
-        id: "test-run-active-2",
-        server_id: "srv-vers-1",
-        commit_id: "c-111222333",
-        status: "RUNNING",
-        bot_count: 5,
-        bot_tech: "auto",
-        duration_minutes: 10,
-        placement_mode: "sidecar",
-        ephemeral_port: 25568,
-        failure_reason: null,
-        log_output: "Running swarm",
-        created_at: "2026-09-15T10:10:00Z",
-      },
-    ];
-    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue(mockRuns);
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("1 Passed")).toBeInTheDocument();
-      expect(screen.getByText("1 Running / Pending")).toBeInTheDocument();
-    });
-
-    // Cancel Run button for active run
-    expect(screen.getByRole("button", { name: /Cancel Run/i })).toBeInTheDocument();
-
-    // Re-run button for test run
-    const reRunBtns = screen.getAllByRole("button", { name: /Re-run/i });
-    expect(reRunBtns.length).toBeGreaterThan(0);
-    fireEvent.click(reRunBtns[0]);
-
-    // Opens Launch Isolated Bot Test modal
-    await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: "Launch Isolated Bot Test" })).toBeInTheDocument();
-    });
-  });
-
   const switchToTrialBranch = async () => {
     const branchSelect = await screen.findByDisplayValue("main");
     fireEvent.change(branchSelect, { target: { value: "feat-trial" } });
@@ -588,7 +422,7 @@ describe("ServerVersioningPage", () => {
   it("hides the Branch Run Panel on main and shows it after switching to feat-trial", async () => {
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
     expect(screen.queryByTestId("branch-run-panel")).not.toBeInTheDocument();
 
     const panel = await switchToTrialBranch();
@@ -691,7 +525,7 @@ describe("ServerVersioningPage", () => {
     ]);
 
     renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Data Templates" }));
 
@@ -970,5 +804,15 @@ describe("ServerVersioningPage", () => {
     expect(
       await screen.findByTestId("versioning-open-modpack-wizard-btn"),
     ).toBeInTheDocument();
+  });
+
+  it("navigates to Settings Change Version drawer when Change Version is clicked", async () => {
+    renderPage();
+    const btn = await screen.findByTestId("versioning-open-safe-upgrade-wizard-btn");
+    expect(btn).toHaveTextContent("Change Version");
+    fireEvent.click(btn);
+    expect(await screen.findByTestId("settings-route-target")).toHaveTextContent(
+      "/servers/srv-vers-1/settings?tab=lifecycle&action=change-version",
+    );
   });
 });

@@ -79,16 +79,17 @@ describe("ApiKeysPage", () => {
     expect(screen.getByText(/mcs_a\.\.\./)).toBeInTheDocument();
   });
 
-  it("shows empty state when no keys", () => {
+  it("shows empty state with a single Create Key button when no keys exist", () => {
     mockData = [];
     renderPage();
     expect(screen.getByText("No API keys")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Create Key" })).toHaveLength(1);
   });
 
   it("toggles create form", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByRole("button", { name: "Create API Key" }));
-    expect(screen.getByText("Create API Key")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create Key" }));
+    expect(screen.getByPlaceholderText(/Key name/i)).toBeInTheDocument();
   });
 });

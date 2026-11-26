@@ -25,6 +25,8 @@ class RestoreBackupRequest(BaseModel):
 class BackupResponse(BaseResponse):
     backup_id: str
     server_id: str
+    server_name: str | None = None
+    server_deleted: bool = False
     backup_type: str
     status: str
     size_bytes: int
@@ -41,3 +43,6 @@ class VerifyBackupResponse(BaseResponse):
     valid: bool
     checksum_valid: bool
     size_valid: bool
+    artifact_present: bool | None = None
+    artifact_matches: bool | None = None
+    artifact_error: str | None = None

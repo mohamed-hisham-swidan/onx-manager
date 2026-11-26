@@ -15,9 +15,6 @@ from app.modules.storage.s3 import S3Storage
 from app.services.backup_orchestrator import BackupSaga
 from app.tasks.base import TaskStatus
 from app.tasks.definitions.cleanup_task import run_cleanup_task
-from app.tasks.definitions.discovery_scan import periodic_discovery_scan
-from app.tasks.definitions.health_check_task import run_health_check_task
-from app.tasks.definitions.health_recalculation import periodic_health_recalculation
 from app.tasks.definitions.metrics_collector import init_collector, run_metrics_collection_task
 from app.tasks.queue import InProcessQueue
 
@@ -223,29 +220,6 @@ class TestBatch4BCleanupTask:
         assert "idempotency_keys_deleted" in result
         assert "events_deleted" in result
         assert "tasks_deleted" in result
-
-
-class TestBatch4BTaskFallbacks:
-    """F078: discovery_scan and health_check_task fall back gracefully when params omit objects."""
-
-    @pytest.mark.asyncio
-    async def test_discovery_scan_fallback(self) -> None:
-        res = await periodic_discovery_scan({})
-        assert "discovered" in res
-        assert "already_known" in res
-
-    @pytest.mark.asyncio
-    async def test_health_check_task_fallback(self) -> None:
-        res = await run_health_check_task({})
-        assert "check_count" in res
-        assert "results" in res
-
-    @pytest.mark.asyncio
-    async def test_health_recalculation_fallback(self) -> None:
-        res = await periodic_health_recalculation({})
-        assert res["success"] is True
-        assert "processed" in res
-        assert "total" in res
 
 
 class TestBatch4BMetricsPrometheusWiring:

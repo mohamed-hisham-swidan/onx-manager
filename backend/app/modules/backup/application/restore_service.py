@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import errno
 import logging
 import os
@@ -480,23 +481,40 @@ async def consume_pending_restore(
 ) -> str | None:
     """Apply a pending restore for server_id if one exists, then delete its row.
 
-    Returns the applied backup_id, or None when no pending row existed. On failure the
-    pending row is preserved so the intent is not silently lost.
+    Routes through ``dispatch_two_tier_restore`` so Tier-1 snapshots, Tier-2
+    envelope archives, and legacy BackupSaga archives all restore cleanly.
+    Always clears the pending row on terminal error so a bad backup cannot
+    permanently brick subsequent server starts.
     """
+    job = None
     async with database.session_factory() as session:
         repo = SQLBackupRepository(session)
         pending = await repo.get_pending_restore(ServerId(server_id))
         if pending is None:
             return None
         backup_id, _ = pending
+        with contextlib.suppress(Exception):
+            job = await repo.get_job(BackupJobId(backup_id))
 
-    await perform_safe_restore(BackupJobId(backup_id), server_dir, base_world=base_world)
-
-    async with database.session_factory() as session:
-        repo = SQLBackupRepository(session)
-        await repo.delete_pending_restore(ServerId(server_id))
-        await session.commit()
+    try:
+        if job is not None:
+            await dispatch_two_tier_restore(job, server_dir, base_world=base_world)
+        else:
+            await perform_safe_restore(BackupJobId(backup_id), server_dir, base_world=base_world)
+    finally:
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            await repo.delete_pending_restore(ServerId(server_id))
+            await session.commit()
     return backup_id
+
+
+def _is_envelope_v2_file(path: os.PathLike[str] | str) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(7) == b"ONXENV2"
+    except OSError:
+        return False
 
 
 async def dispatch_two_tier_restore(
@@ -511,12 +529,16 @@ async def dispatch_two_tier_restore(
     """Dispatch restore for Tier-1 snapshots, Tier-2 archives, or legacy tarballs."""
     from pathlib import Path
 
+    from app.api.deps import build_storage_backend
+    from app.core.config import ConfigFactory
+    from app.core.host_state import ensure_host_state_layout
     from app.modules.backup.application.two_tier_restore import (
         TwoTierRestoreError,
         restore_tier1_snapshot,
         restore_tier2_archive,
     )
     from app.modules.backup.domain.aggregate import BackupTier
+    from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas as _ArtifactCas
 
     storage_path = str(getattr(job, "storage_path", "") or "")
     raw_tier = getattr(job, "tier", BackupTier.TIER_1)
@@ -538,19 +560,37 @@ async def dispatch_two_tier_restore(
         except TwoTierRestoreError as exc:
             raise RestoreError(str(exc)) from exc
 
-    if tier_val == BackupTier.TIER_2.value or storage_path.endswith(
-        (".tar.zst", ".tar.zst.enc", ".tar.gz.enc")
-    ):
+    # Only route to Tier-2 restore when the job is genuinely Tier-2 or uses Tier-2
+    # (.tar.zst / .tar.zst.enc / ONXENV2 envelope) — NEVER misroute legacy BackupSaga
+    # tier_1 `.tar.gz.enc` backups (which use BackupEncryption, not ONXENV2).
+    is_tier2_archive = (
+        tier_val == BackupTier.TIER_2.value
+        or storage_path.endswith((".tar.zst", ".tar.zst.enc"))
+        or (storage_path.endswith(".tar.gz.enc") and _is_envelope_v2_file(storage_path))
+    )
+    if is_tier2_archive:
+        eff_storage = storage
+        eff_cas = cas
+        eff_kek = kek_path
+        if eff_storage is None or eff_cas is None or eff_kek is None:
+            with contextlib.suppress(Exception):
+                settings = ConfigFactory.global_settings()
+                if eff_storage is None:
+                    eff_storage = build_storage_backend(settings)
+                if eff_cas is None:
+                    eff_cas = _ArtifactCas(ensure_host_state_layout(settings).cas)
+                if eff_kek is None and getattr(settings, "master_kek_file", None):
+                    eff_kek = Path(settings.master_kek_file)
         try:
             res = await restore_tier2_archive(
                 server_id=server_id,
                 server_dir=server_path,
                 storage_path=storage_path,
                 backup_id=backup_id,
-                storage=storage,
+                storage=eff_storage,
                 expected_checksum=str(getattr(job, "checksum", "") or "") or None,
-                kek_file_path=kek_path,
-                cas=cas,
+                kek_file_path=eff_kek,
+                cas=eff_cas,
             )
             return [f"tier_2:{res.restored_files}"]
         except TwoTierRestoreError as exc:

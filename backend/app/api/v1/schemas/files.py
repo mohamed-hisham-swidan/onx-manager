@@ -51,12 +51,19 @@ class FileEntryResponse(BaseResponse):
     path: str
     is_dir: bool
     size: int
+    modified_at: str | None = None
+    file_class: str | None = None
+    editable: bool | None = None
+    log_category: Literal["server_log", "crash_report", "plugin_log"] | None = None
 
 
 class FileContentResponse(BaseResponse):
     path: str
     content: str
     is_binary: bool = False
+    truncated: bool = False
+    total_size_bytes: int | None = None
+    is_compressed: bool = False
 
 
 class WriteFileContentRequest(BaseModel):

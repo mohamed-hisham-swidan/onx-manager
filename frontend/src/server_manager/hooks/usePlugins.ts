@@ -22,7 +22,11 @@ export interface MarketplaceSearchOptions {
   enabled?: boolean;
   projectType?: string;
   offset?: number;
+  limit?: number;
   loader?: string;
+  sort?: string;
+  gameVersion?: string;
+  compatibleOnly?: boolean;
 }
 
 export function useMarketplaceSearch(
@@ -34,10 +38,32 @@ export function useMarketplaceSearch(
   const projectType = options?.projectType;
   const offset = options?.offset ?? 0;
   const loader = options?.loader;
+  const sort = options?.sort;
+  const gameVersion = options?.gameVersion;
+  const compatibleOnly = options?.compatibleOnly ?? false;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.search(serverId, query, projectType, offset, loader),
+    queryKey: queryKeys.plugins.marketplace.search(
+      serverId,
+      query,
+      projectType,
+      offset,
+      loader,
+      sort ?? "relevance",
+      gameVersion,
+      compatibleOnly,
+    ),
     queryFn: () =>
-      api.searchMarketplace(serverId, query, projectType, MARKETPLACE_PAGE_SIZE, offset, loader),
+      api.searchMarketplace(
+        serverId,
+        query,
+        projectType,
+        MARKETPLACE_PAGE_SIZE,
+        offset,
+        loader,
+        sort,
+        gameVersion,
+        compatibleOnly,
+      ),
     enabled: (options?.enabled ?? true) && !!serverId,
   });
 }
@@ -50,10 +76,27 @@ export function useMarketplaceSearchGlobal(
   const projectType = options?.projectType;
   const offset = options?.offset ?? 0;
   const loader = options?.loader;
+  const sort = options?.sort;
+  const gameVersion = options?.gameVersion;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.global(query, projectType, offset, loader),
+    queryKey: queryKeys.plugins.marketplace.global(
+      query,
+      projectType,
+      offset,
+      loader,
+      sort ?? "relevance",
+      gameVersion,
+    ),
     queryFn: () =>
-      api.searchMarketplaceGlobal(query, projectType, MARKETPLACE_PAGE_SIZE, offset, loader),
+      api.searchMarketplaceGlobal(
+        query,
+        projectType,
+        MARKETPLACE_PAGE_SIZE,
+        offset,
+        loader,
+        sort,
+        gameVersion,
+      ),
     enabled: options?.enabled ?? true,
   });
 }
@@ -83,6 +126,8 @@ export function useMarketplaceProjectVersions(
   });
 }
 
+export const useProjectVersionsGlobal = useMarketplaceProjectVersions;
+
 export function useProjectVersions(
   serverId: string,
   projectId: string,
@@ -90,9 +135,13 @@ export function useProjectVersions(
 ) {
   const api = useApi();
   const offset = options?.offset ?? 0;
+  const limit = options?.limit ?? MARKETPLACE_PAGE_SIZE;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.versions(serverId, projectId, offset),
-    queryFn: () => api.getProjectVersions(serverId, projectId, MARKETPLACE_PAGE_SIZE, offset),
+    queryKey: [
+      ...queryKeys.plugins.marketplace.versions(serverId, projectId, offset),
+      limit,
+    ] as const,
+    queryFn: () => api.getProjectVersions(serverId, projectId, limit, offset),
     enabled: (options?.enabled ?? true) && !!serverId && !!projectId,
   });
 }
@@ -102,7 +151,10 @@ export function useInstallFromMarketplace(serverId: string, branch?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: InstallModrinthPluginRequest) => api.installFromMarketplace(serverId, body, branch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) });
+      void qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) });
+    },
   });
 }
 
@@ -149,6 +201,16 @@ export function useToggleModState(serverId: string, branch?: string) {
     mutationFn: (payload: { mod_id?: string | null; plugin_id?: string | null; enabled: boolean }) =>
       api.toggleModState(serverId, payload, branch),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId, branch) }),
+  });
+}
+
+export function useMinecraftVersions() {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.software.versions("vanilla"),
+    queryFn: () => api.listSoftwareVersions("vanilla"),
+    staleTime: 30 * 60 * 1000,
+    retry: false,
   });
 }
 

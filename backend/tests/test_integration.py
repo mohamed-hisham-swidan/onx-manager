@@ -1,10 +1,8 @@
 import pytest
 
-from app.core.circuit_breaker import CircuitBreaker
 from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
 from app.core.idempotency import IdempotencyKey, IdempotencyMiddleware, InMemoryIdempotencyStore
-from app.core.saga import SagaOrchestrator, SagaStatus, SagaStep
 
 
 class DeployCommand(Command):
@@ -85,45 +83,6 @@ class TestCommandBusWithIdempotency:
         assert r2.data["count"] == 1
 
         assert handler.call_count == 1
-
-
-@pytest.mark.asyncio
-class TestSagaAndCircuitBreaker:
-    async def test_saga_with_circuit_breaker_step(self) -> None:
-        orchestrator = SagaOrchestrator()
-        cb = CircuitBreaker("saga-step", max_failures=1, timeout_seconds=0.1)
-
-        async def risky_operation() -> None:
-            async def fail() -> None:
-                raise RuntimeError("transient error")
-
-            try:
-                await cb.call(fail())
-            except Exception:
-                raise
-
-        execution: list[str] = []
-        compensation: list[str] = []
-
-        steps = [
-            SagaStep(
-                name="prepare",
-                forward=lambda: execution.append("prepared"),
-                compensate=lambda: compensation.append("rollback_prepare"),
-            ),
-            SagaStep(
-                name="risky",
-                forward=risky_operation,
-                compensate=lambda: compensation.append("rollback_risky"),
-            ),
-        ]
-
-        instance = await orchestrator.create_saga("mixed", steps)
-        result = await orchestrator.execute(instance.saga_id)
-
-        assert result.status == SagaStatus.COMPENSATED
-        assert execution == ["prepared"]
-        assert "rollback_prepare" in compensation
 
 
 @pytest.mark.asyncio

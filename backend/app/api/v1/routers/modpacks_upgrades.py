@@ -291,14 +291,29 @@ async def build_p55_live_refresh_service(
     class_c_service = ClassCSnapshotService(
         layout, session_factory=database.session_factory
     )
+    from app.modules.server.application.lifecycle_lock import get_lifecycle_lease_manager
+
+    def _reset_main_ref_sync(sid: str, target_sha: str) -> None:
+        from app.modules.versioning.infrastructure.git_runner import GitRunner
+
+        repo_dir = layout.repo_git_dir(sid)
+        if repo_dir.exists():
+            GitRunner().run(
+                ["--git-dir", str(repo_dir), "update-ref", "refs/heads/main", target_sha],
+                cwd=repo_dir.parent,
+            )
+
     return LiveRefreshService(
         layout,
         repository=journal_repo,
         class_c_service=class_c_service,
         repo_lease=RepoLeaseManager(locks_dir=layout.locks),
+        lifecycle_lease=get_lifecycle_lease_manager(),
         backup_service=Tier1BackupServiceAdapter(),
         runtime=runtime,
         stage_export=stage_export,
+        live_root=server_root,
+        reset_main_ref=_reset_main_ref_sync,
     )
 
 
@@ -311,10 +326,293 @@ def get_upgrade_refresh_service_factory(
     return _factory
 
 
+def _parse_public_host_port(raw_address: str, default_port: int = 25565) -> tuple[str, int] | None:
+    addr = (raw_address or "").strip()
+    if not addr:
+        return None
+    if "://" in addr:
+        addr = addr.split("://", 1)[1]
+    addr = addr.split("/", 1)[0].strip()
+    if not addr:
+        return None
+    if addr.startswith("["):
+        end_bracket = addr.find("]")
+        if end_bracket == -1:
+            return None
+        host = addr[1:end_bracket].strip()
+        rest = addr[end_bracket + 1 :].strip()
+        if rest.startswith(":"):
+            try:
+                return host, int(rest[1:])
+            except ValueError:
+                return None
+        return host, default_port
+    if ":" in addr:
+        host_part, port_part = addr.rsplit(":", 1)
+        host_part = host_part.strip()
+        try:
+            port_val = int(port_part.strip())
+            if host_part and 1 <= port_val <= 65535:
+                return host_part, port_val
+        except ValueError:
+            return None
+    return addr, default_port
+
+
+async def _resolve_active_external_exposure(server_id: str) -> tuple[str, int, str] | None:
+    """Return ``(host, port, provider_label)`` if server has an active public Java exposure."""
+    try:
+        from sqlalchemy import select
+
+        from app.modules.exposure.infrastructure.models import (
+            ServerExposureModel,
+            ServerExposureTargetModel,
+        )
+
+        async with database.session_factory() as session:
+            exp_res = await session.execute(
+                select(ServerExposureModel).where(
+                    ServerExposureModel.server_id == server_id,
+                    ServerExposureModel.branch_name == "main",
+                    ServerExposureModel.desired_state == "ENABLED",
+                )
+            )
+            exp = exp_res.scalars().first()
+            if exp is None:
+                return None
+            tgt_res = await session.execute(
+                select(ServerExposureTargetModel).where(
+                    ServerExposureTargetModel.exposure_id == exp.id,
+                    ServerExposureTargetModel.service_type == "java",
+                )
+            )
+            target = tgt_res.scalars().first()
+            if target is None or not target.public_address:
+                return None
+            parsed = _parse_public_host_port(str(target.public_address))
+            if parsed is None:
+                return None
+            host, port = parsed
+            provider_label = str(exp.method or "tunnel")
+            return host, port, provider_label
+    except Exception:
+        return None
+
+
+def build_p55_upgrade_health_gate(
+    upgrade: Any,
+    server: ServerModel,
+    *,
+    verify_public_network: bool | None = None,
+    on_check: Callable[[list[dict[str, Any]], float], Awaitable[None] | None] | None = None,
+    on_log: Callable[[str], Awaitable[None] | None] | None = None,
+) -> UpgradeHealthGateEvaluator | None:
+    """Construct the 5-check UpgradeHealthGateEvaluator with lazy post-swap state refresh."""
+    server_root_str = getattr(server, "root_path", None)
+    if not server_root_str:
+        return None
+    server_root = Path(server_root_str)
+    server_id = str(getattr(server, "id", getattr(upgrade, "server_id", "")))
+    target_mc = str(getattr(upgrade, "target_mc", "") or "")
+    world_name = str(getattr(server, "primary_world", None) or "world")
+    game_port = int(
+        getattr(server, "deployment_port", None)
+        or getattr(server, "port", None)
+        or 25565
+    )
+    raw_timeout = getattr(server, "health_gate_boot_timeout_seconds", None)
+    boot_timeout = (
+        int(raw_timeout)
+        if isinstance(raw_timeout, int) and 300 <= raw_timeout <= 900
+        else 300
+    )
+
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.versioning.infrastructure.mc_slp import probe_minecraft_slp
+    from app.modules.versioning.infrastructure.nbt_reader import known_data_version_for_mc
+    from app.modules.versioning.infrastructure.runtime_adapters import _read_panel_properties
+
+    def _candidates() -> list[str]:
+        runtime_record = getattr(server, "runtime", None)
+        runtime_external = (
+            str(runtime_record.external_id).strip()
+            if runtime_record is not None and getattr(runtime_record, "external_id", None)
+            else None
+        )
+        direct_external = (
+            str(getattr(server, "external_id", None)).strip()
+            if getattr(server, "external_id", None)
+            else None
+        )
+        configured = getattr(server, "container_name", None)
+        names: list[str] = []
+        for cand in (
+            runtime_external,
+            direct_external,
+            configured,
+            f"onx-{server_id}",
+            f"mcs-{server_id}",
+            f"mc-{server_id}",
+            f"minecraft-{server_id}",
+            server_id,
+        ):
+            if cand and str(cand) not in names:
+                names.append(str(cand))
+        return names
+
+    async def _run_docker(*args: str) -> tuple[int, str]:
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
+            return 124, "docker command timed out"
+        return proc.returncode or 0, stdout_b.decode("utf-8", errors="replace")
+
+    async def _active_container_and_start() -> tuple[str | None, datetime | None]:
+        for name in _candidates():
+            rc, out = await _run_docker(
+                "inspect",
+                "-f",
+                "{{.State.Running}}|{{.State.StartedAt}}",
+                name,
+            )
+            if rc != 0:
+                continue
+            parts = out.strip().split("|", 1)
+            if parts and parts[0].strip().lower() == "true":
+                started_dt: datetime | None = None
+                if len(parts) == 2 and parts[1].strip():
+                    with contextlib.suppress(ValueError):
+                        raw_iso = parts[1].strip()
+                        if raw_iso.endswith("Z"):
+                            raw_iso = raw_iso[:-1] + "+00:00"
+                        started_dt = datetime.fromisoformat(raw_iso)
+                        if started_dt.tzinfo is None:
+                            started_dt = started_dt.replace(tzinfo=UTC)
+                return name, started_dt
+        return None, None
+
+    async def _liveness_check() -> bool:
+        name, _ = await _active_container_and_start()
+        return name is not None
+
+    async def _get_stdout_since(since: datetime) -> list[str]:
+        name, started_dt = await _active_container_and_start()
+        target = name or _candidates()[0]
+        # Prefer Docker's actual State.StartedAt so fast-boot Done (...)! lines
+        # emitted before StartServerHandler returns are never clipped.
+        eff_since = started_dt if started_dt is not None else since
+        if eff_since.tzinfo is None:
+            eff_since = eff_since.replace(tzinfo=UTC)
+        rc, out = await _run_docker("logs", "--since", eff_since.isoformat(), target)
+        if rc != 0:
+            return []
+        return out.splitlines()
+
+    async def _tcp_probe() -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", game_port),
+                timeout=2.0,
+            )
+            _ = reader
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
+    class _LazyServerPropertiesRconClient:
+        def __init__(self) -> None:
+            self._client: Any = None
+
+        async def connect(self) -> None:
+            from app.modules.monitoring.infrastructure.rcon_client import AsyncRCONClient
+            from app.modules.server.infrastructure.providers.docker import (
+                _read_persisted_rcon_port,
+            )
+
+            cur_props = _read_panel_properties(server_root)
+            pwd = cur_props.get("rcon.password", "")
+            rcon_port = _read_persisted_rcon_port(server_root)
+            if rcon_port is None:
+                with contextlib.suppress(ValueError, TypeError):
+                    rcon_port = int(cur_props.get("rcon.port", "25575"))
+            self._client = AsyncRCONClient("127.0.0.1", rcon_port or 25575, pwd)
+            await self._client.connect()
+
+        async def send_command(self, command: str) -> str:
+            if self._client is None:
+                await asyncio.wait_for(self.connect(), timeout=5.0)
+            return await self._client.send_command(command)
+
+        async def close(self) -> None:
+            if self._client is not None:
+                try:
+                    await self._client.close()
+                finally:
+                    self._client = None
+
+    def _build_rcon_from_disk() -> Any:
+        try:
+            cur_props = _read_panel_properties(server_root)
+        except Exception:
+            cur_props = {}
+        if cur_props.get("enable-rcon", "").lower() in ("true", "1", "yes") and cur_props.get(
+            "rcon.password"
+        ):
+            return _LazyServerPropertiesRconClient()
+        return None
+
+    async def _refresh_post_swap_state() -> dict[str, Any]:
+        ext_target: tuple[str, int, str] | None = None
+        if verify_public_network is not False:
+            ext_target = await _resolve_active_external_exposure(server_id)
+        return {
+            "container_started_at": datetime.now(UTC) - timedelta(seconds=2),
+            "rcon_client": _build_rcon_from_disk(),
+            "external_target": ext_target,
+        }
+
+    from app.modules.versioning.application.upgrade_health_gate import (
+        check_dimension_smoke_paths,
+    )
+
+    return UpgradeHealthGateEvaluator(
+        container_started_at=datetime.now(UTC) - timedelta(seconds=2),
+        server_root=server_root,
+        target_mc=target_mc,
+        get_stdout_since=_get_stdout_since,
+        liveness_check=_liveness_check,
+        slp_probe=probe_minecraft_slp,
+        rcon_client=_build_rcon_from_disk(),
+        expected_min_data_version=known_data_version_for_mc(target_mc),
+        world_name=world_name,
+        game_port=game_port,
+        boot_timeout_seconds=boot_timeout,
+        verify_public_network=verify_public_network,
+        on_check=on_check,
+        on_log=on_log,
+        refresh_state=_refresh_post_swap_state,
+        dimension_smoke_check=check_dimension_smoke_paths,
+    )
+
+
 def get_upgrade_health_gate_factory() -> (
     Callable[[Any, ServerModel], UpgradeHealthGateEvaluator | None]
 ):
-    return lambda _upgrade, _server: None
+    return build_p55_upgrade_health_gate
 
 
 async def _load_server(session: Any, server_id: str) -> ServerModel:
@@ -691,6 +989,8 @@ async def prewarm_lec_entry(
             await op_service.complete_operation(op.id)
             return res
         except asyncio.CancelledError:
+            with contextlib.suppress(Exception):
+                await op_service.confirm_cancellation(op.id)
             raise
         except BaseException as exc:
             with contextlib.suppress(Exception):
@@ -712,6 +1012,7 @@ async def prewarm_lec_entry(
         task = asyncio.create_task(_background(), name=f"lec-prewarm:{op.id}")
         with contextlib.suppress(Exception):
             op_service.executor.register_task(op.id, task)
+            op_service.executor.schedule_timeout_watch(op.id, op.timeout_seconds)
         response.status_code = 202
         return LecPrewarmResponse(
             lec_key=lec_key,
@@ -1062,7 +1363,11 @@ async def install_modpack(
                 await _emit_progress(
                     15.0,
                     f"Downloading CurseForge server files ({len(current_plan.files)} total)...",
-                    context={"stage": "downloading", "total": len(current_plan.files), "current": 0},
+                    context={
+                        "stage": "downloading",
+                        "total": len(current_plan.files),
+                        "current": 0,
+                    },
                 )
                 updated_plan, downloaded = await download_curseforge_plan_files(
                     current_plan,
@@ -1228,6 +1533,8 @@ async def install_modpack(
                 operation_id=op.id,
             )
         except asyncio.CancelledError:
+            with contextlib.suppress(Exception):
+                await op_service.confirm_cancellation(op.id)
             raise
         except BaseException as exc:
             with contextlib.suppress(Exception):
@@ -1249,6 +1556,7 @@ async def install_modpack(
         task = asyncio.create_task(_background(), name=f"modpack-install:{op.id}")
         with contextlib.suppress(Exception):
             op_service.executor.register_task(op.id, task)
+            op_service.executor.schedule_timeout_watch(op.id, op.timeout_seconds)
         response.status_code = 202
         return ModpackInstallResponse(
             server_id=server_id,
@@ -1278,7 +1586,7 @@ async def list_server_upgrades(
     rows = await upgrade_service._upgrade_repo.list_for_server(server_id)
     items = [_upgrade_to_response(r) for r in rows]
     pinned_item = next(
-        (i for i in items if i.status == "active_pinned" and i.pinned_until_confirm),
+        (i for i in items if i.status == "active_pinned"),
         None,
     )
     active_item = pinned_item or next(
@@ -1353,6 +1661,7 @@ async def plan_server_upgrade(
         target_install_plan=target_install_plan,
         target_lec_key=body.target_lec_key,
         excluded_paths=body.excluded_paths,
+        keep_paths=body.keep_paths,
         extra_allowed_hosts=extra_hosts,
         version_types=body.version_types,
     )
@@ -1556,11 +1865,21 @@ async def prepare_upgrade_test(
             "startup_jar": startup_jar,
             "check_os_ports": req.check_os_ports,
         }
-        start_res = await upgrade_service.start_advanced_upgrade_test(
-            upgrade_id,
-            server_root=server_root,
-            start_request_kwargs=start_kwargs,
-        )
+        try:
+            start_res = await upgrade_service.start_advanced_upgrade_test(
+                upgrade_id,
+                server_root=server_root,
+                start_request_kwargs=start_kwargs,
+            )
+        except Exception as exc:
+            with contextlib.suppress(Exception):
+                await upgrade_service._upgrade_repo.update_status(
+                    upgrade_id,
+                    str(prepared.status),
+                    error_code=getattr(exc, "code", "TEST_START_FAILED"),
+                    error_message=str(exc)[:500],
+                )
+            raise
         refreshed = await upgrade_service._upgrade_repo.get(upgrade_id)
         if refreshed is not None:
             prepared = refreshed
@@ -1634,6 +1953,8 @@ async def apply_server_upgrade(
         server_mode = str(getattr(srv, "mode", "simple") or "simple").lower()
         raw_root: str | None = str(srv.root_path) if srv.root_path else None
         jvm_args = str(srv.java_args or "")
+        orig_mc = str(getattr(srv, "minecraft_version", "") or "")
+        orig_loader = str(getattr(srv, "server_type", "") or "")
 
     _require_posix("Applying server upgrades requires a POSIX host in this release")
     if not raw_root:
@@ -1646,42 +1967,173 @@ async def apply_server_upgrade(
 
     actor_id = _actor_id_from_user(current_user)
     op_service = get_operation_service(event_bus)
+    upgrade_steps = [
+        {
+            "step_id": "PREPARE_AND_DOWNLOAD",
+            "sequence": 1,
+            "message_key": "Preparing backup & downloading target artifacts",
+        },
+        {
+            "step_id": "STAGE_FILES",
+            "sequence": 2,
+            "message_key": "Staging new server core, plugins & configs",
+        },
+        {
+            "step_id": "SWAP_LIVE_TREE",
+            "sequence": 3,
+            "message_key": "Swapping live tree safely",
+        },
+        {
+            "step_id": "HEALTH_GATE",
+            "sequence": 4,
+            "message_key": "Booting server & running 5-check Health Gate",
+        },
+        {
+            "step_id": "FINALIZE",
+            "sequence": 5,
+            "message_key": "Finalizing version change",
+        },
+    ]
+    boot_timeout_val = int(getattr(server, "health_gate_boot_timeout_seconds", 300) or 300)
     op = await op_service.create_operation(
         type=OperationType.SERVER_UPGRADE.value,
         target_type="server",
         target_id=server_id,
         actor_id=actor_id,
-        metadata={"upgrade_id": upgrade_id, "mode": server_mode},
-        initial_steps=[
-            {
-                "step_id": "APPLY_UPGRADE",
-                "sequence": 1,
-                "message_key": "operations.steps.apply_upgrade",
-            }
-        ],
+        timeout_seconds=max(600, boot_timeout_val + 300),
+        metadata={
+            "upgrade_id": upgrade_id,
+            "mode": server_mode,
+            "source_mc": orig_mc,
+            "target_mc": str(row.target_mc),
+            "target_loader": str(row.target_loader_id),
+        },
+        initial_steps=upgrade_steps,
     )
     row = cast(
         Any,
         await upgrade_service._upgrade_repo.update_status(
             upgrade_id,
-            str(row.status),
+            "applying" if req.async_mode else str(row.status),
             operation_id=op.id,
         ),
     )
 
+    async def _set_server_runtime_identity(mc_ver: str, loader_id: str) -> None:
+        async with database.session_factory() as session:
+            srv_obj = await _load_server(session, server_id)
+            writable_srv = cast(Any, srv_obj)
+            writable_srv.minecraft_version = mc_ver
+            writable_srv.server_type = loader_id
+            await session.commit()
+
+    stage_log_messages: dict[str, str] = {
+        "STAGE_FILES": "Staging server core, plugins & configs...",
+        "SWAP_LIVE_TREE": "Swapping live directory atomically...",
+        "HEALTH_GATE": (
+            "Booting container — Health Gate "
+            "(1/5 Startup, 2/5 Local SLP, 3/5 RCON, 4/5 World NBT, 5/5 Public Network)..."
+        ),
+        "FINALIZE": "Finalizing version change...",
+    }
+
     async def _run_apply() -> ServerUpgradeResponse:
-        await op_service.start_step(op.id, "APPLY_UPGRADE")
+        current_step_id = "PREPARE_AND_DOWNLOAD"
+        identity_updated = False
+        await op_service.start_step(op.id, "PREPARE_AND_DOWNLOAD")
+
+        async def _emit_log(message: str, *, level: str = "info") -> None:
+            with contextlib.suppress(Exception):
+                await op_service.emit_log(
+                    op.id, message, level=level, step_id=current_step_id
+                )
+
+        async def _record_prepare_progress(
+            progress: float, context: dict[str, Any]
+        ) -> None:
+            with contextlib.suppress(Exception):
+                await op_service.record_step_progress(
+                    op.id, "PREPARE_AND_DOWNLOAD", progress, context
+                )
+
+        async def _record_health_checks(
+            checks: list[dict[str, Any]], progress: float
+        ) -> None:
+            with contextlib.suppress(Exception):
+                await op_service.record_step_progress(
+                    op.id, "HEALTH_GATE", progress, {"checks": checks}
+                )
+
+        async def _advance_stage(next_step_id: str) -> None:
+            nonlocal current_step_id, identity_updated
+            if next_step_id == current_step_id:
+                return
+            with contextlib.suppress(Exception):
+                await op_service.complete_step(op.id, current_step_id)
+            current_step_id = next_step_id
+            with contextlib.suppress(Exception):
+                await op_service.start_step(op.id, next_step_id)
+            if next_step_id == "HEALTH_GATE" and not identity_updated:
+                # Reflect target MC/loader right before Health Gate boot so Docker
+                # selects the exact target Java runtime (e.g. Java 21 or Java 25).
+                await _set_server_runtime_identity(
+                    str(row.target_mc), str(row.target_loader_id)
+                )
+                identity_updated = True
+            stage_msg = stage_log_messages.get(next_step_id)
+            if stage_msg:
+                await _emit_log(stage_msg)
+
         try:
+            target_label = f"{str(row.target_loader_id).capitalize()} {row.target_mc}"
+            if (
+                orig_mc == str(row.target_mc)
+                and orig_loader.lower() == str(row.target_loader_id).lower()
+            ):
+                await _emit_log(
+                    f"Re-applying {target_label} ({server_mode} mode) "
+                    "— preparing backup & artifacts..."
+                )
+            else:
+                await _emit_log(
+                    f"Starting upgrade from {orig_loader or 'server'} {orig_mc or 'unknown'} "
+                    f"to {target_label} ({server_mode} mode)..."
+                )
+
             target_overrides: dict[str, bytes] = {}
             if row.plan_json:
                 plan = _install_plan_from_dict(cast(dict[str, Any], row.plan_json))
                 overrides_dir = _staged_upgrade_overrides_dir(
                     layout, server_id, upgrade_id
                 )
-                target_overrides = _read_override_blobs_from_dir(overrides_dir, plan)
+                target_overrides = await asyncio.to_thread(
+                    _read_override_blobs_from_dir, overrides_dir, plan
+                )
+
+            async with database.session_factory() as session:
+                refreshed_server = await _load_server(session, server_id)
 
             refresh_service = await refresh_factory(server_id)
-            health_gate = health_gate_factory(row, server)
+            try:
+                health_gate = health_gate_factory(
+                    row,
+                    refreshed_server,
+                    verify_public_network=req.verify_public_network,
+                    on_check=_record_health_checks,
+                    on_log=_emit_log,
+                )
+            except TypeError:
+                health_gate = health_gate_factory(row, refreshed_server)
+                if health_gate is not None:
+                    if getattr(health_gate, "_on_check", None) is None:
+                        health_gate._on_check = _record_health_checks
+                    if getattr(health_gate, "_on_log", None) is None:
+                        health_gate._on_log = _emit_log
+                    if (
+                        req.verify_public_network is not None
+                        and getattr(health_gate, "_verify_public_network", None) is None
+                    ):
+                        health_gate._verify_public_network = req.verify_public_network
             resolved_bytes = {
                 k: v.encode("utf-8") for k, v in req.resolved_conflicts.items()
             }
@@ -1692,85 +2144,216 @@ async def apply_server_upgrade(
                     or str(row.status) == "needs_resolution"
                     or resolved_bytes
                 ):
-                    await upgrade_service.prepare_advanced_upgrade_branch(
+                    await _emit_log("Preparing isolated upgrade branch...")
+                    try:
+                        await upgrade_service.prepare_advanced_upgrade_branch(
+                            upgrade_id,
+                            server_root=server_root,
+                            target_overrides=target_overrides,
+                            resolved_conflicts=resolved_bytes,
+                            extra_allowed_hosts=extra_hosts,
+                            on_log=_emit_log,
+                            on_progress=_record_prepare_progress,
+                        )
+                    except TypeError:
+                        await upgrade_service.prepare_advanced_upgrade_branch(
+                            upgrade_id,
+                            server_root=server_root,
+                            target_overrides=target_overrides,
+                            resolved_conflicts=resolved_bytes,
+                            extra_allowed_hosts=extra_hosts,
+                        )
+                try:
+                    res = await upgrade_service.apply_advanced_upgrade_to_live(
                         upgrade_id,
                         server_root=server_root,
+                        refresh_service=refresh_service,
+                        health_gate=health_gate,
+                        on_stage=_advance_stage,
+                        on_log=_emit_log,
+                    )
+                except TypeError:
+                    res = await upgrade_service.apply_advanced_upgrade_to_live(
+                        upgrade_id,
+                        server_root=server_root,
+                        refresh_service=refresh_service,
+                        health_gate=health_gate,
+                        on_stage=_advance_stage,
+                    )
+            else:
+                from app.modules.versioning.infrastructure.runtime_adapters import (
+                    _read_panel_properties,
+                )
+
+                live_panel_props = _read_panel_properties(Path(server_root))
+                try:
+                    res = await upgrade_service.execute_simple_upgrade(
+                        upgrade_id,
+                        server_root=server_root,
+                        refresh_service=refresh_service,
+                        health_gate=health_gate,
+                        panel_properties=live_panel_props,
                         target_overrides=target_overrides,
                         resolved_conflicts=resolved_bytes,
                         extra_allowed_hosts=extra_hosts,
+                        jvm_args=jvm_args,
+                        on_stage=_advance_stage,
+                        on_log=_emit_log,
+                        on_progress=_record_prepare_progress,
                     )
-                res = await upgrade_service.apply_advanced_upgrade_to_live(
-                    upgrade_id,
-                    server_root=server_root,
-                    refresh_service=refresh_service,
-                    health_gate=health_gate,
-                )
-            else:
-                res = await upgrade_service.execute_simple_upgrade(
-                    upgrade_id,
-                    server_root=server_root,
-                    refresh_service=refresh_service,
-                    health_gate=health_gate,
-                    target_overrides=target_overrides,
-                    resolved_conflicts=resolved_bytes,
-                    extra_allowed_hosts=extra_hosts,
-                    jvm_args=jvm_args,
-                )
+                except TypeError:
+                    res = await upgrade_service.execute_simple_upgrade(
+                        upgrade_id,
+                        server_root=server_root,
+                        refresh_service=refresh_service,
+                        health_gate=health_gate,
+                        panel_properties=live_panel_props,
+                        target_overrides=target_overrides,
+                        resolved_conflicts=resolved_bytes,
+                        extra_allowed_hosts=extra_hosts,
+                        jvm_args=jvm_args,
+                        on_stage=_advance_stage,
+                    )
 
             updated = await upgrade_service._upgrade_repo.get(upgrade_id)
             if updated is None:
                 raise NotFoundError(f"Server upgrade '{upgrade_id}' not found")
 
+            # Persist structured 5-check proof & any non-fatal network warnings on the
+            # upgrade's matrix_json so UpgradePinnedBanner & modal render them cleanly.
+            last_gate_res = (
+                getattr(health_gate, "last_result", None) if health_gate is not None else None
+            )
+            if last_gate_res is not None and (
+                getattr(last_gate_res, "checks", None) or getattr(last_gate_res, "warnings", None)
+            ):
+                with contextlib.suppress(Exception):
+                    enriched_matrix = dict(updated.matrix_json or {})
+                    enriched_matrix["health_gate_checks"] = list(last_gate_res.checks)
+                    enriched_matrix["health_gate_warnings"] = list(last_gate_res.warnings)
+                    updated = await upgrade_service._upgrade_repo.update_status(
+                        upgrade_id,
+                        str(updated.status),
+                        matrix_json=enriched_matrix,
+                    )
+                    if last_gate_res.warnings:
+                        await op_service.record_step_progress(
+                            op.id,
+                            "HEALTH_GATE",
+                            1.0,
+                            {
+                                "checks": list(last_gate_res.checks),
+                                "warnings": list(last_gate_res.warnings),
+                            },
+                        )
+
             if res.rolled_back:
+                if identity_updated:
+                    await _set_server_runtime_identity(orig_mc, orig_loader)
+                    identity_updated = False
+                fail_msg = str(
+                    getattr(updated, "error_message", None)
+                    or res.health.reason
+                    or "Health Gate failed and server rolled back safely"
+                )
+                await _emit_log(f"Upgrade rolled back: {fail_msg}", level="error")
                 await event_bus.publish(
                     UpgradeRolledBackEvent(
                         server_id=server_id,
                         upgrade_id=upgrade_id,
                         target_mc=str(updated.target_mc),
                         journal_id=res.journal.journal_id,
-                        reason=res.health.reason or "Health gate failed",
+                        reason=fail_msg,
                         automatic=True,
                         actor_type="system",
                         actor_id=actor_id,
                     )
                 )
-            else:
-                async with database.session_factory() as session:
-                    srv = await _load_server(session, server_id)
-                    writable_srv = cast(Any, srv)
-                    writable_srv.minecraft_version = str(updated.target_mc)
-                    writable_srv.server_type = str(updated.target_loader_id)
-                    await session.commit()
-
-                await event_bus.publish(
-                    UpgradeAppliedEvent(
-                        server_id=server_id,
-                        upgrade_id=upgrade_id,
-                        mode=str(updated.mode),
-                        target_mc=str(updated.target_mc),
-                        target_loader_id=str(updated.target_loader_id),
-                        target_loader_version=str(updated.target_loader_version),
-                        journal_id=res.journal.journal_id,
-                        pre_upgrade_backup_id=res.pre_upgrade_backup_id,
-                        class_c_snapshot_id=res.class_c_snapshot_id,
-                        actor_type="user",
-                        actor_id=actor_id,
-                    )
+                await op_service.fail_step(op.id, current_step_id, error=fail_msg[:500])
+                await op_service.fail_operation(
+                    op.id,
+                    "UPGRADE_ROLLED_BACK",
+                    fail_msg[:500],
+                    failed_step_id=current_step_id,
                 )
+                return _upgrade_to_response(updated)
 
-            await op_service.complete_step(op.id, "APPLY_UPGRADE")
+            if not identity_updated:
+                await _set_server_runtime_identity(
+                    str(updated.target_mc), str(updated.target_loader_id)
+                )
+                identity_updated = True
+
+            await _emit_log(
+                f"Upgrade to {target_label} verified and active (rollback snapshot pinned)."
+            )
+            await event_bus.publish(
+                UpgradeAppliedEvent(
+                    server_id=server_id,
+                    upgrade_id=upgrade_id,
+                    mode=str(updated.mode),
+                    target_mc=str(updated.target_mc),
+                    target_loader_id=str(updated.target_loader_id),
+                    target_loader_version=str(updated.target_loader_version),
+                    journal_id=res.journal.journal_id,
+                    pre_upgrade_backup_id=res.pre_upgrade_backup_id,
+                    class_c_snapshot_id=res.class_c_snapshot_id,
+                    actor_type="user",
+                    actor_id=actor_id,
+                )
+            )
+
+            await op_service.complete_step(op.id, current_step_id)
             await op_service.complete_operation(op.id)
             return _upgrade_to_response(updated)
         except asyncio.CancelledError:
+            if identity_updated:
+                with contextlib.suppress(Exception):
+                    await _set_server_runtime_identity(orig_mc, orig_loader)
+            with contextlib.suppress(Exception):
+                await op_service.emit_log(
+                    op.id,
+                    "Upgrade cancelled by operator.",
+                    level="warning",
+                    step_id=current_step_id,
+                )
+            with contextlib.suppress(Exception):
+                current_row = await upgrade_service._upgrade_repo.get(upgrade_id)
+                if current_row is not None and str(current_row.status) == "applying":
+                    next_status = "planned" if not current_row.journal_id else "cancelled"
+                    await upgrade_service._upgrade_repo.update_status(
+                        upgrade_id,
+                        next_status,
+                        error_code=None,
+                        error_message="Upgrade cancelled by operator",
+                    )
+            with contextlib.suppress(Exception):
+                await op_service.confirm_cancellation(op.id)
             raise
         except BaseException as exc:
+            if identity_updated:
+                with contextlib.suppress(Exception):
+                    await _set_server_runtime_identity(orig_mc, orig_loader)
             with contextlib.suppress(Exception):
-                await op_service.fail_step(op.id, "APPLY_UPGRADE", error=str(exc)[:500])
+                await op_service.emit_log(
+                    op.id,
+                    f"Upgrade failed: {str(exc)[:300]}",
+                    level="error",
+                    step_id=current_step_id,
+                )
+            with contextlib.suppress(Exception):
+                await upgrade_service._upgrade_repo.update_status(
+                    upgrade_id,
+                    "failed",
+                    error_code=str(getattr(exc, "code", "INTERNAL_ERROR"))[:64],
+                    error_message=str(exc)[:512],
+                )
+                await op_service.fail_step(op.id, current_step_id, error=str(exc)[:500])
                 await op_service.fail_operation(
                     op.id,
                     getattr(exc, "code", "INTERNAL_ERROR"),
                     str(exc)[:500],
-                    failed_step_id="APPLY_UPGRADE",
+                    failed_step_id=current_step_id,
                 )
             raise
 
@@ -1783,6 +2366,7 @@ async def apply_server_upgrade(
         task = asyncio.create_task(_background(), name=f"server-upgrade:{op.id}")
         with contextlib.suppress(Exception):
             op_service.executor.register_task(op.id, task)
+            op_service.executor.schedule_timeout_watch(op.id, op.timeout_seconds)
         response.status_code = 202
         return _upgrade_to_response(row)
 
@@ -1857,6 +2441,10 @@ async def rollback_server_upgrade(
     if row is None or str(row.server_id) != server_id:
         raise NotFoundError(f"Server upgrade '{upgrade_id}' not found")
 
+    had_journal = bool(row.journal_id)
+    if str(row.status) == "applying" and row.operation_id:
+        with contextlib.suppress(Exception):
+            await get_operation_service(event_bus).request_cancellation(str(row.operation_id))
     refresh_service = await refresh_factory(server_id)
     await upgrade_service.emergency_rollback_upgrade(
         upgrade_id,
@@ -1867,7 +2455,7 @@ async def rollback_server_upgrade(
     if updated is None:
         raise NotFoundError(f"Server upgrade '{upgrade_id}' not found")
 
-    if bool(updated.source_mc) and bool(updated.source_loader_id):
+    if had_journal and bool(updated.source_mc) and bool(updated.source_loader_id):
         async with database.session_factory() as session:
             srv = await _load_server(session, server_id)
             writable_srv = cast(Any, srv)

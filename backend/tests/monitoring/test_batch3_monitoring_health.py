@@ -231,3 +231,57 @@ async def test_get_health_dashboard_endpoint() -> None:
     assert res.healthy >= 0
     assert isinstance(res.servers, list)
 
+
+@pytest.mark.asyncio
+async def test_get_health_dashboard_ignores_orphaned_health_records() -> None:
+    from datetime import UTC, datetime
+
+    from app.api.v1.routers.health import get_health_dashboard
+    from app.core.persistence.db import database
+    from app.modules.health.infrastructure.models import HealthStatusModel
+    from app.modules.health.infrastructure.repository import SQLHealthRepository
+    from app.modules.server.infrastructure.models import ServerModel
+
+    async with database.session_factory() as session:
+        session.add(
+            ServerModel(
+                id="srv-active-1",
+                name="Active Server",
+                server_type="paper",
+                minecraft_version="1.21.4",
+                status="running",
+            )
+        )
+        session.add(
+            HealthStatusModel(
+                server_id="srv-active-1",
+                classification="healthy",
+                contributing_factors="[]",
+                trend="stable",
+                confidence=0.95,
+                last_updated=datetime.now(UTC),
+            )
+        )
+        session.add(
+            HealthStatusModel(
+                server_id="ghost-deleted-server",
+                classification="critical",
+                contributing_factors='["Critical: crash=UNKNOWN_RUNTIME_FAILURE"]',
+                trend="declining",
+                confidence=0.65,
+                last_updated=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    res = await get_health_dashboard(_current_user={"user_id": "admin"})
+    assert res.total_servers == 1
+    assert res.healthy == 1
+    assert res.critical == 0
+    assert [s.server_id for s in res.servers] == ["srv-active-1"]
+
+    async with database.session_factory() as session:
+        pruned = await SQLHealthRepository(session).prune_orphaned()
+        await session.commit()
+        assert pruned == 1
+

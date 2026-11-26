@@ -705,6 +705,15 @@ describe("CreateServerPage sequential naming, stepper, and optional add-ons step
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByText("Browse Plugins (Optional)")).toBeInTheDocument();
+    expect(searchMarketplaceGlobalMock).toHaveBeenCalledWith(
+      "",
+      "plugin",
+      12,
+      0,
+      "paper",
+      undefined,
+      "1.21.1",
+    );
     const card = await screen.findByTestId("addon-card-pl-essentials");
     await user.click(card);
     expect(screen.getByTestId("wizard-selected-addons")).toHaveTextContent("EssentialsX");
@@ -807,5 +816,87 @@ describe("CreateServerPage sequential naming, stepper, and optional add-ons step
     await user.click(screen.getByRole("tab", { name: /All Versions \(7\)/i }));
     expect(screen.getByRole("button", { name: "1.21.2" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "26.0" })).toBeInTheDocument();
+  });
+
+  it("preserves spawn_protection = 0 instead of coercing to 16 and blocks Next when minRam > maxRam", async () => {
+    listSoftwareVersionsMock.mockResolvedValue(["1.21.4"]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.4" }));
+
+    // Set minRam > maxRam -> Next should be disabled with inline validation
+    const [minRamInput] = screen.getAllByRole("spinbutton").slice(2, 4);
+    await user.clear(minRamInput);
+    await user.type(minRamInput, "4096");
+    expect(screen.getByText(/Minimum RAM \(4096 MB\) cannot exceed Maximum RAM/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    // Restore valid RAM via preset and proceed to properties
+    await user.click(screen.getByRole("button", { name: "2 GB" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    await user.click(await screen.findByRole("button", { name: /Advanced Server Properties/i }));
+    const spawnInput = await screen.findByLabelText("Spawn Protection Radius");
+    await user.clear(spawnInput);
+    await user.type(spawnInput, "0");
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(await screen.findByRole("button", { name: /Skip/ }));
+    await user.click(await screen.findByRole("button", { name: "Create Server" }));
+
+    await waitFor(() => {
+      expect(mutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spawn_protection: 0,
+        }),
+      );
+    });
+  });
+
+  it("displays Review & Confirm summary with Java runtime, resources, properties, what-will-happen note, and Edit jump links", async () => {
+    listServersMock.mockResolvedValue([]);
+    listSoftwareMock.mockResolvedValue([
+      { type: "purpur", name: "Purpur", description: "Feature-rich fork" },
+    ]);
+    listSoftwareVersionsMock.mockResolvedValue(["1.21.11"]);
+    getAvailablePortMock.mockResolvedValue({ port: 25577 });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Purpur/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.11" }));
+
+    const nameInput = await screen.findByLabelText("Server Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Purpur Review Server");
+    await user.click(screen.getByRole("button", { name: "4 GB" }));
+
+    // Next -> Properties -> Next -> Plugins -> Skip -> Review
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(await screen.findByRole("button", { name: /Skip/i }));
+
+    const card = await screen.findByTestId("review-confirm-card");
+    expect(card).toHaveTextContent("Purpur Review Server");
+    expect(card).toHaveTextContent("Purpur");
+    expect(card).toHaveTextContent("1.21.11");
+    expect(card).toHaveTextContent("Java 21");
+    expect(card).toHaveTextContent("2048 - 4096 MB");
+    expect(card).toHaveTextContent("25577");
+    expect(card).toHaveTextContent("survival");
+    expect(card).toHaveTextContent("easy");
+    expect(card).toHaveTextContent("10 chunks");
+    expect(card).toHaveTextContent("16 blocks");
+
+    const note = screen.getByTestId("review-what-happens-note");
+    expect(note).toHaveTextContent(/Downloads Purpur 1\.21\.11, verifies checksum/i);
+
+    // Quick Edit jump link navigates back to Configuration
+    const editButtons = screen.getAllByRole("button", { name: /Edit/i });
+    await user.click(editButtons[0]);
+    expect(await screen.findByText("Server Configuration")).toBeInTheDocument();
   });
 });

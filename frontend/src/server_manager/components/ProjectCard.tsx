@@ -12,15 +12,19 @@ export interface ProjectCardProps {
   searchParams: URLSearchParams;
   onInstall: (project: PluginSearchResultResponse) => void;
   viewMode?: "grid" | "list";
+  isInstalled?: boolean;
+  detailBasePath?: string;
 }
 
-const MAX_VISIBLE_PILLS = 4;
+const MAX_VISIBLE_PILLS = 3;
 
 export function ProjectCard({
   project,
   searchParams,
   onInstall,
   viewMode = "grid",
+  isInstalled = false,
+  detailBasePath = "/marketplace",
 }: ProjectCardProps) {
   const navigate = useNavigate();
   const detailQuery = searchParams.toString();
@@ -28,48 +32,75 @@ export function ProjectCard({
   const categories = project.categories ?? [];
   const envs = environmentLabels(project.client_side, project.server_side);
   const updatedLabel = formatRelativeTime(project.date_modified);
-  const detailPath = `/marketplace/${project.project_id}${detailQuery ? `?${detailQuery}` : ""}`;
+  const normalizedBase = detailBasePath.replace(/\/+$/, "");
+  const detailPath = `${normalizedBase}/${project.project_id}${detailQuery ? `?${detailQuery}` : ""}`;
 
   const pillElements = [
     ...loaders.map((loader) => {
       const display = getLoaderDisplay(loader);
       return (
         <span
-          key={loader}
-          className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
+          key={`loader-${loader}`}
+          className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-secondary"
         >
           <Icon name={display.icon} size={11} className="shrink-0 text-text-muted" />
           <span>{display.label}</span>
         </span>
       );
     }),
-    ...categories.map((category) => (
-      <span
-        key={category}
-        className="shrink-0 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
-      >
-        {category}
-      </span>
-    )),
     ...envs.map((env) => (
       <span
-        key={env}
+        key={`env-${env}`}
         className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
       >
         <Icon name="globe" size={11} className="shrink-0 text-text-muted" />
         <span>{env}</span>
       </span>
     )),
+    ...categories.map((category) => (
+      <span
+        key={`cat-${category}`}
+        className="shrink-0 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
+      >
+        {category}
+      </span>
+    )),
   ];
   const visiblePills = pillElements.slice(0, MAX_VISIBLE_PILLS);
   const hiddenPillCount = pillElements.length - visiblePills.length;
+
+  const actionButton = isInstalled ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onInstall(project);
+      }}
+      className="inline-flex shrink-0 items-center gap-1.5 h-[30px] px-3 text-[12.5px] font-medium rounded-md border border-border-default bg-surface-elevated text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary cursor-pointer"
+    >
+      <Icon name="restart" size={13} />
+      <span>Reinstall</span>
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onInstall(project);
+      }}
+      className="inline-flex shrink-0 items-center gap-1.5 h-[30px] px-3 text-[12.5px] font-medium rounded-md border border-accent-primary/30 bg-accent-primary/12 text-accent-primary transition-colors hover:bg-accent-primary hover:text-accent-contrast-text cursor-pointer"
+    >
+      <Icon name="plus" size={13} />
+      <span>Install</span>
+    </button>
+  );
 
   if (viewMode === "list") {
     return (
       <li
         data-testid={`project-card-${project.project_id}`}
         onClick={() => navigate(detailPath)}
-        className="group relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-card p-4 transition-colors duration-150 hover:border-border-default cursor-pointer"
+        className="group relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all duration-150 hover:border-accent-primary/40 hover:shadow-xs cursor-pointer"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
@@ -90,11 +121,20 @@ export function ProjectCard({
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate font-semibold text-[15px] text-text-primary group-hover/link:text-accent-primary transition-colors">
                     {project.title}
                   </h3>
                   <p className="text-xs text-text-muted">by {project.author}</p>
+                  {isInstalled && (
+                    <span
+                      data-testid="installed-badge"
+                      className="inline-flex items-center gap-1 rounded-full border border-status-success-border bg-status-success-bg px-2 py-0.5 text-[10px] font-semibold text-status-success"
+                    >
+                      <Icon name="check" size={10} />
+                      Installed
+                    </span>
+                  )}
                 </div>
                 {project.description && (
                   <p className="mt-1 line-clamp-1 text-xs text-text-muted leading-relaxed">
@@ -120,17 +160,7 @@ export function ProjectCard({
         </div>
 
         <div className="flex items-center justify-between sm:flex-col sm:items-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border-subtle">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInstall(project);
-            }}
-            className="inline-flex shrink-0 items-center gap-1.5 h-[30px] px-3 text-[12.5px] font-medium rounded-md border border-accent-primary/30 bg-accent-primary/12 text-accent-primary transition-colors hover:bg-accent-primary hover:text-accent-contrast-text cursor-pointer"
-          >
-            <Icon name="plus" size={13} />
-            <span>Install</span>
-          </button>
+          {actionButton}
 
           <div className="flex items-center gap-3.5 text-xs text-text-muted font-mono tabular-nums">
             <span className="inline-flex items-center gap-1" title={`${project.downloads.toLocaleString()} downloads`}>
@@ -157,7 +187,7 @@ export function ProjectCard({
     <li
       data-testid={`project-card-${project.project_id}`}
       onClick={() => navigate(detailPath)}
-      className="group relative flex h-full flex-col justify-between rounded-lg border border-border-subtle bg-surface-card p-4 transition-colors duration-150 hover:border-border-default cursor-pointer"
+      className="group relative flex h-full flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all duration-150 hover:border-accent-primary/40 hover:shadow-xs cursor-pointer"
     >
       {/* Top Zone: Header */}
       <div>
@@ -185,33 +215,36 @@ export function ProjectCard({
               onClick={(e) => e.stopPropagation()}
               className="group/link block min-w-0"
             >
-              <h3 className="truncate font-semibold text-[15px] text-text-primary group-hover/link:text-accent-primary transition-colors">
-                {project.title}
-              </h3>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="truncate font-semibold text-[15px] text-text-primary group-hover/link:text-accent-primary transition-colors">
+                  {project.title}
+                </h3>
+                {isInstalled && (
+                  <span
+                    data-testid="installed-badge"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-status-success-border bg-status-success-bg px-2 py-0.5 text-[10px] font-semibold text-status-success"
+                  >
+                    <Icon name="check" size={10} />
+                    Installed
+                  </span>
+                )}
+              </div>
               <p className="truncate text-xs text-text-muted mt-0.5">
                 by {project.author}
               </p>
             </Link>
           </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInstall(project);
-            }}
-            className="ml-auto inline-flex shrink-0 items-center gap-1.5 h-[30px] px-3 text-[12.5px] font-medium rounded-md border border-accent-primary/30 bg-accent-primary/12 text-accent-primary transition-colors hover:bg-accent-primary hover:text-accent-contrast-text cursor-pointer"
-          >
-            <Icon name="plus" size={13} />
-            <span>Install</span>
-          </button>
+          <div className="ml-auto shrink-0">{actionButton}</div>
         </div>
 
         {/* Middle Zone: Description + Tags */}
-        <p className="mt-3 text-[13px] text-text-muted leading-[1.45] line-clamp-2 min-h-[38px]">
-          {project.description}
-        </p>
+        {project.description && (
+          <p className="mt-3 text-[13px] text-text-muted leading-[1.45] line-clamp-2">
+            {project.description}
+          </p>
+        )}
 
-        <div className="mt-3 flex flex-nowrap overflow-hidden gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {visiblePills}
           {hiddenPillCount > 0 && (
             <Link
@@ -227,23 +260,25 @@ export function ProjectCard({
       </div>
 
       {/* Bottom Zone: Metrics Footer */}
-      <div className="mt-3.5 flex items-center justify-between border-t border-border-subtle pt-3 text-xs text-text-muted font-mono tabular-nums">
-        <div className="flex items-center gap-3.5">
-          <span className="inline-flex items-center gap-1" title={`${project.downloads.toLocaleString()} downloads`}>
-            <Icon name="download" size={12} className="text-text-muted shrink-0" />
-            <span>{formatDownloads(project.downloads)}</span>
-          </span>
-          <span className="inline-flex items-center gap-1" title={`${project.follows.toLocaleString()} likes`}>
-            <Icon name="heart" size={12} className="text-status-danger shrink-0" />
-            <span>{formatDownloads(project.follows)}</span>
-          </span>
+      <div className="mt-auto pt-3">
+        <div className="flex items-center justify-between border-t border-border-subtle pt-3 text-xs text-text-muted font-mono tabular-nums">
+          <div className="flex items-center gap-3.5">
+            <span className="inline-flex items-center gap-1" title={`${project.downloads.toLocaleString()} downloads`}>
+              <Icon name="download" size={12} className="text-text-muted shrink-0" />
+              <span>{formatDownloads(project.downloads)}</span>
+            </span>
+            <span className="inline-flex items-center gap-1" title={`${project.follows.toLocaleString()} likes`}>
+              <Icon name="heart" size={12} className="text-status-danger shrink-0" />
+              <span>{formatDownloads(project.follows)}</span>
+            </span>
+          </div>
+          {updatedLabel && (
+            <span className="inline-flex items-center gap-1 font-sans text-[11px] text-text-muted shrink-0">
+              <Icon name="clock" size={12} className="shrink-0" />
+              <span>Updated {updatedLabel}</span>
+            </span>
+          )}
         </div>
-        {updatedLabel && (
-          <span className="inline-flex items-center gap-1 font-sans text-[11px] text-text-muted shrink-0">
-            <Icon name="clock" size={12} className="shrink-0" />
-            <span>Updated {updatedLabel}</span>
-          </span>
-        )}
       </div>
     </li>
   );

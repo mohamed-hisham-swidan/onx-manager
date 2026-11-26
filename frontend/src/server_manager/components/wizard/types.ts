@@ -70,6 +70,7 @@ export interface WizardData {
   whitelist: boolean;
   viewDistance: number | "";
   simulationDistance: number | "";
+  levelSeed?: string;
   provider: string;
   selectedAddons: SelectedWizardAddon[];
 }

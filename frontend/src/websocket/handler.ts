@@ -142,8 +142,30 @@ export class WSHandler {
       eventType.includes("ServerStopping") ||
       eventType.includes("ServerStopped") ||
       eventType.includes("ServerCrashed") ||
-      eventType.includes("ServerRestarted")
+      eventType.includes("ServerRestarted") ||
+      eventType.includes("ServerConfigChanged") ||
+      eventType.includes("ServerDiscovered") ||
+      eventType.includes("ServerVanished")
     ) {
+      this._config.onCacheUpdate?.({
+        key: "servers:list",
+        data: null,
+        action: "invalidate",
+      });
+      const serverId = event.server_id as string | undefined;
+      if (serverId) {
+        this._config.onCacheUpdate?.({
+          key: `server:${serverId}`,
+          data: null,
+          action: "invalidate",
+        });
+      }
+    } else if (eventType.includes("BackupRestored")) {
+      this._config.onCacheUpdate?.({
+        key: "backups:list",
+        data: null,
+        action: "invalidate",
+      });
       this._config.onCacheUpdate?.({
         key: "servers:list",
         data: null,

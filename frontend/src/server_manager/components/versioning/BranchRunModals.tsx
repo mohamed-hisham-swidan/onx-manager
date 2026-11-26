@@ -286,7 +286,7 @@ function StartBranchRunBody({
           </span>
         </label>
         <p className="text-[11px] text-text-muted pl-6">
-          Off by default: enforces whitelist from an ephemeral Class-C copy.
+          Off by default: enforces the whitelist from a temporary copy of live data.
           Enable only to allow non-whitelisted players to join.
         </p>
       </div>
@@ -1052,7 +1052,7 @@ export function DataTemplatesModal({
       open={isOpen}
       onClose={onClose}
       title="Data Templates"
-      description="Quiescent snapshots used to seed future branch runs."
+      description="Snapshots used to seed future branch runs."
       size="xl"
       showCloseButton
       closeOnBackdrop={false}
@@ -1300,7 +1300,7 @@ function DataTemplatesBody({
         <form onSubmit={handleCreate} className="space-y-3">
           {initialMode === "save-branch" && (
             <div className="rounded-lg border border-status-info-border bg-status-info-bg p-3 text-[11px] text-status-info">
-              Saving a quiescent snapshot from branch runtime &lsquo;{selectedBranch}&rsquo;.
+              Saving a snapshot from branch runtime &lsquo;{selectedBranch}&rsquo;.
             </div>
           )}
           <div>

@@ -371,7 +371,10 @@ class RuntimeOwnershipManager:
                     conflicts.append(
                         ConflictInfo(
                             reason=ConflictReason.DUPLICATE_PID,
-                            detail=f"PID {actual_pid} claimed by multiple servers (conflict with {sid})",
+                            detail=(
+                                f"PID {actual_pid} claimed by multiple servers "
+                                f"(conflict with {sid})"
+                            ),
                             auto_resolvable=True,
                         )
                     )
@@ -385,7 +388,10 @@ class RuntimeOwnershipManager:
                     conflicts.append(
                         ConflictInfo(
                             reason=ConflictReason.DUPLICATE_PORT,
-                            detail=f"Port {port} claimed by {sid} but already owned by {port_to_server[port]}",
+                            detail=(
+                                f"Port {port} claimed by {sid} but already owned by "
+                                f"{port_to_server[port]}"
+                            ),
                             auto_resolvable=True,
                             resource=RuntimeResource(
                                 resource_type="port", identifier=str(port), port=port
@@ -420,7 +426,10 @@ class RuntimeOwnershipManager:
                         {
                             "server_id": sid,
                             "server_name": server.name,
-                            "detail": f"Server is {server.status.value} with active tmux but no supervisor tracking it",
+                            "detail": (
+                                f"Server is {server.status.value} with active tmux "
+                                "but no supervisor tracking it"
+                            ),
                         }
                     )
             elif is_running:
@@ -429,7 +438,10 @@ class RuntimeOwnershipManager:
                         "server_id": sid,
                         "server_name": server.name,
                         "status": server.status.value,
-                        "detail": f"DB marks {server.status.value} but no tmux session found ({session_name})",
+                        "detail": (
+                            f"DB marks {server.status.value} but no tmux session found "
+                            f"({session_name})"
+                        ),
                     }
                 )
 
@@ -469,28 +481,34 @@ class RuntimeOwnershipManager:
 
         active_count = len(active_servers_list)
         if active_count > 1:
+            active_names = ", ".join(a["server_name"] for a in active_servers_list)
             conflicts.append(
                 ConflictInfo(
                     reason=ConflictReason.MULTIPLE_SERVERS_ACTIVE,
-                    detail=f"{active_count} servers are actively running: {', '.join(a['server_name'] for a in active_servers_list)}",
+                    detail=f"{active_count} servers are actively running: {active_names}",
                     auto_resolvable=True,
                 )
             )
 
         if orphan_tmux_list:
+            orphan_ids = ", ".join(r.identifier for r in orphan_tmux_list)
             conflicts.append(
                 ConflictInfo(
                     reason=ConflictReason.ORPHAN_TMUX,
-                    detail=f"{len(orphan_tmux_list)} orphan tmux sessions: {', '.join(r.identifier for r in orphan_tmux_list)}",
+                    detail=f"{len(orphan_tmux_list)} orphan tmux sessions: {orphan_ids}",
                     auto_resolvable=True,
                 )
             )
 
         if orphan_process_list:
+            orphan_pids = ", ".join(str(r.pid) for r in orphan_process_list if r.pid)
             conflicts.append(
                 ConflictInfo(
                     reason=ConflictReason.ORPHAN_PROCESS,
-                    detail=f"{len(orphan_process_list)} orphan Minecraft processes: PIDs {', '.join(str(r.pid) for r in orphan_process_list if r.pid)}",
+                    detail=(
+                        f"{len(orphan_process_list)} orphan Minecraft processes: "
+                        f"PIDs {orphan_pids}"
+                    ),
                     auto_resolvable=True,
                 )
             )
@@ -688,7 +706,8 @@ class RuntimeOwnershipManager:
                     )
                     if ownership.status != OwnershipStatus.VERIFIED:
                         warnings.append(
-                            f"Skipped orphan tmux {orphan.identifier} — not verified as project-owned ({ownership.detail})"
+                            f"Skipped orphan tmux {orphan.identifier} — "
+                            f"not verified as project-owned ({ownership.detail})"
                         )
                         resolved += 1
                         continue
@@ -709,7 +728,10 @@ class RuntimeOwnershipManager:
             )
         for orphan in snapshot.orphan_processes:
             try:
-                reason = f"orphan Minecraft process PID {orphan.pid} — not attached to any managed server"
+                reason = (
+                    f"orphan Minecraft process PID {orphan.pid} — "
+                    "not attached to any managed server"
+                )
                 if orphan.pid:
                     orphan_start = getattr(orphan, "start_time", None) or (
                         orphan.details.get("start_time")
@@ -732,7 +754,8 @@ class RuntimeOwnershipManager:
                     )
                     if ownership.status != OwnershipStatus.VERIFIED:
                         warnings.append(
-                            f"Skipped orphan process PID {orphan.pid} — not verified as project-owned ({ownership.detail})"
+                            f"Skipped orphan process PID {orphan.pid} — "
+                            f"not verified as project-owned ({ownership.detail})"
                         )
                         resolved += 1
                         continue
@@ -761,33 +784,40 @@ class RuntimeOwnershipManager:
                 )
                 if not port_check.verified:
                     logger.warning(
-                        "Refusing to kill process PID %s on port %d: identity verification failed (%s)",
+                        "Refusing to kill process PID %s on port %d: "
+                        "identity verification failed (%s)",
                         port_pid,
                         requesting_port,
                         port_check.reason,
                     )
                     warnings.append(
-                        f"Port {requesting_port} is occupied by PID {port_pid} which is not an ONX-managed Minecraft process ({port_check.reason}); refusing to kill"
+                        f"Port {requesting_port} is occupied by PID {port_pid} which is "
+                        f"not an ONX-managed Minecraft process ({port_check.reason}); "
+                        "refusing to kill"
                     )
                 else:
                     killed, info = _try_kill_process(port_pid)
                     if killed:
                         actions.append(
-                            f"Killed process PID {port_pid} occupying port {requesting_port} — {info}"
+                            f"Killed process PID {port_pid} occupying port "
+                            f"{requesting_port} — {info}"
                         )
                         released = _wait_for_port_free(requesting_port, timeout=3.0)
                         if released:
                             actions.append(
-                                f"Port {requesting_port} verified free after killing occupant PID {port_pid}"
+                                f"Port {requesting_port} verified free after killing "
+                                f"occupant PID {port_pid}"
                             )
                         else:
                             warnings.append(
-                                f"Port {requesting_port} still occupied after killing PID {port_pid}"
+                                f"Port {requesting_port} still occupied after killing "
+                                f"PID {port_pid}"
                             )
                             resolved += 1
                     else:
                         warnings.append(
-                            f"Could not kill PID {port_pid} occupying port {requesting_port} — {info}"
+                            f"Could not kill PID {port_pid} occupying port "
+                            f"{requesting_port} — {info}"
                         )
             else:
                 warnings.append(
@@ -918,7 +948,10 @@ class RuntimeOwnershipManager:
 
         for orphan in snapshot.orphan_processes:
             try:
-                reason = f"orphan Minecraft process PID {orphan.pid} — not attached to any managed server"
+                reason = (
+                    f"orphan Minecraft process PID {orphan.pid} — "
+                    "not attached to any managed server"
+                )
                 orphan_start = getattr(orphan, "start_time", None) or (
                     orphan.details.get("start_time")
                     if hasattr(orphan, "details") and orphan.details
@@ -1119,3 +1152,129 @@ class RuntimeOwnershipManager:
             result.chain.append(f"error={exc}")
 
         return result
+
+
+async def resolve_docker_host_rcon_port(
+    server: Server,
+    provider: Any,
+    server_dir: str | None = None,
+) -> int | None:
+    """Resolve a non-colliding loopback host RCON port for a Docker server start."""
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.models import ServerModel
+    from app.modules.server.infrastructure.providers.docker import (
+        _read_persisted_rcon_port,
+        allocate_host_rcon_port,
+    )
+
+    resolved_dir = server_dir or (
+        server.deployment.server_directory() if server.deployment else None
+    )
+    if not resolved_dir:
+        return None
+    props_file = Path(resolved_dir) / "server.properties"
+    if not props_file.is_file():
+        return None
+
+    props: dict[str, str] = {}
+    with contextlib.suppress(OSError):
+        for raw_line in props_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            props[k.strip()] = v.strip()
+
+    if props.get("enable-rcon", "").lower() not in ("true", "yes", "1"):
+        return None
+
+    container_rcon_port = 25575
+    with contextlib.suppress(TypeError, ValueError):
+        container_rcon_port = int(props.get("rcon.port", "25575"))
+
+    sid = str(server.id)
+    reserved_ports: set[int] = set()
+
+    for cache_attr in ("_rcon_cache", "_rcon_info"):
+        cache = getattr(provider, cache_attr, None)
+        if isinstance(cache, dict):
+            for other_sid, entry in cache.items():
+                if other_sid == sid or not isinstance(entry, dict):
+                    continue
+                with contextlib.suppress(TypeError, ValueError):
+                    if entry.get("port") is not None:
+                        reserved_ports.add(int(entry["port"]))
+
+    with contextlib.suppress(Exception):
+        from app.modules.versioning.infrastructure.port_allocator import (
+            _ports_from_mapping,
+            async_get_live_docker_published_ports,
+        )
+
+        # Cross-check live published ports on all running Docker containers
+        live_docker_ports = await async_get_live_docker_published_ports(
+            exclude_containers={
+                f"{IDENTITY.temp_prefix_new}{sid}",
+                f"{IDENTITY.temp_prefix_legacy}{sid}",
+            }
+        )
+        reserved_ports.update(live_docker_ports)
+
+        async with database.session_factory() as session:
+            srv_rows = (await session.execute(select(ServerModel))).scalars().all()
+            valid_server_ids = {r.id for r in srv_rows}
+            for row in srv_rows:
+                if row.id == sid:
+                    continue
+                if row.port is not None:
+                    reserved_ports.add(int(row.port))
+                if row.deployment_port is not None:
+                    reserved_ports.add(int(row.deployment_port))
+                if row.status in ("starting", "running"):
+                    persisted_rcon = (
+                        _read_persisted_rcon_port(row.root_path) if row.root_path else None
+                    )
+                    if persisted_rcon is not None:
+                        reserved_ports.add(persisted_rcon)
+                    elif row.port is not None:
+                        reserved_ports.add(25575 + (int(row.port) - 25565))
+
+            from app.modules.versioning.infrastructure.models import (
+                ServerBranchModel,
+                ServerRuntimeModel,
+                ServerTestRunModel,
+            )
+
+            for branch in (await session.execute(select(ServerBranchModel))).scalars().all():
+                if valid_server_ids and branch.server_id not in valid_server_ids:
+                    continue
+                if getattr(branch, "status", None) in ("archived", "deleted"):
+                    continue
+                if getattr(branch, "runtime_status", None) in ("crashed", "terminated"):
+                    continue
+                reserved_ports.update(_ports_from_mapping(getattr(branch, "port_set_json", None)))
+            for rt in (await session.execute(select(ServerRuntimeModel))).scalars().all():
+                if valid_server_ids and rt.server_id not in valid_server_ids:
+                    continue
+                if getattr(rt, "status", None) in ("starting", "running"):
+                    if getattr(rt, "port", None) is not None:
+                        reserved_ports.add(int(rt.port))
+                    reserved_ports.update(_ports_from_mapping(getattr(rt, "port_set_json", None)))
+            for run in (await session.execute(select(ServerTestRunModel))).scalars().all():
+                if valid_server_ids and run.server_id not in valid_server_ids:
+                    continue
+                if getattr(run, "status", None) in ("PENDING", "BOOTING", "RUNNING"):
+                    if getattr(run, "ephemeral_port", None) is not None:
+                        reserved_ports.add(int(run.ephemeral_port))
+                    reserved_ports.update(_ports_from_mapping(getattr(run, "port_set_json", None)))
+
+    return allocate_host_rcon_port(
+        game_port=server.properties.port.value,
+        preferred_rcon_port=container_rcon_port,
+        reserved_ports=reserved_ports,
+        check_os=True,
+    )

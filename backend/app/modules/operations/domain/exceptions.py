@@ -62,6 +62,11 @@ class OperationConcurrencyConflictError(ConflictError):
         )
         super().__init__(msg)
         self.code = "OPERATION_CONCURRENCY_CONFLICT"
+        if active_op_id or op_type:
+            self.details = {
+                **({"operation_id": active_op_id} if active_op_id else {}),
+                **({"active_operation_type": op_type} if op_type else {}),
+            }
 
 
 class OperationStepError(OperationError):

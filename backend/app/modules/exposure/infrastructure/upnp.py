@@ -52,6 +52,21 @@ class AsyncUPnPService:
         self._rpc_timeout = rpc_timeout if rpc_timeout is not None else max(5.0, float(timeout * 2))
 
     @staticmethod
+    def _detect_lan_ip() -> str:
+        """Resolve the host's primary outbound LAN IP via a non-routed UDP socket probe."""
+        import socket
+
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect(("1.1.1.1", 80))
+                ip = sock.getsockname()[0]
+                if ip and not ip.startswith("127."):
+                    return ip
+        except OSError:
+            pass
+        return "127.0.0.1"
+
+    @staticmethod
     def is_private_or_cgnat(ip_str: str) -> bool:
         """Check if an IP is RFC 1918 private, RFC 6598 CGNAT, loopback, link-local, or unspecified.
 
@@ -173,7 +188,7 @@ class AsyncUPnPService:
             )
 
         # 5. Attempt Mapping with Bounded Alternate Port Retry (Auto-Fix)
-        lan_address = getattr(upnp, "lan_address", "") or "127.0.0.1"
+        lan_address = getattr(upnp, "lan_address", "") or self._detect_lan_ip()
         target_port = requested_external_port
         auto_fixed = False
         fix_hint = None

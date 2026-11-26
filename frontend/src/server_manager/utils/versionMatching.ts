@@ -5,8 +5,42 @@ export const LOADER_COMPATIBILITY: Record<string, string[]> = {
   paper: ["paper", "spigot", "bukkit"],
   spigot: ["spigot", "bukkit"],
   bukkit: ["bukkit"],
-  folia: ["folia", "paper", "spigot", "bukkit"],
+  folia: ["folia"],
+  waterfall: ["waterfall", "bungeecord"],
+  bungeecord: ["bungeecord"],
+  velocity: ["velocity"],
+  minestom: ["minestom"],
+  quilt: ["quilt", "fabric"],
+  fabric: ["fabric"],
+  forge: ["forge"],
+  neoforge: ["neoforge"],
 };
+
+const LOADER_TIERS: Record<string, string[][]> = {
+  purpur: [["purpur", "paper"], ["spigot"], ["bukkit"]],
+  paper: [["paper"], ["spigot"], ["bukkit"]],
+  spigot: [["spigot"], ["bukkit"]],
+  bukkit: [["bukkit"]],
+  folia: [["folia"]],
+  waterfall: [["waterfall"], ["bungeecord"]],
+  bungeecord: [["bungeecord"]],
+  velocity: [["velocity"]],
+  minestom: [["minestom"]],
+  quilt: [["quilt", "fabric"]],
+  fabric: [["fabric"]],
+  forge: [["forge"]],
+  neoforge: [["neoforge"]],
+};
+
+const VERSION_TYPE_RANK: Record<string, number> = {
+  release: 2,
+  beta: 1,
+  alpha: 0,
+};
+
+const LOADER_PREFIX_RE =
+  /^(?:(?:purpur|paper|spigot|bukkit|folia|fabric|quilt|forge|neoforge|velocity|bungeecord|bungee|waterfall|minestom)[-_+ ]+)+/i;
+const PRERELEASE_RE = /(?:^|[-._+])(alpha|beta|rc|dev|snapshot|pre|canary)(?:[-._+\d]|$)/i;
 
 export function parseMc(version: string): [number, number, number] {
   const parts = version.trim().split(".");
@@ -63,8 +97,9 @@ export function gameVersionMatches(serverVersion: string, listedVersion: string)
 }
 
 function parseVersionTokens(v: string): Array<number | string> {
-  const cleaned = v.trim().replace(/^v/i, "");
-  const parts = cleaned.split(/([.\-+_])/).filter((p) => p && !/^[.\-+_]$/.test(p));
+  const stripped = v.trim().replace(LOADER_PREFIX_RE, "").replace(/^v(?=\d)/i, "");
+  const core = stripped.split("+")[0] ?? stripped;
+  const parts = core.split(/([.\-_])/).filter((p) => p && !/^[.\-_]$/.test(p));
   return parts.map((p) => (/^\d+$/.test(p) ? parseInt(p, 10) : p.toLowerCase()));
 }
 
@@ -77,8 +112,13 @@ export function compareVersionNumbers(v1: string, v2: string): number {
     const a = t1[i];
     const b = t2[i];
 
-    if (a === undefined) return -1;
-    if (b === undefined) return 1;
+    if (a === undefined) {
+      // Final release ("1.0.0") strictly beats prerelease ("1.0.0-alpha")
+      return typeof b === "string" ? 1 : -1;
+    }
+    if (b === undefined) {
+      return typeof a === "string" ? -1 : 1;
+    }
 
     if (typeof a === "number" && typeof b === "number") {
       if (a !== b) return a - b;
@@ -94,12 +134,37 @@ export function compareVersionNumbers(v1: string, v2: string): number {
   return 0;
 }
 
-export function compareVersions(a: PluginVersionResponse, b: PluginVersionResponse): number {
+function effectiveVersionTypeRank(v: PluginVersionResponse): number {
+  const raw = (v.version_type || "").trim().toLowerCase();
+  if (raw in VERSION_TYPE_RANK) {
+    const base = VERSION_TYPE_RANK[raw];
+    if (base === 2 && PRERELEASE_RE.test(v.version_number || "")) {
+      return 1;
+    }
+    return base;
+  }
+  return PRERELEASE_RE.test(v.version_number || "") ? 1 : 2;
+}
+
+export function compareVersions(
+  a: PluginVersionResponse,
+  b: PluginVersionResponse,
+  serverType = "",
+): number {
+  const vtDiff = effectiveVersionTypeRank(a) - effectiveVersionTypeRank(b);
+  if (vtDiff !== 0) return vtDiff;
   const vCmp = compareVersionNumbers(a.version_number || "", b.version_number || "");
   if (vCmp !== 0) return vCmp;
   const d1 = a.date_published || "";
   const d2 = b.date_published || "";
-  return d1.localeCompare(d2);
+  if (d1 !== d2) return d1.localeCompare(d2);
+  if (serverType) {
+    const st = serverType.trim().toLowerCase();
+    const aExact = a.loaders.map((l) => l.trim().toLowerCase()).includes(st) ? 1 : 0;
+    const bExact = b.loaders.map((l) => l.trim().toLowerCase()).includes(st) ? 1 : 0;
+    return aExact - bExact;
+  }
+  return 0;
 }
 
 export function selectRecommendedVersion(
@@ -110,7 +175,7 @@ export function selectRecommendedVersion(
   if (!versions || versions.length === 0) return null;
 
   const st = (serverType || "").trim().toLowerCase();
-  const chain = LOADER_COMPATIBILITY[st] ?? (st ? [st] : []);
+  const tiers = LOADER_TIERS[st] ?? (st ? [[st]] : []);
   const sv = (minecraftVersion || "").trim();
 
   function loaderMatches(v: PluginVersionResponse, loader: string): boolean {
@@ -123,10 +188,10 @@ export function selectRecommendedVersion(
   );
 
   if (candidates.length > 0) {
-    for (const loader of chain) {
-      const group = candidates.filter((v) => loaderMatches(v, loader));
+    for (const tierLoaders of tiers) {
+      const group = candidates.filter((v) => tierLoaders.some((ldr) => loaderMatches(v, ldr)));
       if (group.length > 0) {
-        return group.reduce((best, cur) => (compareVersions(cur, best) > 0 ? cur : best));
+        return group.reduce((best, cur) => (compareVersions(cur, best, st) > 0 ? cur : best));
       }
     }
   }

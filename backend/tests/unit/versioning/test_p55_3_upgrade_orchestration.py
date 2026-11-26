@@ -662,7 +662,7 @@ async def test_advanced_upgrade_flow_template_cleanup_backup_before_merge_and_ro
         target_overrides={"config/app.yml": b"setting: new\n"},
     )
     assert str(prepared.status) == "staging"
-    assert str(prepared.upgrade_branch) == "upgrade/1.21.1"
+    assert str(prepared.upgrade_branch) == "upgrade-1.21.1"
 
     start_res = await svc.start_advanced_upgrade_test(
         str(upgrade.id),
@@ -962,3 +962,490 @@ async def test_simple_mode_5_step_swap_rollback_and_confirm(
     assert (server_root / "mods" / "simple.jar").read_bytes() == mod_old
     lf_after_emg = lock_svc.read(server_id)
     assert lf_after_emg is not None and lf_after_emg.mc == "1.20.4"
+
+
+@pytest.mark.asyncio
+async def test_upgrade_branch_collision_suffix_and_upsert_hook(upgrade_env: Any) -> None:
+    from sqlalchemy import select
+
+    from app.modules.versioning.application.modpack_upgrade_service import (
+        SQLServerUpgradeRepository,
+    )
+    from app.modules.versioning.infrastructure.models import ServerBranchModel
+
+    server_id = "srv-branch-collision"
+    server_root = upgrade_env.servers_root / server_id
+    server_root.mkdir(parents=True, exist_ok=True)
+    _insert_server(upgrade_env, server_id, "advanced", server_root)
+    lec_old = "fabric/1.20.4/0.16.0/1.0.1"
+    lec_new = "fabric/1.21.4/0.16.0/1.0.1"
+    await _seed_ready_lec(upgrade_env, lec_old)
+    await _seed_ready_lec(upgrade_env, lec_new)
+
+    old_mod = b"old-mod"
+    sha256_o, sha512_o, sha1_o = _hashes(old_mod)
+    upgrade_env.cas.put_bytes(old_mod)
+
+    lf = LockfileV21(
+        format=2,
+        mc="1.20.4",
+        loader=LoaderRef(id="fabric", version="0.16.0"),
+        base_overrides={},
+        files=(
+            LockfileFile(
+                path="mods/legacy.jar",
+                sha256=sha256_o,
+                size=len(old_mod),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.MODRINTH,
+                sha512=sha512_o,
+                sha1=sha1_o,
+                project_id="legacy",
+                version_id="v1",
+            ),
+        ),
+        lec=LecRef(key=lec_old),
+    )
+    GitRepositoryService(upgrade_env.layout).initialize(server_id, server_root, lf)
+    # Pre-create upgrade-1.21.4 branch so prepare_advanced_upgrade_branch must suffix it
+    GitBranchService(upgrade_env.layout).create_branch(
+        server_id, server_root, "upgrade-1.21.4", start_point="main"
+    )
+
+    svc = ModpackUpgradeService(
+        upgrade_env.layout,
+        upgrade_env.async_factory,
+        modrinth_client=_FakeModrinth(version_files={}, updates={}),  # type: ignore[arg-type]
+        upgrade_repo=SQLServerUpgradeRepository(upgrade_env.async_factory),
+    )
+
+    upgrade, matrix = await svc.plan_upgrade(
+        server_id,
+        target_mc="1.21.4",
+        target_loader=LoaderRef(id="fabric", version="0.16.0"),
+        mode="advanced",
+        server_root=server_root,
+        target_lec_key=lec_new,
+        keep_paths=["mods/legacy.jar"],
+    )
+    assert not matrix.has_blockers
+
+    prepared = await svc.prepare_advanced_upgrade_branch(
+        str(upgrade.id),
+        server_root=server_root,
+    )
+    assert prepared.upgrade_branch is not None
+    assert "/" not in prepared.upgrade_branch
+    assert prepared.upgrade_branch.startswith("upgrade-1.21.4-")
+    assert len(prepared.upgrade_branch) <= 63
+
+    async with upgrade_env.async_factory() as session:
+        row = (
+            await session.execute(
+                select(ServerBranchModel).where(
+                    ServerBranchModel.server_id == server_id,
+                    ServerBranchModel.name == prepared.upgrade_branch,
+                )
+            )
+        ).scalar_one_or_none()
+        assert row is not None
+        assert row.head_commit_id == prepared.target_main_sha
+
+
+@pytest.mark.asyncio
+async def test_short_prefixed_server_dir_swap_validation_and_simple_upgrade(
+    upgrade_env: _UpgradeEnv,
+) -> None:
+    """Short-prefixed server dirs (server-5a206ead) pass swap validation & Simple upgrade."""
+    from app.core.exceptions import ValidationError
+    from app.modules.versioning.application.refresh_recovery import RefreshStartupReconciler
+
+    server_id = "5a206ead96d94c388ee4be3c246237aa"
+    server_root = upgrade_env.servers_root / "server-5a206ead"
+    server_root.mkdir(parents=True)
+    (server_root / "world").mkdir()
+    (server_root / "world" / "data.txt").write_text("simple-world-v1")
+    (server_root / "plugins").mkdir()
+    _insert_server(upgrade_env, server_id, "simple", server_root)
+
+    staging_dir = upgrade_env.servers_root / "server-5a206ead.staging"
+    prev_dir = upgrade_env.servers_root / "server-5a206ead.prev"
+    other_prev = upgrade_env.servers_root / "server-deadbeef.prev"
+
+    reconciler = RefreshStartupReconciler(
+        upgrade_env.layout,
+        repository=upgrade_env.journal_repo,
+        servers_data_dir=upgrade_env.servers_root,
+    )
+    # 1a. Valid short-prefixed paths pass both with and without explicit live_root
+    assert reconciler.validate_swap_path(server_id, prev_dir, field="previous_path") == prev_dir
+    assert (
+        reconciler.validate_swap_path(
+            server_id, prev_dir, field="previous_path", live_root=server_root
+        )
+        == prev_dir
+    )
+    assert (
+        reconciler.validate_swap_path(
+            server_id, staging_dir, field="staging_path", live_root=server_root
+        )
+        == staging_dir
+    )
+
+    # 1b. Another server's directory MUST still be rejected
+    with pytest.raises(ValidationError, match="does not belong to server"):
+        reconciler.validate_swap_path(server_id, other_prev, field="previous_path")
+    with pytest.raises(ValidationError, match="does not belong to server"):
+        reconciler.validate_swap_path(
+            server_id, other_prev, field="previous_path", live_root=server_root
+        )
+
+    # 2. Seed an orphaned prior .prev tree & verify Simple-mode execute_simple_upgrade succeeds
+    lec_old = "paper/1.21.1/100"
+    lec_new = "paper/1.21.4/200"
+    await _seed_ready_lec(upgrade_env, lec_old)
+    await _seed_ready_lec(upgrade_env, lec_new)
+
+    LockfileService(upgrade_env.layout).write(
+        server_id,
+        LockfileV21(
+            format=2,
+            mc="1.21.1",
+            loader=LoaderRef(id="paper", version="100"),
+            base_overrides={},
+            lec=LecRef(key=lec_old),
+            files=(),
+        ),
+    )
+
+    prev_dir.mkdir(parents=True)
+    (prev_dir / "old-marker.txt").write_text("stale")
+    stale_journal = await upgrade_env.journal_repo.create(
+        server_id=server_id,
+        fencing_token=1,
+        live_path=server_root,
+        staging_path=staging_dir,
+        previous_path=prev_dir,
+        phase="ROLLING_BACK",
+        retention_policy="until_confirm",
+        previous_tree_retained=True,
+    )
+    assert stale_journal.phase == "ROLLING_BACK"
+
+    svc = ModpackUpgradeService(
+        upgrade_env.layout,
+        upgrade_env.async_factory,
+        modrinth_client=_FakeModrinth(version_files={}, updates={}),  # type: ignore[arg-type]
+    )
+    upgrade, matrix = await svc.plan_upgrade(
+        server_id,
+        target_mc="1.21.4",
+        target_loader=LoaderRef(id="paper", version="200"),
+        mode="simple",
+        target_lec_key=lec_new,
+        ensure_baseline_fn=lambda _sid: asyncio.sleep(0),
+    )
+    assert not matrix.has_blockers
+
+    backup = _FakeBackupService()
+    runtime = _FakeRuntime()
+    refresh_svc = LiveRefreshService(
+        upgrade_env.layout,
+        repository=upgrade_env.journal_repo,
+        backup_service=backup,
+        runtime=runtime,
+        repo_lease=upgrade_env.repo_lease,
+        servers_data_dir=upgrade_env.servers_root,
+        live_root=server_root,
+    )
+
+    res = await svc.execute_simple_upgrade(
+        str(upgrade.id),
+        server_root=server_root,
+        refresh_service=refresh_svc,
+        health_gate=_FakeHealthGate(passed=True),  # type: ignore[arg-type]
+        ensure_baseline_fn=lambda _sid: asyncio.sleep(0),
+    )
+    assert res.rolled_back is False
+    confirmed = await svc.confirm_upgrade_and_unpin(
+        str(upgrade.id), refresh_service=refresh_svc
+    )
+    assert str(confirmed.status) == "confirmed"
+    assert not prev_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_orphaned_until_confirm_journal_without_active_pinned_reclaimed_before_apply(
+    upgrade_env: _UpgradeEnv,
+) -> None:
+    """Orphaned until_confirm journal with no active_pinned upgrade never blocks apply."""
+    server_id = "server-orphan-prev"
+    server_root = upgrade_env.servers_root / server_id
+    server_root.mkdir(parents=True)
+    (server_root / "world").mkdir()
+    (server_root / "world" / "data.txt").write_text("world-v1")
+    (server_root / "plugins").mkdir()
+    _insert_server(upgrade_env, server_id, "simple", server_root)
+
+    staging_dir = upgrade_env.servers_root / f"{server_id}.staging"
+    prev_dir = upgrade_env.servers_root / f"{server_id}.prev"
+    prev_dir.mkdir(parents=True)
+    (prev_dir / "legacy.txt").write_text("orphaned")
+
+    # Seed an orphaned COMPLETED until_confirm journal WITH .prev still on disk,
+    # while NO ServerUpgradeModel in status='active_pinned' exists!
+    orphaned = await upgrade_env.journal_repo.create(
+        server_id=server_id,
+        fencing_token=1,
+        live_path=server_root,
+        staging_path=staging_dir,
+        previous_path=prev_dir,
+        phase="QUIESCED",
+        retention_policy="until_confirm",
+        previous_tree_retained=True,
+    )
+    await upgrade_env.journal_repo.transition(
+        orphaned.journal_id,
+        fencing_token=1,
+        phase="COMPLETED",
+        previous_tree_retained=True,
+        retention_policy="until_confirm",
+    )
+
+    lec_old = "paper/1.21.1/100"
+    lec_new = "paper/1.21.4/200"
+    await _seed_ready_lec(upgrade_env, lec_old)
+    await _seed_ready_lec(upgrade_env, lec_new)
+    LockfileService(upgrade_env.layout).write(
+        server_id,
+        LockfileV21(
+            format=2,
+            mc="1.21.1",
+            loader=LoaderRef(id="paper", version="100"),
+            base_overrides={},
+            lec=LecRef(key=lec_old),
+            files=(),
+        ),
+    )
+
+    svc = ModpackUpgradeService(
+        upgrade_env.layout,
+        upgrade_env.async_factory,
+        modrinth_client=_FakeModrinth(version_files={}, updates={}),  # type: ignore[arg-type]
+    )
+    upgrade, matrix = await svc.plan_upgrade(
+        server_id,
+        target_mc="1.21.4",
+        target_loader=LoaderRef(id="paper", version="200"),
+        mode="simple",
+        target_lec_key=lec_new,
+        ensure_baseline_fn=lambda _sid: asyncio.sleep(0),
+    )
+    assert not matrix.has_blockers
+
+    refresh_svc = LiveRefreshService(
+        upgrade_env.layout,
+        repository=upgrade_env.journal_repo,
+        backup_service=_FakeBackupService(),
+        runtime=_FakeRuntime(),
+        repo_lease=upgrade_env.repo_lease,
+        servers_data_dir=upgrade_env.servers_root,
+        live_root=server_root,
+    )
+    res = await svc.execute_simple_upgrade(
+        str(upgrade.id),
+        server_root=server_root,
+        refresh_service=refresh_svc,
+        health_gate=_FakeHealthGate(passed=True),  # type: ignore[arg-type]
+        ensure_baseline_fn=lambda _sid: asyncio.sleep(0),
+    )
+    assert res.rolled_back is False
+    reclaimed = await upgrade_env.journal_repo.get(orphaned.journal_id)
+    assert reclaimed is not None
+    assert reclaimed.previous_tree_retained is False
+
+
+@pytest.mark.asyncio
+async def test_simple_purpur_upgrade_replaces_server_jar_and_excludes_superseded_plugins(
+    upgrade_env: _UpgradeEnv,
+) -> None:
+    """Simple Purpur upgrade writes target server.jar & plugins without carrying old 1.21.4 jars."""
+    server_id = "server-purpur-upg"
+    server_root = upgrade_env.servers_root / server_id
+    server_root.mkdir(parents=True)
+    (server_root / "world").mkdir()
+    (server_root / "world" / "level.dat").write_bytes(b"world-data")
+    (server_root / "server.properties").write_text("enable-rcon=false\n", encoding="utf-8")
+    (server_root / "plugins" / ".paper-remapped").mkdir(parents=True)
+    (server_root / "plugins" / ".paper-remapped" / "old.jar").write_bytes(b"old-remap")
+    (server_root / "versions" / "1.21.4").mkdir(parents=True)
+    (server_root / "versions" / "1.21.4" / "purpur-1.21.4.jar").write_bytes(b"old-patched")
+
+    old_server_jar = b"old-purpur-1.21.4-server-jar"
+    old_plugin_bytes = b"old-veinminer-2.6.0"
+    new_server_jar = b"NEW-PURPUR-1.21.11-SERVER-JAR"
+    new_plugin_bytes = b"NEW-VEINMINER-2.7.0"
+
+    (server_root / "server.jar").write_bytes(old_server_jar)
+    (server_root / "plugins" / "veinminer-paper-2.6.0.jar").write_bytes(old_plugin_bytes)
+    _insert_server(upgrade_env, server_id, "simple", server_root)
+
+    cas = upgrade_env.cas
+    old_srv_sha256, _old_srv_512, _old_srv_1 = _hashes(old_server_jar)
+    cas.put_bytes(old_server_jar)
+    old_plug_256, old_plug_512, old_plug_1 = _hashes(old_plugin_bytes)
+    cas.put_bytes(old_plugin_bytes)
+    new_plug_512 = _hashes(new_plugin_bytes)[1]
+    new_plug_1 = _hashes(new_plugin_bytes)[2]
+
+    lec_old = "purpur/1.21.4/latest"
+    lec_new = "purpur/1.21.11/latest"
+    await _seed_ready_lec(upgrade_env, lec_old)
+    await _seed_ready_lec(upgrade_env, lec_new)
+
+    old_lockfile = LockfileV21(
+        format=2,
+        mc="1.21.4",
+        loader=LoaderRef(id="purpur", version="latest"),
+        base_overrides={},
+        lec=LecRef(key=lec_old),
+        files=(
+            LockfileFile(
+                path="plugins/veinminer-paper-2.6.0.jar",
+                sha256=old_plug_256,
+                size=len(old_plugin_bytes),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.USER,
+                sha512=old_plug_512,
+                sha1=old_plug_1,
+            ),
+            LockfileFile(
+                path="server.jar",
+                sha256=old_srv_sha256,
+                size=len(old_server_jar),
+                optional=False,
+                env_server=EnvServer.REQUIRED,
+                origin=Origin.USER,
+            ),
+        ),
+    )
+    LockfileService(upgrade_env.layout).write(server_id, old_lockfile)
+
+    identified = ModrinthVersionRecord(
+        project_id="proj-vein",
+        version_id="ver-260",
+        version_number="2.6.0",
+        name="Veinminer",
+        version_type="release",
+        loaders=("purpur", "paper"),
+        game_versions=("1.21.4",),
+        environment="client_and_server",
+        files=(
+            PluginFile(
+                filename="veinminer-paper-2.6.0.jar",
+                url="https://cdn.modrinth.com/data/proj-vein/versions/ver-260/veinminer-paper-2.6.0.jar",
+                primary=True,
+                size_bytes=len(old_plugin_bytes),
+                sha512=old_plug_512,
+                sha1=old_plug_1,
+            ),
+        ),
+        dependencies=(),
+    )
+    target_rec = ModrinthVersionRecord(
+        project_id="proj-vein",
+        version_id="ver-270",
+        version_number="2.7.0",
+        name="Veinminer 2.7.0",
+        version_type="release",
+        game_versions=("1.21.11",),
+        loaders=("purpur", "paper"),
+        environment="client_and_server",
+        dependencies=(),
+        files=(
+            PluginFile(
+                filename="veinminer-paper-2.7.0.jar",
+                url="https://cdn.modrinth.com/data/proj-vein/versions/ver-270/veinminer-paper-2.7.0.jar",
+                primary=True,
+                size_bytes=len(new_plugin_bytes),
+                sha512=new_plug_512,
+                sha1=new_plug_1,
+            ),
+        ),
+    )
+
+    async def fake_download_to_cas(
+        url: str,
+        target_cas: ArtifactCas,
+        **_kwargs: Any,
+    ) -> VerifiedDownloadResult:
+        payload = new_server_jar if "purpurmc.org" in url else new_plugin_bytes
+        sha256, sha512, sha1 = _hashes(payload)
+        target_cas.put_bytes(payload)
+        return VerifiedDownloadResult(
+            final_url=url,
+            redirect_count=0,
+            sha256=sha256,
+            sha512=sha512,
+            sha1=sha1,
+            size=len(payload),
+        )
+
+    svc = ModpackUpgradeService(
+        upgrade_env.layout,
+        upgrade_env.async_factory,
+        modrinth_client=_FakeModrinth(
+            version_files={old_plug_512: identified},
+            updates={old_plug_512: target_rec},
+        ),  # type: ignore[arg-type]
+        download_to_cas=fake_download_to_cas,
+    )
+
+    upgrade, matrix = await svc.plan_upgrade(
+        server_id,
+        target_mc="1.21.11",
+        target_loader=LoaderRef(id="purpur", version="latest"),
+        mode="simple",
+        ensure_baseline_fn=lambda _sid: asyncio.sleep(0),
+    )
+    assert str(upgrade.target_lec_key) == lec_new
+    assert not matrix.has_blockers
+
+    refresh_svc = LiveRefreshService(
+        upgrade_env.layout,
+        repository=upgrade_env.journal_repo,
+        backup_service=_FakeBackupService(),
+        runtime=_FakeRuntime(),
+        repo_lease=upgrade_env.repo_lease,
+        servers_data_dir=upgrade_env.servers_root,
+        live_root=server_root,
+    )
+    stages_seen: list[str] = []
+
+    async def _record_stage(stage: str) -> None:
+        stages_seen.append(stage)
+
+    res = await svc.execute_simple_upgrade(
+        str(upgrade.id),
+        server_root=server_root,
+        refresh_service=refresh_svc,
+        health_gate=_FakeHealthGate(passed=True),  # type: ignore[arg-type]
+        ensure_baseline_fn=lambda _sid: asyncio.sleep(0),
+        on_stage=_record_stage,
+    )
+    assert res.rolled_back is False
+    assert stages_seen == ["STAGE_FILES", "SWAP_LIVE_TREE", "HEALTH_GATE", "FINALIZE"]
+
+    # New target server.jar and upgraded plugin filename materialized cleanly
+    assert (server_root / "server.jar").read_bytes() == new_server_jar
+    assert (server_root / "plugins" / "veinminer-paper-2.7.0.jar").read_bytes() == new_plugin_bytes
+
+    # Superseded plugin JAR and old 1.21.4 caches were NOT carried over!
+    assert not (server_root / "plugins" / "veinminer-paper-2.6.0.jar").exists()
+    assert not (server_root / "plugins" / ".paper-remapped").exists()
+    assert not (server_root / "versions" / "1.21.4").exists()
+
+    # Live world data remained intact
+    assert (server_root / "world" / "level.dat").read_bytes() == b"world-data"

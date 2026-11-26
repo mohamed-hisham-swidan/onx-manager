@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.event_bus import DomainEvent
@@ -189,3 +192,47 @@ def log_crash_diagnostics(
                 server_id,
                 line.rstrip(),
             )
+
+
+def extract_provider_crash_lines(exc: BaseException) -> list[str]:
+    """Build actionable, untruncated console crash lines from a start/restart failure."""
+    raw = str(exc).strip()
+    lines = [ln.rstrip("\r") for ln in raw.splitlines() if ln.strip()]
+    if lines and not lines[0].startswith("["):
+        lines[0] = f"[ERROR] {lines[0]}"
+
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        container_logs = details.get("container_logs")
+        if isinstance(container_logs, list):
+            for entry in container_logs:
+                for subline in str(entry).splitlines():
+                    cleaned = subline.rstrip("\r")
+                    if cleaned.strip() and cleaned not in lines:
+                        lines.append(cleaned)
+
+    return lines or [f"[ERROR] {type(exc).__name__}"]
+
+
+async def persist_crash_evidence(
+    session: Any,
+    server_id: str,
+    lines: list[str],
+) -> None:
+    """Persist crash log lines into ``health_evidence`` inside the caller's UoW."""
+    if not lines:
+        return
+    try:
+        from app.modules.health.infrastructure.models import EvidenceBundleModel
+
+        session.add(
+            EvidenceBundleModel(
+                id=uuid.uuid4().hex,
+                server_id=server_id,
+                latest_log_tail=json.dumps(lines[-200:]),
+                recorded_at=datetime.now(UTC),
+            )
+        )
+        await session.flush()
+    except Exception as exc:
+        logger.debug("Could not persist crash evidence bundle for %s: %s", server_id, exc)

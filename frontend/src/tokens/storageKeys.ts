@@ -1,19 +1,16 @@
 export const THEME_KEY = "onx_theme";
 export const SKIN_KEY = "onx_skin";
-export const DENSITY_KEY = "onx_density";
 export const ACCENT_KEY = "onx_accent";
 export const CORNER_STYLE_KEY = "onx_corner_style";
 
 export type Theme = "light" | "dark";
 export type Skin = "graphite" | "azure" | "emerald" | "amethyst" | "amber" | "crimson";
 export type ThemeSkin = Skin;
-export type Density = "comfortable" | "compact";
 export type AccentColor = "theme" | "blue" | "emerald" | "violet" | "amber" | "rose" | "cyan";
 export type CornerStyle = "rounded" | "sharp";
 
 export const DEFAULT_THEME: Theme = "dark";
 export const DEFAULT_SKIN: Skin = "graphite";
-export const DEFAULT_DENSITY: Density = "comfortable";
 export const DEFAULT_ACCENT: AccentColor = "theme";
 export const DEFAULT_CORNER_STYLE: CornerStyle = "rounded";
 
@@ -195,13 +192,11 @@ export const ACCENT_PRESETS: AccentPreset[] = [
 export function initPrePaintAttributes(): {
   mode: Theme;
   skin: Skin;
-  density: Density;
   accent: AccentColor;
   cornerStyle: CornerStyle;
 } {
   let mode: Theme = DEFAULT_THEME;
   let skin: Skin = DEFAULT_SKIN;
-  let density: Density = DEFAULT_DENSITY;
   let accent: AccentColor = DEFAULT_ACCENT;
   let cornerStyle: CornerStyle = DEFAULT_CORNER_STYLE;
 
@@ -227,11 +222,6 @@ export function initPrePaintAttributes(): {
       skin = rawSkin;
     }
 
-    const rawDensity = localStorage.getItem(DENSITY_KEY);
-    if (rawDensity === "comfortable" || rawDensity === "compact") {
-      density = rawDensity;
-    }
-
     const rawAccent = localStorage.getItem(ACCENT_KEY);
     if (
       rawAccent === "theme" ||
@@ -253,7 +243,6 @@ export function initPrePaintAttributes(): {
     if (typeof document !== "undefined") {
       document.documentElement.setAttribute("data-mode", mode);
       document.documentElement.setAttribute("data-skin", skin);
-      document.documentElement.setAttribute("data-density", density);
       document.documentElement.setAttribute("data-accent", accent);
       document.documentElement.setAttribute("data-corners", cornerStyle);
       if (mode === "dark") {
@@ -266,10 +255,9 @@ export function initPrePaintAttributes(): {
     // Graceful fallback if localStorage is unavailable
   }
 
-  const result = { mode, skin, density } as {
+  const result = { mode, skin } as {
     mode: Theme;
     skin: Skin;
-    density: Density;
     accent: AccentColor;
     cornerStyle: CornerStyle;
   };

@@ -53,13 +53,11 @@ def _detect_server_type(
             return "forge"
         if "spigot" in name:
             return "spigot"
-        if "craftbukkit" in name or "bukkit" in name:
-            return "bukkit"
         if name == "server.jar" or "vanilla" in name:
             return "vanilla"
 
     settings_type = props.get("settings-type", "")
-    if settings_type in ("paper", "purpur", "fabric", "forge", "neoforge", "spigot", "bukkit"):
+    if settings_type in ("paper", "purpur", "fabric", "forge", "neoforge", "spigot"):
         return settings_type
 
     if props.get("paper-config") and props.get("paper-config") != "false":
@@ -284,13 +282,25 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
         if fs.exists(str(Path(server_dir) / script_name)):
             run_script = script_name
             break
+    argfile_rel: str | None = None
+    for pattern in (
+        "libraries/net/neoforged/neoforge/*/unix_args.txt",
+        "libraries/net/neoforged/neoforge/*/win_args.txt",
+        "libraries/net/minecraftforge/forge/*/unix_args.txt",
+        "libraries/net/minecraftforge/forge/*/win_args.txt",
+        "libraries/org/quiltmc/quilt-loader/*/unix_args.txt",
+    ):
+        matches = sorted(Path(server_dir).glob(pattern))
+        if matches and matches[0].is_file():
+            argfile_rel = matches[0].relative_to(Path(server_dir)).as_posix()
+            break
     server_type = _detect_server_type(jar_name, props, server_dir=server_dir, fs=fs)
     version = _detect_version(props, jar_name, server_dir=server_dir, fs=fs) or ""
 
     raw_server_name = (props.get("server-name") or "").strip()
     server_name_declared = bool(raw_server_name)
     name = raw_server_name or Path(server_dir).name
-    effective_jar = jar_name or run_script
+    effective_jar = jar_name or run_script or (f"@{argfile_rel}" if argfile_rel else None)
     jar_full_path = str(Path(server_dir) / jar_name) if jar_name else None
 
     return {

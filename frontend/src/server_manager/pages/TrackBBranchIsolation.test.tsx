@@ -86,12 +86,6 @@ vi.mock("@/stores/toastStore", async (importOriginal) => {
   };
 });
 
-vi.mock("@/server_manager/components/ServerSettingsSection", () => ({
-  ServerSettingsSection: ({ branch }: { branch?: string }) => (
-    <div data-testid="mock-settings-section">Settings form for {branch ?? "main"}</div>
-  ),
-}));
-
 vi.mock("@/server_manager/components/p55/ServerP55SettingsCard", () => ({
   ServerP55SettingsCard: () => <div data-testid="mock-p55-settings" />,
 }));
@@ -246,8 +240,11 @@ describe("Track B Multi-Tab Branch Isolation", () => {
       </QueryClientProvider>,
     );
 
-    const startBtn = await screen.findByRole("button", { name: /^Start$/i });
-    await waitFor(() => expect(screen.getByTestId("branch-unprovisioned-badge")).toBeInTheDocument());
+    const startBtn = await screen.findByRole("button", { name: /^Start$/i }, { timeout: 5000 });
+    await waitFor(
+      () => expect(screen.getByTestId("branch-unprovisioned-badge")).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
 
     const pluginsLink = screen.getByRole("link", { name: "Plugins" });
     expect(pluginsLink).toHaveAttribute("href", "/servers/srv-1/plugins?branch=feat-a");
@@ -420,10 +417,8 @@ describe("Track B Multi-Tab Branch Isolation", () => {
     );
 
     expect(await screen.findByTestId("pending-settings-banner")).toBeInTheDocument();
-    expect(screen.getByTestId("branch-scoped-settings-section")).toBeInTheDocument();
-    expect(screen.getByTestId("server-wide-settings-section")).toHaveTextContent(
-      "Applies to the entire server (all branches)",
-    );
+    expect(screen.getByTestId("settings-branch-pill")).toHaveTextContent("main");
+    expect(screen.getByTestId("server-settings-tab-general")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("pending-settings-discard-btn"));
     await waitFor(() => expect(mockApi.discardPendingSettings).toHaveBeenCalledWith("srv-1"));

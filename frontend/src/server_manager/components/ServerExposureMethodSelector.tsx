@@ -80,6 +80,18 @@ export function ServerExposureMethodSelector({
   const [syncedExposure, setSyncedExposure] = useState<ServerExposureResponse | null | undefined>(null);
   if (exposure && syncedExposure !== exposure) {
     setSyncedExposure(exposure);
+    if (exposure.cloudflare_mode && exposure.cloudflare_mode !== "quick") {
+      setCloudflareMode(exposure.cloudflare_mode);
+    }
+    if (exposure.subdomain_prefix !== undefined) {
+      setSubdomainPrefix(exposure.subdomain_prefix ?? "");
+    }
+    if (exposure.base_domain !== undefined) {
+      setBaseDomain(exposure.base_domain ?? "");
+    }
+    if (exposure.srv_record_enabled !== undefined) {
+      setSrvRecordEnabled(Boolean(exposure.srv_record_enabled));
+    }
     if (exposure.targets && exposure.targets[0]?.public_address && !hostname) {
       const cleanHost = exposure.targets[0].public_address.replace(/^https?:\/\//, "").split(":")[0];
       setHostname(cleanHost);
@@ -453,19 +465,18 @@ export function ServerExposureMethodSelector({
               </div>
 
               {cloudflareMode === "quick" ? (
-                <div className="space-y-3">
-                  <p className="text-xs text-text-secondary">
-                    Starts a temporary <code className="font-mono">trycloudflare.com</code> tunnel for quick branch testing with zero DNS setup or credentials required.
+                <div
+                  data-testid="cf-quick-tcp-blocked"
+                  role="alert"
+                  className="space-y-2.5 rounded-xl border border-status-warning-border bg-status-warning-bg p-4"
+                >
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-status-warning">
+                    <Icon name="alert" size={16} />
+                    <span>Quick Tunnels Do Not Support Raw TCP Minecraft</span>
+                  </div>
+                  <p className="text-xs text-text-secondary leading-relaxed">
+                    Quick Tunnels only carry web traffic, not Minecraft. Use <strong>Playit.gg</strong> or a named Cloudflare tunnel instead.
                   </p>
-                  <button
-                    type="button"
-                    data-testid="cf-quick-enable-btn"
-                    onClick={handleSave}
-                    disabled={isUpdating}
-                    className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
-                  >
-                    {isUpdating ? "Starting Quick Tunnel..." : "Start Quick Cloudflare Preview"}
-                  </button>
                 </div>
               ) : (
                 <>
@@ -479,38 +490,94 @@ export function ServerExposureMethodSelector({
                   <span>Mandatory Player Software Requirement</span>
                 </div>
                 <p className="text-xs text-status-warning leading-relaxed">
-                  Unlike websites, Minecraft game traffic cannot be proxied natively over standard DNS through Cloudflare. To connect to a Cloudflare TCP tunnel, all connecting players must install the <strong>Modflared</strong> client mod or run <code>cloudflared access tcp</code> on their computers.
+                  Players must install the <strong>Modflared</strong> client mod or run <code>cloudflared access tcp</code> to connect.
                 </p>
               </div>
 
+              {cloudflareMode === "subdomain" && (
+                <div
+                  data-testid="cf-subdomain-fields"
+                  className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-xl border border-border-subtle bg-surface-muted p-3.5"
+                >
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="cloudflare-subdomain-prefix"
+                      className="block text-xs font-semibold text-text-secondary"
+                    >
+                      Subdomain Prefix <span className="text-status-danger">*</span>
+                    </label>
+                    <input
+                      id="cloudflare-subdomain-prefix"
+                      type="text"
+                      value={subdomainPrefix}
+                      onChange={(e) => setSubdomainPrefix(e.target.value)}
+                      placeholder="mc"
+                      className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="cloudflare-base-domain"
+                      className="block text-xs font-semibold text-text-secondary"
+                    >
+                      Base Domain <span className="text-status-danger">*</span>
+                    </label>
+                    <input
+                      id="cloudflare-base-domain"
+                      type="text"
+                      value={baseDomain}
+                      onChange={(e) => setBaseDomain(e.target.value)}
+                      placeholder="example.com"
+                      className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        id="cloudflare-srv-record-enabled"
+                        type="checkbox"
+                        checked={srvRecordEnabled}
+                        onChange={(e) => setSrvRecordEnabled(e.target.checked)}
+                        className="h-4 w-4 rounded border-border-default text-accent-primary focus:ring-accent-primary"
+                      />
+                      <span className="text-xs text-text-secondary font-medium">
+                        Enable Minecraft DNS SRV record hint (<code className="font-mono">_minecraft._tcp</code>)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Hostname */}
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="cloudflare-tcp-hostname"
-                    className="block text-xs font-semibold text-text-secondary"
-                  >
-                    Custom Domain / FQDN <span className="text-status-danger">*</span>
-                  </label>
-                  <input
-                    ref={firstInputRef}
-                    id="cloudflare-tcp-hostname"
-                    type="text"
-                    value={hostname}
-                    onChange={(e) => setHostname(e.target.value)}
-                    placeholder="play.example.com"
-                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
-                  />
-                  {hostname && !isValidFQDN(hostname) ? (
-                    <p className="text-[11px] text-status-danger">
-                      Please enter a valid fully-qualified domain name (e.g. play.example.com).
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-text-muted">
-                      Must be an active zone in your Cloudflare account.
-                    </p>
-                  )}
-                </div>
+                {cloudflareMode !== "subdomain" && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="cloudflare-tcp-hostname"
+                      className="block text-xs font-semibold text-text-secondary"
+                    >
+                      Custom Domain / FQDN <span className="text-status-danger">*</span>
+                    </label>
+                    <input
+                      ref={firstInputRef}
+                      id="cloudflare-tcp-hostname"
+                      type="text"
+                      value={hostname}
+                      onChange={(e) => setHostname(e.target.value)}
+                      placeholder="play.example.com"
+                      className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
+                    />
+                    {hostname && !isValidFQDN(hostname) ? (
+                      <p className="text-[11px] text-status-danger">
+                        Please enter a valid fully-qualified domain name (e.g. play.example.com).
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-text-muted">
+                        Must be an active zone in your Cloudflare account.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Cloudflare Token */}
                 <div className="space-y-1.5">
@@ -539,7 +606,7 @@ export function ServerExposureMethodSelector({
                       aria-label={showToken ? "Hide token" : "Show token"}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
                     >
-                      <Icon name={showToken ? "moon" : "sun"} size={14} />
+                      <Icon name={showToken ? "eye-off" : "eye"} size={14} />
                     </button>
                   </div>
                   <p className="text-[11px] text-text-muted">
@@ -569,7 +636,13 @@ export function ServerExposureMethodSelector({
                   onClick={handleSave}
                   disabled={
                     isUpdating ||
-                    !isValidFQDN(hostname) ||
+                    !isValidFQDN(
+                      cloudflareMode === "subdomain"
+                        ? subdomainPrefix.trim() && baseDomain.trim()
+                          ? `${subdomainPrefix.trim()}.${baseDomain.trim()}`
+                          : hostname
+                        : hostname,
+                    ) ||
                     !acknowledgedWarning ||
                     (!cloudflareToken && (!exposure?.has_cloudflare_credentials || isRotatingToken || isReclaimRequired))
                   }

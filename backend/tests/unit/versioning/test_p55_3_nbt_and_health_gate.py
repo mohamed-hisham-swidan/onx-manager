@@ -131,7 +131,8 @@ def test_nbt_reader_parses_all_tag_types_and_rejects_corrupt(tmp_path: Path) -> 
     assert info.level_name == "world"
 
     assert known_data_version_for_mc("1.21.1") == 3955
-    assert known_data_version_for_mc("26.1") == 4500
+    assert known_data_version_for_mc("1.21.11") == 4671
+    assert known_data_version_for_mc("26.1") == 4700
     assert known_data_version_for_mc("99.99") is None
 
     verified = verify_level_dat_target(
@@ -386,3 +387,22 @@ async def test_upgrade_health_gate_4_steps_mtime_retry_and_failures(
     assert res_to.passed is False
     assert res_to.failed_step == STEP_1_STDOUT_DONE
     assert "timed out" in (res_to.reason or "").lower()
+
+    # RCON disabled (rcon_client=None) should NOT falsely fail Step 2 on stale level.dat mtime
+    level_dat.write_bytes(_build_full_level_dat_bytes(data_version=4671, version_id="1.21.11"))
+    os.utime(level_dat, (old_ts, old_ts))
+    eval_no_rcon = UpgradeHealthGateEvaluator(
+        container_started_at=started_at,
+        server_root=server_root,
+        target_mc="1.21.11",
+        get_stdout_since=stdout_ok,
+        liveness_check=alive,
+        tcp_probe=tcp_ok,
+        rcon_client=None,
+        boot_timeout_seconds=2,
+        poll_interval_seconds=0.01,
+        _allow_test_timeout=True,
+    )
+    res_no_rcon = await eval_no_rcon.evaluate()
+    assert res_no_rcon.passed is True
+    assert res_no_rcon.data_version == 4671

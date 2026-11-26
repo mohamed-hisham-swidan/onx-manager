@@ -3,71 +3,113 @@ import { render, screen } from "@testing-library/react";
 import { OperationStepper } from "./OperationStepper";
 import type { OperationStep } from "../types";
 
-describe("OperationStepper", () => {
-  const mockSteps: OperationStep[] = [
-    {
-      id: "s1",
-      step_id: "ADMISSION_CHECK",
-      sequence: 1,
-      status: "COMPLETED",
-      progress: 1.0,
-      elapsed_ms: 1200,
-      message_key: null,
-      safe_to_retry: true,
-      context: {},
-      started_at: "2026-09-27T12:00:00Z",
-      completed_at: "2026-09-27T12:00:01Z",
-    },
-    {
-      id: "s2",
-      step_id: "MATERIALIZE_STAGING",
-      sequence: 2,
-      status: "IN_PROGRESS",
-      progress: 0.65,
-      elapsed_ms: 2500,
-      message_key: null,
-      safe_to_retry: false,
-      context: {},
-      started_at: "2026-09-27T12:00:01Z",
-      completed_at: null,
-    },
-    {
-      id: "s3",
-      step_id: "BOOTSTRAP_VERIFY",
-      sequence: 3,
-      status: "PENDING",
-      progress: null,
-      elapsed_ms: 0,
-      message_key: null,
-      safe_to_retry: false,
-      context: {},
-      started_at: null,
-      completed_at: null,
-    },
-  ];
+describe("OperationStepper — artifacts, 5-check health gate & terminal freeze", () => {
+  it("renders per-artifact download progress and 5-check Health Gate checklist", () => {
+    const steps: OperationStep[] = [
+      {
+        id: "s1",
+        step_id: "PREPARE_AND_DOWNLOAD",
+        sequence: 1,
+        status: "IN_PROGRESS",
+        progress: 0.65,
+        elapsed_ms: 4200,
+        message_key: "Preparing backup & downloading target artifacts",
+        safe_to_retry: false,
+        context: {
+          artifacts: [
+            { name: "LetMeDespawn.jar", kind: "addon", status: "cached", progress_pct: 100 },
+            {
+              name: "Purpur 1.21.11",
+              kind: "server_core",
+              status: "downloading",
+              progress_pct: 50,
+              bytes_done: 26214400,
+              bytes_total: 52428800,
+            },
+          ],
+        },
+        started_at: "2026-11-25T10:00:00Z",
+        completed_at: null,
+      },
+      {
+        id: "s2",
+        step_id: "HEALTH_GATE",
+        sequence: 2,
+        status: "IN_PROGRESS",
+        progress: 0.8,
+        elapsed_ms: 22100,
+        message_key: "Booting server & running 5-check Health Gate",
+        safe_to_retry: false,
+        context: {
+          checks: [
+            { id: "startup_log", label: "Container Boot & Ready Signal", status: "passed", detail: "Done in 22.1s" },
+            { id: "local_slp", label: "Local Server Ping (SLP)", status: "passed", detail: "Purpur 1.21.11 · 4ms" },
+            { id: "rcon_flush", label: "RCON World Flush", status: "skipped", detail: "RCON disabled in server.properties" },
+            { id: "world_nbt", label: "World Save Integrity (NBT)", status: "passed", detail: "DataVersion 4671" },
+            { id: "network_reachability", label: "Public Network / Tunnel Probe", status: "warned", detail: "Public address unreachable after 3 attempts" },
+          ],
+        },
+        started_at: "2026-11-25T10:00:10Z",
+        completed_at: null,
+      },
+    ];
 
-  it("renders all defined steps with formatted titles", () => {
-    render(<OperationStepper steps={mockSteps} currentStepId="MATERIALIZE_STAGING" />);
+    render(
+      <OperationStepper
+        steps={steps}
+        currentStepId="HEALTH_GATE"
+        operationStatus="RUNNING"
+      />,
+    );
 
-    expect(screen.getByText("Admission Check")).toBeInTheDocument();
-    expect(screen.getByText("Materialize Staging")).toBeInTheDocument();
-    expect(screen.getByText("Bootstrap Verify")).toBeInTheDocument();
+    expect(screen.getByTestId("step-artifact-list")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-row-LetMeDespawn.jar")).toHaveTextContent("✓ Cached");
+    expect(screen.getByTestId("artifact-row-Purpur 1.21.11")).toHaveTextContent("50%");
+
+    expect(screen.getByTestId("health-gate-checklist")).toBeInTheDocument();
+    expect(screen.getByTestId("health-gate-check-startup_log")).toHaveAttribute("data-status", "passed");
+    expect(screen.getByTestId("health-gate-check-local_slp")).toHaveTextContent("Purpur 1.21.11 · 4ms");
+    expect(screen.getByTestId("health-gate-check-rcon_flush")).toHaveAttribute("data-status", "skipped");
+    expect(screen.getByTestId("health-gate-check-world_nbt")).toHaveTextContent("DataVersion 4671");
+    expect(screen.getByTestId("health-gate-check-network_reachability")).toHaveAttribute("data-status", "warned");
   });
 
-  it("renders status icons and elapsed seconds", () => {
-    render(<OperationStepper steps={mockSteps} currentStepId="MATERIALIZE_STAGING" />);
+  it("freezes timers and removes active spinners immediately when parent operation is terminal", () => {
+    const staleStart = "2026-11-25T09:00:00Z";
+    const steps: OperationStep[] = [
+      {
+        id: "s-hg",
+        step_id: "HEALTH_GATE",
+        sequence: 4,
+        status: "IN_PROGRESS", // stranded step on a FAILED operation
+        progress: 0.4,
+        elapsed_ms: 15000,
+        message_key: null,
+        safe_to_retry: false,
+        context: {
+          checks: [
+            { id: "startup_log", label: "Container Boot & Ready Signal", status: "running", detail: "Waiting..." },
+          ],
+        },
+        started_at: staleStart,
+        completed_at: null,
+      },
+    ];
 
-    expect(screen.getByTestId("step-icon-completed")).toBeInTheDocument();
-    expect(screen.getByTestId("step-icon-in-progress")).toBeInTheDocument();
-    expect(screen.getByTestId("step-icon-pending")).toBeInTheDocument();
+    render(
+      <OperationStepper
+        steps={steps}
+        currentStepId="HEALTH_GATE"
+        nowMs={Date.parse("2026-11-25T10:00:00Z")}
+        operationStatus="FAILED"
+      />,
+    );
 
-    expect(screen.getByText("1.2s")).toBeInTheDocument();
-    expect(screen.getByText("2.5s")).toBeInTheDocument();
-    expect(screen.getByText("PENDING")).toBeInTheDocument();
-  });
-
-  it("handles empty steps gracefully", () => {
-    render(<OperationStepper steps={[]} />);
-    expect(screen.getByText("No steps defined.")).toBeInTheDocument();
+    // Must never show an active spinner or live-ticking 3600.0s timer
+    expect(screen.queryByTestId("step-icon-in-progress")).not.toBeInTheDocument();
+    expect(screen.getByTestId("step-icon-failed")).toBeInTheDocument();
+    expect(screen.getByText("15.0s")).toBeInTheDocument();
+    expect(screen.queryByText("3600.0s")).not.toBeInTheDocument();
+    expect(screen.getByTestId("health-gate-check-startup_log")).toHaveAttribute("data-status", "failed");
   });
 });

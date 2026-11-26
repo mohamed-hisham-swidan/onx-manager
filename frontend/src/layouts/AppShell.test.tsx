@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppShell } from "./AppShell";
+import { useUIStore } from "@/stores/uiStore";
+import { useOperationStore } from "@/operations/stores/operationStore";
 
 function renderShell() {
   return render(
@@ -69,5 +71,33 @@ describe("AppShell", () => {
     expect(innerWrapper.className).toContain("flex-col");
     expect(innerWrapper.className).toContain("flex-1");
     expect(innerWrapper.className).toContain("min-h-0");
+  });
+
+  it("auto-collapses desktop sidebar and pushes main content when a right panel opens, then restores sidebar on close", () => {
+    useUIStore.setState({
+      sidebarOpen: true,
+      sidebarSavedBeforeRightPanel: null,
+      changeVersionOpen: false,
+    });
+    useOperationStore.setState({ activeDrawerId: null, operations: {} });
+
+    renderShell();
+    const main = document.getElementById("main-content");
+    expect(useUIStore.getState().sidebarOpen).toBe(true);
+    expect(main?.className).not.toContain("lg:pr-[488px]");
+
+    // Simulate opening Change Version panel
+    act(() => {
+      useUIStore.getState().setChangeVersionOpen(true);
+    });
+    expect(useUIStore.getState().sidebarOpen).toBe(false);
+    expect(document.getElementById("main-content")?.className).toContain("lg:pr-[488px]");
+
+    // Closing right panel restores sidebarOpen
+    act(() => {
+      useUIStore.getState().setChangeVersionOpen(false);
+    });
+    expect(useUIStore.getState().sidebarOpen).toBe(true);
+    expect(document.getElementById("main-content")?.className).not.toContain("lg:pr-[488px]");
   });
 });

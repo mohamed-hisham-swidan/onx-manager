@@ -503,7 +503,10 @@ class _SendConsoleCommandImpl:
             )
 
             provider_name = server.runtime.provider or default_provider_for_platform()
-            handle = build_server_handle(server, provider_name)
+            server_dir = (
+                server.deployment.server_directory() if server.deployment else None
+            )
+            handle = build_server_handle(server, provider_name, server_dir=server_dir)
             provider = provider_factory.get(provider_name)
             output = await provider.execute_command(handle, command)
             return CommandResult(
@@ -630,6 +633,7 @@ async def reconcile_runtimes(
         repo = SQLServerRepository(session)
         outcomes = await reconcile_all_runtimes(repo)
         orphan_actions = await reconcile_orphans(repo, scope=body.scope)  # type: ignore[arg-type]
+        await session.commit()
 
     return {
         "total_checked": len(outcomes),

@@ -72,6 +72,10 @@ async def get_event_bus() -> EventBus:
     return _event_bus
 
 
+def get_optional_event_bus() -> EventBus | None:
+    return _event_bus
+
+
 async def get_current_user(
     request: Request = None,
     db: AsyncSession = Depends(get_db),  # noqa: B008
@@ -149,6 +153,7 @@ SERVER_ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "dev": {
         "server.{id}.view",
+        "server.{id}.write",
         "server.{id}.power",
         "server.{id}.console",
         "server.{id}.files",

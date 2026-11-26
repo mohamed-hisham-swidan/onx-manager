@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -216,6 +217,19 @@ class ContainerInstallerRunner(InstallerRunner):
         self._image = validate_docker_image(image)
         self._docker_host = docker_host
 
+    async def _force_remove_container(self, container_name: str) -> None:
+        cmd = ["docker"]
+        if self._docker_host:
+            cmd.extend(["-H", self._docker_host])
+        cmd.extend(["rm", "-f", container_name])
+        with contextlib.suppress(Exception):
+            rm_proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(rm_proc.wait(), timeout=10.0)
+
     async def run(
         self,
         command: str,
@@ -223,10 +237,11 @@ class ContainerInstallerRunner(InstallerRunner):
         timeout: float,
         cwd: str | None = None,
     ) -> AsyncGenerator[RunnerOutput, None]:
+        container_name = f"onx-installer-{uuid.uuid4().hex[:12]}"
         exec_args = ["docker"]
         if self._docker_host:
             exec_args.extend(["-H", self._docker_host])
-        exec_args.extend(["run", "--rm", "-i"])
+        exec_args.extend(["run", "--rm", "--name", container_name, "-i"])
         exec_args.extend(hardening_args())
 
         if cwd:
@@ -298,11 +313,13 @@ class ContainerInstallerRunner(InstallerRunner):
             read_task.cancel()
             wait_task.cancel()
             await platform_kill_process_tree_async(proc.pid, proc=proc)
+            await self._force_remove_container(container_name)
             raise
 
         if timed_out:
             read_task.cancel()
             await platform_kill_process_tree_async(proc.pid, proc=proc)
+            await self._force_remove_container(container_name)
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await read_task
 

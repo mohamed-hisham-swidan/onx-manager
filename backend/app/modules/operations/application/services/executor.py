@@ -10,9 +10,9 @@ from sqlalchemy import select, update
 
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
-from app.modules.operations.domain.enums import OperationStatus
+from app.modules.operations.domain.enums import OperationStatus, StepStatus
 from app.modules.operations.domain.events import OperationFailedEvent
-from app.modules.operations.infrastructure.models import OperationModel
+from app.modules.operations.infrastructure.models import OperationModel, OperationStepModel
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,12 @@ def _utcnow() -> datetime:
 class OperationExecutor:
     def __init__(self, event_bus: EventBus | None = None) -> None:
         self._running_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._registered_operation_ids: set[str] = set()
         self._timeout_watchers: dict[str, asyncio.Task[Any]] = {}
         self._event_bus = event_bus
 
     def register_task(self, operation_id: str, task: asyncio.Task[Any]) -> None:
+        self._registered_operation_ids.add(operation_id)
         self._running_tasks[operation_id] = task
 
         def _cleanup(_task: asyncio.Task[Any]) -> None:
@@ -37,6 +39,18 @@ class OperationExecutor:
                 watcher.cancel()
 
         task.add_done_callback(_cleanup)
+
+    def has_live_task(self, operation_id: str) -> bool:
+        """Return True when the operation has an active, non-done asyncio Task."""
+        task = self._running_tasks.get(operation_id)
+        return task is not None and not task.done()
+
+    def was_task_registered_and_exited(self, operation_id: str) -> bool:
+        """Return True if a task was previously registered in this process and is no longer live."""
+        return (
+            operation_id in self._registered_operation_ids
+            and not self.has_live_task(operation_id)
+        )
 
     def cancel_task(self, operation_id: str) -> bool:
         task = self._running_tasks.get(operation_id)
@@ -116,10 +130,35 @@ class OperationExecutor:
                 won = await repo.atomic_timeout(operation_id)
                 op = await repo.get(operation_id)
                 if won and op is not None:
+                    now = op.finished_at or _utcnow()
+                    timeout_err = op.error_message or "Operation exceeded configured timeout limit"
+                    for step in op.steps:
+                        if step.status == StepStatus.IN_PROGRESS:
+                            step.fail(at=now, context={"error": timeout_err})
                     # Keep the per-operation sequence monotonic for the
                     # timeout event published below.
                     op.last_event_seq += 1
                     op = await repo.save(op)
+                    if op.type == "SERVER_UPGRADE":
+                        upgrade_id = (op.metadata or {}).get("upgrade_id")
+                        if upgrade_id:
+                            from app.modules.versioning.infrastructure.models import (
+                                ServerUpgradeModel,
+                            )
+
+                            await session.execute(
+                                update(ServerUpgradeModel)
+                                .where(
+                                    ServerUpgradeModel.id == str(upgrade_id),
+                                    ServerUpgradeModel.status == "applying",
+                                )
+                                .values(
+                                    status="failed",
+                                    error_code="OPERATION_TIMEOUT",
+                                    error_message=timeout_err[:512],
+                                    updated_at=now,
+                                )
+                            )
                 await session.commit()
         except Exception:
             logger.exception("Timeout persistence failed for operation %s", operation_id)
@@ -204,6 +243,18 @@ class OperationExecutor:
                     )
                 )
                 await session.execute(stmt)
+                step_stmt = (
+                    update(OperationStepModel)
+                    .where(
+                        OperationStepModel.operation_id == op_id,
+                        OperationStepModel.status == StepStatus.IN_PROGRESS.value,
+                    )
+                    .values(
+                        status=StepStatus.FAILED.value,
+                        completed_at=now,
+                    )
+                )
+                await session.execute(step_stmt)
             await session.commit()
 
         self._running_tasks.clear()
@@ -241,6 +292,30 @@ class OperationRecoveryReconciler:
             res_running = await session.execute(stmt_running)
             interrupted_ops = res_running.scalars().all()
 
+            def _close_step_model(
+                step_row: OperationStepModel,
+                end_dt: datetime,
+                reason: str,
+            ) -> None:
+                step_row.status = StepStatus.FAILED.value
+                step_row.completed_at = end_dt
+                if step_row.started_at is not None:
+                    st = (
+                        step_row.started_at
+                        if step_row.started_at.tzinfo is not None
+                        else step_row.started_at.replace(tzinfo=UTC)
+                    )
+                    end_utc = (
+                        end_dt if end_dt.tzinfo is not None else end_dt.replace(tzinfo=UTC)
+                    )
+                    step_row.elapsed_ms = max(
+                        int(step_row.elapsed_ms or 0),
+                        max(0, int((end_utc - st).total_seconds() * 1000)),
+                    )
+                ctx = dict(step_row.context_json or {})
+                ctx.setdefault("error", reason)
+                step_row.context_json = ctx
+
             for op in interrupted_ops:
                 op.status = OperationStatus.FAILED.value
                 op.failure_code = "PROCESS_TERMINATED"
@@ -249,6 +324,9 @@ class OperationRecoveryReconciler:
                 )
                 op.finished_at = now
                 op.last_event_seq += 1
+                for step_row in op.steps:
+                    if step_row.status == StepStatus.IN_PROGRESS.value:
+                        _close_step_model(step_row, now, op.error_message)
 
                 if self._event_bus:
                     evt = OperationFailedEvent(
@@ -262,6 +340,53 @@ class OperationRecoveryReconciler:
                         error_message=op.error_message,
                     )
                     await self._event_bus.publish(evt)
+
+            # 1b. Close any orphaned IN_PROGRESS steps whose parent Operation is already terminal
+            terminal_statuses = [
+                OperationStatus.COMPLETED.value,
+                OperationStatus.FAILED.value,
+                OperationStatus.TIMED_OUT.value,
+                OperationStatus.CANCELLED.value,
+            ]
+            stmt_orphaned_steps = (
+                select(OperationStepModel, OperationModel)
+                .join(OperationModel, OperationStepModel.operation_id == OperationModel.id)
+                .where(
+                    OperationStepModel.status == StepStatus.IN_PROGRESS.value,
+                    OperationModel.status.in_(terminal_statuses),
+                )
+            )
+            orphaned_rows = (await session.execute(stmt_orphaned_steps)).all()
+            for step_row, parent_op in orphaned_rows:
+                end_dt = parent_op.finished_at or now
+                reason = parent_op.error_message or "Operation terminated before step completed"
+                _close_step_model(step_row, end_dt, reason)
+
+            # 1c. Reconcile any ServerUpgradeModel rows stranded in 'applying' whose operation
+            # is already terminal or missing (never touches running Docker containers).
+            try:
+                from app.modules.versioning.infrastructure.models import ServerUpgradeModel
+
+                stmt_applying = select(ServerUpgradeModel).where(
+                    ServerUpgradeModel.status == "applying"
+                )
+                applying_upgrades = (await session.execute(stmt_applying)).scalars().all()
+                for upg in applying_upgrades:
+                    op_is_active = False
+                    if upg.operation_id:
+                        parent_op = await session.get(OperationModel, str(upg.operation_id))
+                        if parent_op is not None and parent_op.status not in terminal_statuses:
+                            op_is_active = True
+                    if not op_is_active:
+                        upg.status = "failed"
+                        upg.error_code = upg.error_code or "PROCESS_TERMINATED"
+                        upg.error_message = (
+                            upg.error_message
+                            or "Upgrade was interrupted by backend restart"
+                        )
+                        upg.updated_at = now
+            except Exception:
+                logger.exception("Failed reconciling stranded applying server upgrades")
 
             # 2. QUEUED operations handling per ONX_OPERATION_STARTUP_QUEUE_POLICY
             if queue_policy == "PURGE":

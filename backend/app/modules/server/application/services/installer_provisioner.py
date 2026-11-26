@@ -19,9 +19,16 @@ from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.application.services.jar_service import (
     download_installer_jar,
+    download_progress_context,
+)
+from app.modules.server.application.services.provisioning_telemetry import (
+    ProvisioningProgressTracker,
+    format_bytes_human,
+    get_active_provisioning_tracker,
+    make_sync_or_async_progress_adapter,
+    provisioning_tracker_context,
 )
 from app.modules.server.domain.aggregate import Server, ServerStatus
-from app.modules.server.domain.events import ForgeProvisionProgressEvent
 from app.modules.server.domain.installer import (
     InstallerResult,
     InstallerRunner,
@@ -40,6 +47,10 @@ from app.modules.server.infrastructure.fs import FileSystem, local_fs
 from app.modules.server.infrastructure.installer import resolve_installer_runner
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+from app.modules.versioning.infrastructure.java_floor import (
+    resolve_java_floor_from_mc_version,
+    temurin_docker_image_for_java_major,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +254,7 @@ class InstallerProvisioner(ABC):
         """Run the provisioning flow with auto-retry on TRANSIENT failures."""
         sid = ServerId(server_id)
         server_dir: str | None = None
+        tracker: ProvisioningProgressTracker | None = None
 
         try:
             for attempt in range(self._max_retries):
@@ -255,7 +267,14 @@ class InstallerProvisioner(ABC):
                         )
                     server_dir = server.deployment.server_directory()
 
-                    server = await self._install(sid, server, minecraft_version, server_dir)
+                    tracker = await self._init_tracker(server, minecraft_version)
+                    with provisioning_tracker_context(tracker):
+                        server = await self._install(
+                            sid,
+                            server,
+                            minecraft_version,
+                            server_dir,
+                        )
                     try:
                         fresh_check = await _load_server(sid)
                         if fresh_check is None:
@@ -272,6 +291,41 @@ class InstallerProvisioner(ABC):
                         return
 
                     await _save_server(server, self._event_bus)
+                    if tracker is not None:
+                        java_major = resolve_java_floor_from_mc_version(minecraft_version)
+                        mode_label = (
+                            "Advanced Mode"
+                            if server.mode.value == "advanced"
+                            else "Simple Mode"
+                        )
+                        port_val = server.properties.port.value
+                        artifacts = tracker.snapshot().get("artifacts") or [
+                            {
+                                "id": "core_jar",
+                                "label": f"{self.provider_name} Loader",
+                                "value": f"{self.provider_name} ({minecraft_version}) · Verified",
+                                "status": "verified",
+                            },
+                            {
+                                "id": "runtime",
+                                "label": "Runtime & Mode",
+                                "value": f"Java {java_major} · {mode_label}",
+                                "status": "ready",
+                            },
+                            {
+                                "id": "config",
+                                "label": "Configuration",
+                                "value": (
+                                    "server.properties, eula.txt, user_jvm_args.txt "
+                                    f"· Port {port_val}"
+                                ),
+                                "status": "completed",
+                            },
+                        ]
+                        await tracker.complete(
+                            "Server created and ready to start",
+                            artifacts=artifacts,
+                        )
                     logger.info(
                         '%s provisioning complete for server "%s" (%s) — '
                         'start_command="bash %s nogui"',
@@ -299,6 +353,14 @@ class InstallerProvisioner(ABC):
                             exc,
                             backoff,
                         )
+                        if tracker is not None:
+                            tracker.add_activity(
+                                (
+                                    f"Retrying after transient error "
+                                    f"({attempt + 2}/{self._max_retries})..."
+                                ),
+                                level="warning",
+                            )
                         await asyncio.sleep(backoff)
                         continue
 
@@ -315,14 +377,36 @@ class InstallerProvisioner(ABC):
                             type(exc).__name__,
                             exc,
                         )
-                        await self._fail_provisioning(sid, server_dir, exc, force_retryable=False)
+                        await self._fail_provisioning(
+                            sid, server_dir, exc, force_retryable=False, tracker=tracker
+                        )
                         raise
 
                     # Non-transient (FATAL or AMBIGUOUS)
-                    await self._fail_provisioning(sid, server_dir, exc)
+                    await self._fail_provisioning(sid, server_dir, exc, tracker=tracker)
                     raise
         finally:
             ProvisioningRegistry.unregister(str(sid))
+
+    async def _init_tracker(
+        self,
+        server: Server,
+        minecraft_version: str,
+    ) -> ProvisioningProgressTracker:
+        tracker = ProvisioningProgressTracker(
+            server_id=str(server.id),
+            server_name=server.name,
+            server_type=server.server_type.value,
+            minecraft_version=minecraft_version,
+            mode=server.mode.value,
+            event_bus=self._event_bus,
+        )
+        await tracker.complete_step(
+            "prepare_workspace",
+            detail="server.properties & eula.txt",
+            activity_message="Workspace and configuration files ready",
+        )
+        return tracker
 
     async def _install(
         self,
@@ -332,8 +416,15 @@ class InstallerProvisioner(ABC):
         server_dir: str,
     ) -> Server:
         """Template method executing the complete installation pipeline."""
+        active_tracker = get_active_provisioning_tracker() or await self._init_tracker(
+            server, minecraft_version
+        )
         self._check_disk_space(str(sid), server_dir)
 
+        await active_tracker.start_step(
+            "download_core",
+            f"Resolving {self.provider_name} build for Minecraft {minecraft_version}...",
+        )
         full_version = await self._resolve_build(minecraft_version)
         if full_version is None:
             raise BuildResolutionError(
@@ -342,9 +433,44 @@ class InstallerProvisioner(ABC):
                 underlying_fetch_failed=False,
             )
 
+        installer_filename = self._installer_filename()
         installer_url = self._installer_url(full_version)
-        installer_dest = os.path.join(server_dir, self._installer_filename())
-        await download_installer_jar(installer_url, installer_dest, fs=self._fs)
+        installer_dest = os.path.join(server_dir, installer_filename)
+
+        await active_tracker.start_step(
+            "download_core",
+            f"Downloading {installer_filename}...",
+            activity_message=f"Resolved {self.provider_name} build {full_version}",
+        )
+        with download_progress_context(
+            make_sync_or_async_progress_adapter(active_tracker),
+            file_index=1,
+            file_total=2,
+            display_filename=installer_filename,
+        ):
+            await download_installer_jar(installer_url, installer_dest, fs=self._fs)
+
+        installer_size: int | None = None
+        with __import__("contextlib").suppress(Exception):
+            raw_sz = self._fs.size(installer_dest)
+            if isinstance(raw_sz, int) and raw_sz > 0:
+                installer_size = raw_sz
+        size_label = format_bytes_human(installer_size) if installer_size else "Ready"
+        await active_tracker.complete_step(
+            "download_core",
+            detail=f"{installer_filename} · {size_label}",
+            activity_message=(
+                f"Downloaded {installer_filename} ({size_label})"
+                if installer_size
+                else f"Downloaded {installer_filename}"
+            ),
+        )
+
+        await active_tracker.start_step(
+            "verify_and_install",
+            f"Verifying installer & running {self.provider_name} setup...",
+            activity_message=f"Running {self.provider_name} installer...",
+        )
 
         result: InstallerResult | None = None
         installer_stream = cast(
@@ -357,15 +483,12 @@ class InstallerProvisioner(ABC):
         )
         async for progress in installer_stream:
             if isinstance(progress, ProgressLine):
-                if self._event_bus:
-                    await self._event_bus.publish(
-                        ForgeProvisionProgressEvent(
-                            server_id=sid,
-                            stage=progress.stage,
-                            percent=progress.percent,
-                            message=progress.message,
-                        )
-                    )
+                await active_tracker.update_installer_progress(
+                    stage=progress.stage,
+                    percent=progress.percent,
+                    message=progress.message,
+                    installer_filename=installer_filename,
+                )
             elif isinstance(progress, InstallerResult):
                 result = progress
 
@@ -447,6 +570,59 @@ class InstallerProvisioner(ABC):
 
         self._write_user_jvm_args(server, server_dir)
 
+        await active_tracker.complete_step(
+            "verify_and_install",
+            detail=f"{self.provider_name} {full_version} installed",
+            activity_message=f"Completed {self.provider_name} {full_version} installation",
+        )
+
+        java_major = resolve_java_floor_from_mc_version(minecraft_version)
+        target_img = temurin_docker_image_for_java_major(java_major)
+        await active_tracker.start_step(
+            "prepare_runtime",
+            f"Verifying Java {java_major} runtime readiness...",
+            detail=f"Java {java_major}",
+        )
+        await active_tracker.complete_step(
+            "prepare_runtime",
+            detail=f"Java {java_major}",
+            activity_message=f"Java {java_major} runtime ready ({target_img})",
+        )
+
+        await active_tracker.start_step(
+            "finalize",
+            "Recording launch configuration & artifacts...",
+        )
+        active_tracker.set_artifacts(
+            [
+                {
+                    "id": "core_jar",
+                    "label": f"{self.provider_name} Loader",
+                    "value": f"{self.provider_name} {full_version} · Verified",
+                    "status": "verified",
+                },
+                {
+                    "id": "runtime",
+                    "label": "Runtime & Mode",
+                    "value": (
+                        f"Java {java_major} · Advanced Mode"
+                        if server.mode.value == "advanced"
+                        else f"Java {java_major} · Simple Mode"
+                    ),
+                    "status": "ready",
+                },
+                {
+                    "id": "config",
+                    "label": "Configuration",
+                    "value": (
+                        "server.properties, eula.txt, user_jvm_args.txt "
+                        f"· Port {server.properties.port.value}"
+                    ),
+                    "status": "completed",
+                },
+            ]
+        )
+
         server.update_launch_config(
             LaunchConfiguration(startup_command=startup_command),
         )
@@ -478,9 +654,13 @@ class InstallerProvisioner(ABC):
         server_dir: str | None,
         exc: Exception,
         force_retryable: bool | None = None,
+        tracker: ProvisioningProgressTracker | None = None,
     ) -> None:
         disp = self._classify_failure(exc)
         retryable = disp.retryable if force_retryable is None else force_retryable
+
+        if tracker is not None:
+            await tracker.fail(str(exc))
 
         logger.error(
             "%s provisioning failed for server %s (%s) — %s: %s",

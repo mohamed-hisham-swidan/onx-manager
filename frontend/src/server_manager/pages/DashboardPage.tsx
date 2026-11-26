@@ -1,309 +1,438 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useServersList } from "@/server_manager/hooks/useServers";
+import { useQuery } from "@tanstack/react-query";
+import {
+  useRestartServer,
+  useRetryProvisioningServer,
+  useServersList,
+  useStartServer,
+  useStopServer,
+} from "@/server_manager/hooks/useServers";
 import { useHostResources } from "@/server_manager/hooks/useHostResources";
 import { HostResourceBudgetBar } from "@/server_manager/components/HostResourceBudgetBar";
-import { ErrorState, Skeleton } from "@/components/ui/States";
-import { Icon } from "@/components/ui/Icon";
-import { CommandCenterKpiGrid } from "@/server_manager/components/CommandCenterKpiGrid";
-import { CommandCenterFleetList } from "@/server_manager/components/CommandCenterFleetList";
-import { CommandCenterDaemonStream } from "@/server_manager/components/CommandCenterDaemonStream";
+import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
+import { useFleetMetrics } from "@/server_manager/components/servers/useFleetMetrics";
+import { useFleetPermissions } from "@/server_manager/components/servers/serversUtils";
+import { DashboardHeader } from "@/server_manager/components/dashboard/DashboardHeader";
+import { DashboardKpiStrip } from "@/server_manager/components/dashboard/DashboardKpiStrip";
+import { DashboardFleetPanel } from "@/server_manager/components/dashboard/DashboardFleetPanel";
+import { DashboardActivityPanel } from "@/server_manager/components/dashboard/DashboardActivityPanel";
 import {
+  computeServerCounts,
   getHostTelemetry,
-  getInitialDaemonLogs,
 } from "@/server_manager/utils/telemetryAdapter";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/States";
+import { Icon } from "@/components/ui/Icon";
 import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
-import { createAuthenticatedApi, type MetricsSnapshot } from "@/services/api";
+import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
-import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
-import { useWSStore } from "@/stores/wsStore";
-import { MAX_POINTS } from "@/server_manager/hooks/useServerMetrics";
-import type { ServerDetailResponse } from "@/server_manager/types";
+import { toast } from "@/stores/toastStore";
+import type { ServerResponse } from "@/server_manager/types";
+
+function extractErrorMessage(err: unknown): string {
+  if (err && typeof err === "object") {
+    const record = err as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message) return record.message;
+    if (typeof record.error === "string" && record.error) return record.error;
+  }
+  return "Request failed. Please try again.";
+}
 
 export function DashboardPage() {
-  const { data: servers, isLoading, error } = useServersList();
-  const { data: hostBudget } = useHostResources();
+  const api = useMemo(() => createAuthenticatedApi(), []);
+  const {
+    data: servers,
+    isLoading,
+    error,
+    refetch: refetchServers,
+  } = useServersList();
+  const { data: hostBudget, refetch: refetchHostBudget } = useHostResources();
   const { isLocal, showFullControls } = useDeploymentProfile();
-  const api = createAuthenticatedApi();
-  const queryClient = useQueryClient();
-  const isWsConnected = useWSStore((s) => s.connected);
+  const permissions = useFleetPermissions();
+
+  const startServer = useStartServer();
+  const stopServer = useStopServer();
+  const restartServer = useRestartServer();
+  const retryProvisioning = useRetryProvisioningServer();
+
+  const [busyServerIds, setBusyServerIds] = useState<Set<string>>(() => new Set());
+  const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [copiedAddressId, setCopiedAddressId] = useState<string | null>(null);
+  const [stopTarget, setStopTarget] = useState<ServerResponse | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
 
   const serverList = useMemo(() => servers ?? [], [servers]);
-  const runningServerIds = useMemo(
-    () => serverList.filter((s) => s.status === "running").map((s) => s.server_id),
-    [serverList],
+
+  const { metricsByServerId, snapshotsByServerId } = useFleetMetrics(
+    serverList,
+    hostBudget,
+    { historyLimit: 60 },
   );
-  const runningIdsKey = runningServerIds.join(",");
 
-  const canFetchDetails = typeof api?.getServer === "function";
-  const detailQueries = useQueries({
-    queries: serverList.map((s) => ({
-      queryKey: queryKeys.servers.detail(s.server_id),
-      queryFn: () => api.getServer(s.server_id),
-      enabled: canFetchDetails && Boolean(s.server_id),
-      staleTime: 10_000,
-      retry: false,
-    })),
-  });
-
-  const canFetchMetrics = typeof api?.getMetrics === "function";
-  const metricQueries = useQueries({
-    queries: runningServerIds.map((id) => ({
-      queryKey: queryKeys.monitoring.metrics(id),
-      queryFn: () => api.getMetrics(id, MAX_POINTS),
-      enabled: canFetchMetrics && Boolean(id),
-      refetchInterval: isWsConnected ? false : 2000,
-      refetchIntervalInBackground: true,
-      staleTime: 1000,
-      retry: false,
-    })),
-  });
+  // Cooldown ticker while any start cooldown is active
+  useEffect(() => {
+    const activeCooldowns = Object.values(startCooldowns).some((until) => until > Date.now());
+    if (!activeCooldowns) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [startCooldowns]);
 
   useEffect(() => {
-    if (!runningIdsKey) return;
-    const ids = runningIdsKey.split(",");
-    const channels = ids.map((id) => `metrics:${id}`);
-    subscribeChannels(channels);
-    if (isWsConnected) {
-      for (const id of ids) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.monitoring.metrics(id),
-        });
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
       }
-    }
-    return () => unsubscribeChannels(channels);
-  }, [runningIdsKey, isWsConnected, queryClient]);
+    };
+  }, []);
 
-  const detailsMap = useMemo(() => {
-    const map: Record<string, ServerDetailResponse | undefined> = {};
-    serverList.forEach((s, idx) => {
-      map[s.server_id] = detailQueries[idx]?.data;
-    });
-    return map;
-  }, [serverList, detailQueries]);
+  // Real daemon health (/health)
+  const canFetchHealth = typeof api?.health === "function";
+  const healthQuery = useQuery({
+    queryKey: queryKeys.health.daemon(),
+    queryFn: () => api.health(),
+    enabled: canFetchHealth,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+    retry: false,
+  });
 
-  const metricsMap = useMemo(() => {
-    const map: Record<string, MetricsSnapshot[] | undefined> = {};
-    runningServerIds.forEach((id, idx) => {
-      map[id] = metricQueries[idx]?.data;
-    });
-    return map;
-  }, [runningServerIds, metricQueries]);
+  // Shared setup status cache (version fallback)
+  const canFetchSetup = typeof api?.getSetupStatus === "function";
+  const setupStatusQuery = useQuery({
+    queryKey: ["systemStatus"],
+    queryFn: () => api.getSetupStatus(),
+    enabled: canFetchSetup,
+    staleTime: 30_000,
+    retry: false,
+  });
 
-  const counts = useMemo(() => {
-    return serverList.reduce<Record<string, number>>((acc, s) => {
-      const status = s.status || "unknown";
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {});
-  }, [serverList]);
+  // Fleet health summary (/api/v1/health/dashboard)
+  const canFetchHealthDashboard = typeof api?.getHealthDashboard === "function";
+  const healthDashboardQuery = useQuery({
+    queryKey: queryKeys.health.dashboard(),
+    queryFn: () => api.getHealthDashboard(),
+    enabled: canFetchHealthDashboard,
+    staleTime: 15_000,
+    retry: false,
+  });
+
+  // Real backups & schedules
+  const canFetchBackups = typeof api?.listBackups === "function";
+  const backupsQuery = useQuery({
+    queryKey: queryKeys.backups.list(),
+    queryFn: () => api.listBackups(),
+    enabled: canFetchBackups,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  const canFetchSchedules = typeof api?.listSchedules === "function";
+  const schedulesQuery = useQuery({
+    queryKey: queryKeys.schedules.list(),
+    queryFn: () => api.listSchedules(),
+    enabled: canFetchSchedules,
+    staleTime: 30_000,
+    retry: false,
+  });
 
   const serverNames = useMemo(() => {
-    return serverList.reduce<Record<string, string>>((acc, s) => {
-      acc[s.server_id] = s.name;
-      return acc;
-    }, {});
+    const map: Record<string, string> = {};
+    for (const s of serverList) {
+      map[s.server_id] = s.name;
+    }
+    return map;
   }, [serverList]);
 
-  const onlineCount = counts.running || 0;
-  const crashedServers = useMemo(() => {
-    return serverList.filter(
-      (s) => s.status === "crashed" || s.status === "broken",
-    );
-  }, [serverList]);
-  const crashedCount = crashedServers.length;
-  const totalCount = serverList.length;
+  const activeServerIds = useMemo(
+    () => new Set(serverList.map((s) => s.server_id)),
+    [serverList],
+  );
+
+  const counts = useMemo(() => computeServerCounts(serverList), [serverList]);
 
   const telemetry = useMemo(
-    () => getHostTelemetry(serverList, detailsMap, metricsMap, hostBudget),
-    [serverList, detailsMap, metricsMap, hostBudget],
+    () =>
+      getHostTelemetry({
+        servers: serverList,
+        snapshotsByServerId,
+        metricsByServerId,
+        hostBudget,
+        backups: backupsQuery.data ?? null,
+        schedules: schedulesQuery.data ?? null,
+      }),
+    [
+      serverList,
+      snapshotsByServerId,
+      metricsByServerId,
+      hostBudget,
+      backupsQuery.data,
+      schedulesQuery.data,
+    ],
   );
-  const initialLogs = useMemo(() => getInitialDaemonLogs(serverList), [serverList]);
+
+  const startingServers = useMemo(
+    () => serverList.filter((s) => s.status === "starting"),
+    [serverList],
+  );
+
+  function markServerBusy(serverId: string, busy: boolean) {
+    setBusyServerIds((prev) => {
+      const next = new Set(prev);
+      if (busy) {
+        next.add(serverId);
+      } else {
+        next.delete(serverId);
+      }
+      return next;
+    });
+  }
+
+  function handleStart(server: ServerResponse, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    const now = Date.now();
+    setNowMs(now);
+    setStartCooldowns((prev) => ({ ...prev, [server.server_id]: now + 30_000 }));
+    markServerBusy(server.server_id, true);
+
+    startServer.mutate(server.server_id, {
+      onSuccess: () =>
+        toast("success", "Server starting", `"${server.name}" start command issued.`),
+      onError: (err) => {
+        setStartCooldowns((prev) => {
+          const next = { ...prev };
+          delete next[server.server_id];
+          return next;
+        });
+        toast("error", "Start failed", extractErrorMessage(err));
+      },
+      onSettled: () => markServerBusy(server.server_id, false),
+    });
+  }
+
+  function handleStartAll(targets: ServerResponse[]) {
+    for (const server of targets) {
+      handleStart(server);
+    }
+  }
+
+  function handleStopRequest(server: ServerResponse, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    setStopTarget(server);
+  }
+
+  function handleConfirmStop() {
+    if (!stopTarget || stopServer.isPending) return;
+    const target = stopTarget;
+    markServerBusy(target.server_id, true);
+
+    stopServer.mutate(target.server_id, {
+      onSuccess: () => {
+        setStopTarget(null);
+        toast("info", "Server stopping", `"${target.name}" is stopping.`);
+      },
+      onError: (err) => {
+        setStopTarget(null);
+        toast("error", "Stop failed", extractErrorMessage(err));
+      },
+      onSettled: () => markServerBusy(target.server_id, false),
+    });
+  }
+
+  function handleRestart(server: ServerResponse, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    markServerBusy(server.server_id, true);
+
+    restartServer.mutate(server.server_id, {
+      onSuccess: () =>
+        toast("info", "Server restarting", `"${server.name}" restart initiated.`),
+      onError: (err) => toast("error", "Restart failed", extractErrorMessage(err)),
+      onSettled: () => markServerBusy(server.server_id, false),
+    });
+  }
+
+  function handleRetryProvisioning(server: ServerResponse, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    markServerBusy(server.server_id, true);
+
+    retryProvisioning.mutate(server.server_id, {
+      onSuccess: () =>
+        toast("success", "Retry started", `Provisioning retry started for "${server.name}".`),
+      onError: (err) => toast("error", "Retry failed", extractErrorMessage(err)),
+      onSettled: () => markServerBusy(server.server_id, false),
+    });
+  }
+
+  function handleCopyAddress(address: string, serverId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(address);
+    }
+    setCopiedAddressId(serverId);
+    toast("info", "Address copied", `Copied ${address}`);
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopiedAddressId((prev) => (prev === serverId ? null : prev));
+    }, 2000);
+  }
 
   return (
-    <div className="@container w-full max-w-[1920px] mx-auto space-y-5">
-      {/* A. Top Header Bar & Honest Telemetry Strip */}
-      <div className="flex flex-col gap-4 pb-1 border-b border-border-subtle @5xl:flex-row @5xl:items-center @5xl:justify-between">
-        {/* Left Side: Breadcrumb & Title */}
-        <div>
-          <div className="flex items-center gap-1.5 font-mono text-xs text-text-muted">
-            <span>ONX Manager</span>
-            <span aria-hidden="true">/</span>
-            <span className="text-text-primary font-medium">Dashboard</span>
-          </div>
-          <div className="mt-1 flex items-baseline gap-3">
-            <h1
-              aria-label="Dashboard"
-              className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary"
-            >
-              Command Center
-            </h1>
-            <p className="hidden sm:inline text-xs font-normal text-text-muted">
-              {isLocal && !showFullControls
-                ? "Local Minecraft servers & quick sharing"
-                : "Real-time node telemetry & server orchestration"}
-            </p>
-          </div>
-        </div>
+    <div className="@container mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <DashboardHeader
+        isLocal={isLocal}
+        showFullControls={showFullControls}
+        health={healthQuery.data ?? null}
+        setupVersion={setupStatusQuery.data?.version ?? null}
+        healthDashboard={healthDashboardQuery.data ?? null}
+        servers={serverList}
+        permissions={{
+          canCreate: permissions.canCreate,
+          canImport: permissions.canImport,
+        }}
+      />
 
-        {/* Right Side: Honest Telemetry Pill & Quick Actions */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Honest Status Pill */}
-          {crashedCount > 0 ? (
-            <Link
-              to={
-                crashedCount === 1
-                  ? `/servers/${crashedServers[0].server_id}`
-                  : "/servers?status=crashed"
-              }
-              aria-label={
-                crashedCount === 1
-                  ? `Open crashed server ${crashedServers[0].name}`
-                  : `View ${crashedCount} crashed servers`
-              }
-              className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-card px-3 py-1.5 font-mono text-xs font-semibold shadow-2xs hover:bg-surface-hover hover:border-status-danger/40 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-status-danger cursor-pointer"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-danger opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-status-danger" />
-              </span>
-              <span className="text-status-danger">
-                DEGRADED ({crashedCount} CRASHED)
-              </span>
-            </Link>
-          ) : (
-            <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-card px-3 py-1.5 font-mono text-xs font-semibold shadow-2xs">
-              {onlineCount > 0 ? (
-                <>
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
-                  </span>
-                  <span className="text-status-success">
-                    NODE ACTIVE ({onlineCount}/{totalCount} ONLINE)
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="h-2 w-2 rounded-full bg-status-warning" />
-                  <span className="text-status-warning">
-                    DAEMON STANDBY (ALL OFFLINE)
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Quick Actions */}
-          <Link
-            to="/servers/import"
-            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3.5 text-xs font-semibold text-text-primary hover:bg-surface-hover hover:border-border-strong transition-colors"
-          >
-            <Icon name="upload" size={13} />
-            <span>Import Server</span>
-          </Link>
-
-          <Link
-            to="/servers/create"
-            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover active:bg-accent-active shadow-xs transition-colors"
-          >
-            <Icon name="plus" size={13} />
-            <span>Create Server</span>
-          </Link>
-        </div>
-      </div>
+      {startingServers.map((s) => (
+        <StartingMonitorBanner
+          key={`starting-${s.server_id}`}
+          targetName={s.name}
+          startedAt={s.updated_at}
+          timeoutSeconds={120}
+          onCheckNow={async () => {
+            await refetchServers();
+          }}
+        />
+      ))}
 
       {isLoading ? (
         <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @4xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="h-[140px] rounded-xl border border-border-subtle bg-surface-card p-4.5 space-y-3"
+                className="h-[140px] rounded-xl border border-border-subtle bg-surface-card p-4 space-y-3"
               >
-                <div className="flex justify-between items-center">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-7 w-7 rounded-lg" />
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
                 </div>
                 <Skeleton className="h-7 w-28" />
                 <Skeleton className="h-2 w-full rounded-full" />
+                <Skeleton className="h-3 w-36" />
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-1 gap-5 @5xl:grid-cols-12">
-            <div className="h-[400px] rounded-xl border border-border-subtle bg-surface-card p-5 @5xl:col-span-8">
-              <Skeleton className="h-5 w-32 mb-4" />
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full rounded-lg" />
-                ))}
-              </div>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-12 @5xl:grid-cols-12">
+            <div className="h-[360px] rounded-xl border border-border-subtle bg-surface-card p-5 xl:col-span-8 @5xl:col-span-8 space-y-3">
+              <Skeleton className="h-5 w-32" />
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full rounded-lg" />
+              ))}
             </div>
-            <div className="h-[400px] rounded-xl border border-border-subtle bg-surface-card p-5 @5xl:col-span-4">
-              <Skeleton className="h-5 w-40 mb-4" />
-              <Skeleton className="h-[300px] w-full rounded-lg" />
+            <div className="h-[360px] rounded-xl border border-border-subtle bg-surface-card p-5 xl:col-span-4 @5xl:col-span-4 space-y-3">
+              <Skeleton className="h-5 w-36" />
+              <Skeleton className="h-[280px] w-full rounded-lg" />
             </div>
           </div>
         </div>
       ) : error ? (
         <ErrorState
-          message={error instanceof Error ? error.message : "Failed to load telemetry & servers"}
+          message={error instanceof Error ? error.message : "Failed to load dashboard telemetry"}
+          onRetry={() => {
+            void refetchServers?.();
+            void refetchHostBudget?.();
+          }}
         />
       ) : serverList.length === 0 ? (
-        <div className="py-8">
-          <div className="mx-auto max-w-md text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-surface-elevated text-text-muted border border-border-subtle mb-4">
-              <Icon name="server" size={24} />
-            </div>
-            <h2 className="text-base font-semibold text-text-primary">No servers yet</h2>
-            <p className="mt-1 text-sm text-text-muted">
-              Create your first Minecraft server to get started.
-            </p>
-            <div className="mt-5">
-              <Link
-                to="/servers/create"
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors shadow-xs"
-              >
-                <Icon name="plus" size={13} />
-                <span>Create Server</span>
-              </Link>
-            </div>
-          </div>
-        </div>
+        <EmptyState
+          icon="server"
+          title="Launch your first Minecraft server"
+          description="Create a managed instance or import an existing server directory."
+          action={
+            permissions.canCreate || permissions.canImport ? (
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                {permissions.canCreate && (
+                  <Link
+                    to="/servers/create"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 text-xs font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+                  >
+                    <Icon name="plus" size={14} />
+                    <span>Create Server</span>
+                  </Link>
+                )}
+                {permissions.canImport && (
+                  <Link
+                    to="/servers/import"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-4 text-xs font-semibold text-text-primary transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+                  >
+                    <Icon name="upload" size={14} />
+                    <span>Import Existing Server</span>
+                  </Link>
+                )}
+              </div>
+            ) : undefined
+          }
+        />
       ) : (
         <>
-          {/* B. Row 1: The 4-Column Hardware & Fleet KPI Grid */}
-          <CommandCenterKpiGrid
+          <DashboardKpiStrip
             counts={counts}
-            totalServers={totalCount}
+            totalServers={serverList.length}
             telemetry={telemetry}
+            healthDashboard={healthDashboardQuery.data ?? null}
+            activeServerIds={activeServerIds}
           />
 
           {hostBudget && <HostResourceBudgetBar budget={hostBudget} compact />}
 
-          {/* C. Row 2: Main Split Workspace (12-Column Grid) */}
-          <div className="grid grid-cols-1 items-stretch gap-5 @5xl:grid-cols-12">
-            {/* Left Panel: Interactive Server Fleet Table/Cards (col-span-8) */}
-            <section className="@5xl:col-span-8 @container min-w-0">
-              <CommandCenterFleetList
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-12 @5xl:grid-cols-12 items-start">
+            <section className="xl:col-span-8 @5xl:col-span-8 @container min-w-0">
+              <DashboardFleetPanel
                 servers={serverList}
-                detailsMap={detailsMap}
-                metricsMap={metricsMap}
+                metricsByServerId={metricsByServerId}
+                hostBudget={hostBudget}
+                busyServerIds={busyServerIds}
+                startCooldowns={startCooldowns}
+                nowMs={nowMs}
+                copiedAddressId={copiedAddressId}
+                canPower={permissions.canPower}
+                onStart={handleStart}
+                onStartAll={handleStartAll}
+                onStop={handleStopRequest}
+                onRestart={handleRestart}
+                onRetryProvisioning={handleRetryProvisioning}
+                onCopyAddress={handleCopyAddress}
               />
             </section>
 
-            {/* Right Panel: Real-Time Event Stream & Quick Diagnostics (col-span-4) */}
-            <section className="@5xl:col-span-4 min-w-0 flex flex-col">
-              <CommandCenterDaemonStream
-                initialLogs={initialLogs}
-                serverNames={serverNames}
-              />
+            <section className="xl:col-span-4 @5xl:col-span-4 min-w-0 flex flex-col">
+              <DashboardActivityPanel servers={serverList} serverNames={serverNames} />
             </section>
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={stopTarget !== null}
+        title="Stop server?"
+        description={
+          stopTarget
+            ? `Are you sure you want to stop "${stopTarget.name}"? Active players will be disconnected cleanly.`
+            : undefined
+        }
+        confirmLabel={stopServer.isPending ? "Stopping..." : "Stop Server"}
+        cancelLabel="Cancel"
+        variant="danger"
+        isPending={stopServer.isPending}
+        onConfirm={handleConfirmStop}
+        onCancel={() => {
+          if (stopServer.isPending) return;
+          setStopTarget(null);
+        }}
+      />
     </div>
   );
 }

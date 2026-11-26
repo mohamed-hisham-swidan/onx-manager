@@ -111,14 +111,39 @@ def _join_url(base: str, relpath: str) -> str:
     return base.rstrip("/") + "/" + relpath
 
 
-async def _default_runner(argv: list[str], cwd: str) -> int:
+LEC_COMMAND_TIMEOUT_SECONDS = 300.0
+
+
+async def _default_runner(
+    argv: list[str],
+    cwd: str,
+    *,
+    timeout: float = LEC_COMMAND_TIMEOUT_SECONDS,
+) -> int:
     process = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    return await process.wait()
+    try:
+        return await asyncio.wait_for(process.wait(), timeout=timeout)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        with contextlib.suppress(Exception):
+            await process.wait()
+        raise InstallerExecutionError(
+            server_id=cwd,
+            detail=f"pre-warm command timed out after {int(timeout)}s",
+            exit_code=-1,
+        ) from None
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        with contextlib.suppress(Exception):
+            await process.wait()
+        raise
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -222,7 +247,7 @@ class LecBuilder:
         java_major: int,
         unix_args_relpath: str | None = None,
     ) -> LecBuildResult:
-        _fsync_tree(staging)
+        await asyncio.to_thread(_fsync_tree, staging)
         session = None
         entry = None
         try:
@@ -248,7 +273,7 @@ class LecBuilder:
                 with contextlib.suppress(OSError):
                     import shutil
 
-                    shutil.rmtree(staging)
+                    await asyncio.to_thread(shutil.rmtree, staging)
         entry = self._store.entry_dir(lec_key)
         return LecBuildResult(
             lec_key=lec_key,
@@ -492,20 +517,35 @@ class LecBuilder:
     # Paper
     # ------------------------------------------------------------------
 
-    async def build_paper_lec(self, minecraft_version: str, build: str | int) -> LecBuildResult:
+    async def build_paper_lec(
+        self,
+        minecraft_version: str,
+        build: str | int,
+        *,
+        on_log: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LecBuildResult:
         resolution = await resolve_paper_build(minecraft_version)
         resolved_build = resolution.build_id if build in ("", None) else build
         lec_key = f"paper/{minecraft_version}/{resolved_build}"
         staging = self._store.create_staging_dir(lec_key)
         try:
+            if on_log is not None:
+                await on_log(
+                    f"Downloading Paper {minecraft_version} build {resolution.build_id}..."
+                )
             digest = await self._fetch_to_cas(
                 resolution.download_url,
                 expected_sha256=resolution.sha256,
                 expected_size=resolution.size,
             )
             launcher_name = f"paper-{minecraft_version}-{resolution.build_id}.jar"
-            _write_bytes(staging, launcher_name, self._cas.blob_path(digest).read_bytes())
-            _write_bytes(staging, "eula.txt", b"eula=true\n")
+            jar_bytes = await asyncio.to_thread(self._cas.blob_path(digest).read_bytes)
+            await asyncio.to_thread(_write_bytes, staging, launcher_name, jar_bytes)
+            await asyncio.to_thread(_write_bytes, staging, "eula.txt", b"eula=true\n")
+            if on_log is not None:
+                await on_log(
+                    f"Pre-warming Paper {minecraft_version} runtime (paperclip patchonly)..."
+                )
             await self._run(
                 ["java", "-Dpaperclip.patchonly=true", "-jar", launcher_name],
                 staging,
@@ -519,33 +559,108 @@ class LecBuilder:
                 raise ValidationError(
                     "Paper pre-warm produced no cache/versions/libraries files", field="lec"
                 )
+            if on_log is not None:
+                await on_log(
+                    f"Publishing Paper {minecraft_version} Loader Environment Cache "
+                    f"({len(payload_files)} files)..."
+                )
             java_major = resolution.java_min_major or resolve_java_floor_from_mc_version(
                 resolution.mc_version
             )
             return await self._publish(staging, lec_key, java_major=java_major)
         except BaseException:
-            self._cleanup(staging)
+            await asyncio.to_thread(self._cleanup, staging)
+            raise
+
+    # ------------------------------------------------------------------
+    # Purpur
+    # ------------------------------------------------------------------
+
+    async def build_purpur_lec(
+        self,
+        minecraft_version: str,
+        build: str | int,
+        *,
+        on_log: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LecBuildResult:
+        build_seg = "latest" if build in ("", None) else str(build).strip()
+        lec_key = f"purpur/{minecraft_version}/{build_seg}"
+        staging = self._store.create_staging_dir(lec_key)
+        try:
+            url = (
+                f"https://api.purpurmc.org/v2/purpur/"
+                f"{minecraft_version}/{build_seg}/download"
+            )
+            if on_log is not None:
+                await on_log(f"Downloading Purpur {minecraft_version} ({build_seg})...")
+            digest = await self._fetch_to_cas(url)
+            launcher_name = f"purpur-{minecraft_version}-{build_seg}.jar"
+            jar_bytes = await asyncio.to_thread(self._cas.blob_path(digest).read_bytes)
+            await asyncio.to_thread(_write_bytes, staging, launcher_name, jar_bytes)
+            await asyncio.to_thread(_write_bytes, staging, "eula.txt", b"eula=true\n")
+            if on_log is not None:
+                await on_log(
+                    f"Pre-warming Purpur {minecraft_version} runtime (paperclip patchonly)..."
+                )
+            await self._run(
+                ["java", "-Dpaperclip.patchonly=true", "-jar", launcher_name],
+                staging,
+            )
+            payload_files = (
+                _files_under(staging, "cache")
+                + _files_under(staging, "versions")
+                + _files_under(staging, "libraries")
+            )
+            if not payload_files:
+                raise ValidationError(
+                    "Purpur pre-warm produced no cache/versions/libraries files",
+                    field="lec",
+                )
+            if on_log is not None:
+                await on_log(
+                    f"Publishing Purpur {minecraft_version} Loader Environment Cache "
+                    f"({len(payload_files)} files)..."
+                )
+            java_major = resolve_java_floor_from_mc_version(minecraft_version)
+            return await self._publish(staging, lec_key, java_major=java_major)
+        except BaseException:
+            await asyncio.to_thread(self._cleanup, staging)
             raise
 
     # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
 
-    async def ensure_lec(self, lec_key: str) -> LecBuildResult:
+    async def ensure_lec(
+        self,
+        lec_key: str,
+        *,
+        on_log: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LecBuildResult:
         norm = validate_canonical_relpath(lec_key)
         parts = parse_lec_key(norm)
         if parts.loader == "fabric":
+            if on_log is not None:
+                await on_log(f"Pre-warming Fabric {parts.mc} ({parts.version}) runtime...")
             return await self.build_fabric_lec(
                 parts.mc, parts.version, parts.installer or ""
             )
         if parts.loader == "forge":
+            if on_log is not None:
+                await on_log(f"Pre-warming Forge {parts.mc} ({parts.version}) runtime...")
             return await self.build_forge_lec(parts.mc, parts.version)
         if parts.loader == "neoforge":
+            if on_log is not None:
+                await on_log(f"Pre-warming NeoForge {parts.mc} ({parts.version}) runtime...")
             return await self.build_neoforge_lec(parts.mc, parts.version)
         if parts.loader == "quilt":
+            if on_log is not None:
+                await on_log(f"Pre-warming Quilt {parts.mc} ({parts.version}) runtime...")
             return await self.build_quilt_lec(parts.mc, parts.version)
         if parts.loader == "paper":
-            return await self.build_paper_lec(parts.mc, parts.version)
+            return await self.build_paper_lec(parts.mc, parts.version, on_log=on_log)
+        if parts.loader == "purpur":
+            return await self.build_purpur_lec(parts.mc, parts.version, on_log=on_log)
         raise ValidationError("Unsupported LEC loader", field="lec")
 
     @staticmethod

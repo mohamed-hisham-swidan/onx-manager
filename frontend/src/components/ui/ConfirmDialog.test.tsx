@@ -192,4 +192,25 @@ describe("ConfirmDialog", () => {
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("renders children callout and uses semantic contrast tokens instead of hardcoded white/black", () => {
+    render(
+      <ConfirmDialog
+        open
+        variant="danger"
+        title="Restore backup?"
+        description="Confirm restore."
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      >
+        <div data-testid="running-callout">Server is running</div>
+      </ConfirmDialog>,
+    );
+
+    expect(screen.getByTestId("running-callout")).toBeInTheDocument();
+    const confirmBtn = screen.getByRole("button", { name: "Confirm" });
+    expect(confirmBtn.className).toContain("text-text-inverse");
+    expect(confirmBtn.className).not.toContain("text-white");
+    expect(confirmBtn.className).not.toContain("text-black");
+  });
 });
