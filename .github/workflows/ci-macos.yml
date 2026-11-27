@@ -1,6 +1,17 @@
 name: macOS CI
 
 on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
     inputs:
       build_mac_bundle:
@@ -17,6 +28,7 @@ jobs:
   macos-smoke:
     name: macOS Smoke & Desktop Gate
     runs-on: macos-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     timeout-minutes: 25
     env:
       CI: "true"

@@ -3,19 +3,15 @@ name: Docker CI
 on:
   push:
     branches: [master]
-    paths:
-      - "backend/Dockerfile"
-      - "backend/requirements*"
-      - "docker-compose*.yml"
-      - ".github/workflows/ci-docker.yml"
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [master]
-    paths:
-      - "backend/Dockerfile"
-      - "backend/requirements*"
-      - "docker-compose*.yml"
-      - ".github/workflows/ci-docker.yml"
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch: {}

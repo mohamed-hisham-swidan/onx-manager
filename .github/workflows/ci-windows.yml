@@ -1,6 +1,17 @@
 name: Windows CI
 
 on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch: {}
 
 concurrency:
@@ -11,6 +22,7 @@ jobs:
   backend-windows:
     name: Backend Tests (${{ matrix.shard.name }}, Windows)
     runs-on: windows-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -62,6 +74,7 @@ jobs:
   frontend-windows:
     name: Frontend Checks (Windows)
     runs-on: windows-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     timeout-minutes: 15
     defaults:
       run:
@@ -86,6 +99,7 @@ jobs:
   desktop-windows:
     name: Desktop Checks (Windows)
     runs-on: windows-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     timeout-minutes: 15
     defaults:
       run:
