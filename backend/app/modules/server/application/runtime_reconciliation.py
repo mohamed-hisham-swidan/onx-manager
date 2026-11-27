@@ -646,13 +646,16 @@ async def reconcile_orphans(
                 except (ProcessLookupError, OSError):
                     pass
                 platform_force_kill(pid)
-        subprocess.run(
-            ["tmux", "kill-session", "-t", session],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False,
-        )
+        try:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", session],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except FileNotFoundError:
+            logger.debug("tmux not available when killing orphan session %s", session)
         actions.append({"type": "orphan_tmux", "session": session, "pid": pid, "action": "killed"})
 
     all_java_pids = _find_all_java_pids()

@@ -657,14 +657,14 @@ class CloudflaredSupervisor:
         self._process = None
         try:
             if proc.returncode is None:
-                if is_windows():
+                if is_windows() or not hasattr(os, "killpg"):
                     proc.terminate()
                 else:
                     os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=10)
                 except TimeoutError:
-                    if is_windows():
+                    if is_windows() or not hasattr(os, "killpg"):
                         proc.kill()
                     else:
                         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)

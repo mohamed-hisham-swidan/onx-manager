@@ -125,7 +125,13 @@ def _declared_path(raw: str, field: str) -> Path:
     return path
 
 
+def _is_posix() -> bool:
+    return os.name == "posix"
+
+
 def _fsync_parent(path: Path) -> None:
+    if not _is_posix():
+        return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path.parent, flags)
     try:

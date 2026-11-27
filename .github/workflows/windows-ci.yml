@@ -24,9 +24,17 @@ concurrency:
 
 jobs:
   backend-windows:
-    name: Backend tests + checks (Windows)
+    name: Backend tests (${{ matrix.shard.name }}, Windows)
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: app-api
+            args: "tests/api tests/application tests/auth tests/integration tests/tasks"
+          - name: core-unit-infra
+            args: "--ignore=tests/api --ignore=tests/application --ignore=tests/auth --ignore=tests/integration --ignore=tests/tasks tests"
     defaults:
       run:
         shell: pwsh
@@ -46,16 +54,17 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -e .
 
-      - name: Run backend test suite
+      - name: Run backend test suite (${{ matrix.shard.name }})
         working-directory: backend
         # faulthandler_timeout is a hang TRAP, not a timeout: pytest's builtin
         # faulthandler plugin dumps every thread's stack to stderr if the run
         # stalls this long, then keeps going. Added after the 2026-09-10 stall
         # (19 passed, then ~39 min silence in TestServers::test_stop_server
         # with zero diagnostics). It cannot hang the run itself.
-        run: python -m pytest -v --tb=short --durations=10 -o faulthandler_timeout=600
+        run: python -m pytest -q --tb=short --durations=10 -o faulthandler_timeout=600 ${{ matrix.shard.args }}
 
       - name: Run Windows Simple-mode + non-POSIX clean-export tests
+        if: matrix.shard.name == 'core-unit-infra'
         working-directory: backend
         # Explicitly re-run the Windows-only contract tests even though the
         # full suite above includes them, so the intent survives future suite
@@ -63,22 +72,27 @@ jobs:
         run: python -m pytest -v --tb=short tests/test_windows_lifecycle_w01.py tests/infrastructure/test_clean_export.py
 
       - name: check-db-revision
+        if: matrix.shard.name == 'core-unit-infra'
         working-directory: backend
         run: python ../scripts/check-db-revision
 
       - name: check-ruff-baseline
+        if: matrix.shard.name == 'core-unit-infra'
         working-directory: backend
         run: python ../scripts/check-ruff-baseline
 
       - name: check-version-propagation
+        if: matrix.shard.name == 'core-unit-infra'
         working-directory: backend
         run: python ../scripts/check-version-propagation
 
       - name: check-route-contract
+        if: matrix.shard.name == 'core-unit-infra'
         working-directory: backend
         run: python ../scripts/check-route-contract
 
       - name: check-ps1-bom
+        if: matrix.shard.name == 'core-unit-infra'
         run: python scripts/check-ps1-bom
 
   frontend-windows:

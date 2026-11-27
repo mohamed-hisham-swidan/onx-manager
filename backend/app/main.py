@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 import time
@@ -732,7 +733,10 @@ def create_app(static_dir: str | Path | None = None) -> FastAPI:
         try:
             from app.modules.server.infrastructure.providers import provider_factory
 
-            docker_available = await provider_factory.get("docker").ping()
+            docker_available = await asyncio.wait_for(
+                provider_factory.get("docker").ping(),
+                timeout=3.0,
+            )
         except Exception:
             pass
         return {

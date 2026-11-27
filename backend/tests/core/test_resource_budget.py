@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -409,23 +410,24 @@ async def test_docker_and_branch_providers_emit_memory_swap_and_cpus(tmp_path: P
     assert create_args[create_args.index("--memory-swap") + 1] == "4352m"
     assert create_args[create_args.index("--cpus") + 1] == "2"
 
-    branch_args = build_branch_docker_create_args(
-        container_name="onx-branch-1",
-        image="eclipse-temurin:21-jre-jammy",
-        network="bridge",
-        port_set=HostPortSet(game_port=25600, rcon_port=25601),
-        memory_min_mb=1024,
-        memory_max_mb=2048,
-        cpu_cores=2,
-        export_root=str(server_dir),
-        host_mount=str(server_dir),
-        uid=1000,
-        gid=1000,
-        server_id="srv-docker",
-        branch_name="exp",
-        runtime_id="rt-1",
-        commit_sha="a" * 40,
-    )
-    assert branch_args[branch_args.index("--memory") + 1] == "2560m"
-    assert branch_args[branch_args.index("--memory-swap") + 1] == "2560m"
-    assert branch_args[branch_args.index("--cpus") + 1] == "2"
+    if os.name == "posix":
+        branch_args = build_branch_docker_create_args(
+            container_name="onx-branch-1",
+            image="eclipse-temurin:21-jre-jammy",
+            network="bridge",
+            port_set=HostPortSet(game_port=25600, rcon_port=25601),
+            memory_min_mb=1024,
+            memory_max_mb=2048,
+            cpu_cores=2,
+            export_root=str(server_dir),
+            host_mount=str(server_dir),
+            uid=1000,
+            gid=1000,
+            server_id="srv-docker",
+            branch_name="exp",
+            runtime_id="rt-1",
+            commit_sha="a" * 40,
+        )
+        assert branch_args[branch_args.index("--memory") + 1] == "2560m"
+        assert branch_args[branch_args.index("--memory-swap") + 1] == "2560m"
+        assert branch_args[branch_args.index("--cpus") + 1] == "2"

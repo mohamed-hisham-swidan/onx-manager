@@ -775,10 +775,12 @@ class TestPanelCloudflareModernModes:
                     side_effect=lambda pgid, _sig: [
                         p.terminate() for p in procs if p.pid == pgid
                     ],
+                    create=True,
                 ),
                 patch(
                     "app.modules.exposure.infrastructure.cloudflared.os.getpgid",
                     side_effect=lambda pid: pid,
+                    create=True,
                 ),
                 patch(
                     "asyncio.create_subprocess_exec",

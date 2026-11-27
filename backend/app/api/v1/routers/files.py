@@ -249,6 +249,108 @@ def _open_dir_nofollow(parent_fd: int | None, target: str) -> int | None:
         return None
 
 
+def _is_reparse_or_symlink(path: Path) -> bool:
+    """Return True if path is a symlink or a Windows reparse point/junction."""
+    if os.path.islink(path):
+        return True
+    reparse_attr = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if not reparse_attr:
+        return False
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return bool(getattr(st, "st_file_attributes", 0) & reparse_attr)
+
+
+def _assert_win_within_root(root_real: str, candidate_real: str, rel_path: str) -> None:
+    root_norm = os.path.normcase(root_real)
+    cand_norm = os.path.normcase(candidate_real)
+    try:
+        common = os.path.commonpath([root_norm, cand_norm])
+    except ValueError as exc:
+        raise SymlinkEscapeError(f"Path escapes root after resolution: {rel_path!r}") from exc
+    if cand_norm == root_norm or common != root_norm:
+        raise SymlinkEscapeError(f"Path escapes root after resolution: {rel_path!r}")
+
+
+def _resolve_safe_disk_path_win(
+    root_dir: str, rel_path: str, *, allow_create_parents: bool = False
+) -> str:
+    """Windows-safe path containment resolution without POSIX directory O_RDONLY fds."""
+    rel_path = validate_canonical_relpath(rel_path)
+    if _is_reparse_or_symlink(Path(root_dir)):
+        raise SymlinkEscapeError(f"Root itself is a symlink: {root_dir!r}")
+    root_real = os.path.realpath(root_dir)
+    if not os.path.isdir(root_real):
+        raise ValueError(f"Root is not an existing directory: {root_dir!r}")
+    if _is_reparse_or_symlink(Path(root_real)):
+        raise SymlinkEscapeError(f"Root itself is a symlink: {root_dir!r}")
+
+    segments = rel_path.split("/")
+    cur = Path(root_real)
+    for seg in segments[:-1]:
+        cur = cur / seg
+        if os.path.lexists(cur):
+            if _is_reparse_or_symlink(cur) or not cur.is_dir():
+                raise SymlinkEscapeError(
+                    f"Symlink or non-directory component rejected: {seg!r}"
+                )
+        elif allow_create_parents:
+            cur.mkdir(parents=False, exist_ok=True)
+            if _is_reparse_or_symlink(cur):
+                raise SymlinkEscapeError(
+                    f"Symlink or non-directory component rejected: {seg!r}"
+                )
+        else:
+            break
+
+    target = os.path.join(root_real, *segments)
+    target_real = os.path.realpath(target)
+    _assert_win_within_root(root_real, target_real, rel_path)
+    return target_real
+
+
+def _open_safe_path_fd_win(
+    root_dir: str, rel_path: str, *, flags: int = os.O_RDONLY
+) -> int:
+    """Windows-safe file open after containment and symlink/reparse validation."""
+    target_real = _resolve_safe_disk_path_win(
+        root_dir, rel_path, allow_create_parents=False
+    )
+    root_real = os.path.realpath(root_dir)
+    target_unfollowed = Path(os.path.join(root_real, *rel_path.split("/")))
+    if os.path.lexists(target_unfollowed) and _is_reparse_or_symlink(target_unfollowed):
+        raise SymlinkEscapeError(f"Final symlink rejected: {rel_path!r}")
+    if os.path.isdir(target_real):
+        raise IsADirectoryError(f"Target path is a directory: {rel_path!r}")
+    return os.open(target_real, flags | getattr(os, "O_BINARY", 0))
+
+
+def _is_posix() -> bool:
+    return os.name == "posix"
+
+
+def _safe_resolve_path(
+    root_dir: str, rel_path: str, *, allow_create_parents: bool = False
+) -> str:
+    if _is_posix():
+        return resolve_safe_disk_path(
+            root_dir, rel_path, allow_create_parents=allow_create_parents
+        )
+    return _resolve_safe_disk_path_win(
+        root_dir, rel_path, allow_create_parents=allow_create_parents
+    )
+
+
+def _safe_open_file_fd(
+    root_dir: str, rel_path: str, *, flags: int = os.O_RDONLY
+) -> int:
+    if _is_posix():
+        return open_safe_path_fd(root_dir, rel_path, flags=flags)
+    return _open_safe_path_fd_win(root_dir, rel_path, flags=flags)
+
+
 def _classify_allowed_log_relpath(
     raw_path: str,
 ) -> tuple[str, Literal["server_log", "crash_report", "plugin_log"]]:
@@ -359,7 +461,121 @@ async def _resolve_logs_runtime_root(
     return cand_real
 
 
+def _sort_log_entries(
+    collected: list[tuple[float, FileEntryResponse]],
+) -> list[FileEntryResponse]:
+    def _sort_key(item: tuple[float, FileEntryResponse]) -> tuple[int, float, str]:
+        mtime, entry = item
+        if entry.log_category == "crash_report":
+            priority = 0
+        elif entry.path == "logs/latest.log":
+            priority = 1
+        else:
+            priority = 2
+        return (priority, -mtime, entry.path.lower())
+
+    collected.sort(key=_sort_key)
+    return [entry for _, entry in collected]
+
+
+def _scan_logs_entries_win(runtime_root: Path) -> list[FileEntryResponse]:
+    """Windows-safe logs scanner using Path iteration without POSIX directory fds."""
+    if _is_reparse_or_symlink(runtime_root) or not runtime_root.is_dir():
+        return []
+    root_real = os.path.realpath(runtime_root)
+    collected: list[tuple[float, FileEntryResponse]] = []
+
+    def _collect_dir_files_win(
+        dir_path: Path,
+        prefix_rel: str,
+        allowed_exts: tuple[str, ...],
+        category: Literal["server_log", "crash_report", "plugin_log"],
+    ) -> None:
+        if _is_reparse_or_symlink(dir_path) or not dir_path.is_dir():
+            return
+        try:
+            _assert_win_within_root(root_real, os.path.realpath(dir_path), prefix_rel)
+        except SymlinkEscapeError:
+            return
+        for entry in dir_path.iterdir():
+            name = entry.name
+            if _is_protected_name(name) or _is_sensitive_name(name):
+                continue
+            if not name.casefold().endswith(allowed_exts):
+                continue
+            if _is_reparse_or_symlink(entry):
+                continue
+            try:
+                st = os.lstat(entry)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            try:
+                rel = validate_canonical_relpath(f"{prefix_rel}/{name}")
+                _assert_win_within_root(root_real, os.path.realpath(entry), rel)
+            except (ValueError, SymlinkEscapeError):
+                continue
+            collected.append(
+                (
+                    st.st_mtime,
+                    FileEntryResponse(
+                        name=name,
+                        path=rel,
+                        is_dir=False,
+                        size=st.st_size,
+                        modified_at=datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+                        file_class="E",
+                        editable=False,
+                        log_category=category,
+                    ),
+                )
+            )
+
+    _collect_dir_files_win(
+        runtime_root / "logs", "logs", (".log", ".log.gz", ".txt"), "server_log"
+    )
+    _collect_dir_files_win(
+        runtime_root / "crash-reports", "crash-reports", (".txt", ".log"), "crash_report"
+    )
+
+    plugins_dir = runtime_root / "plugins"
+    if plugins_dir.is_dir() and not _is_reparse_or_symlink(plugins_dir):
+        try:
+            _assert_win_within_root(root_real, os.path.realpath(plugins_dir), "plugins")
+        except SymlinkEscapeError:
+            plugins_iter: list[Path] = []
+        else:
+            plugins_iter = list(plugins_dir.iterdir())
+        for plugin_entry in plugins_iter:
+            plugin_name = plugin_entry.name
+            if _is_protected_name(plugin_name) or _is_sensitive_name(plugin_name):
+                continue
+            if _is_reparse_or_symlink(plugin_entry) or not plugin_entry.is_dir():
+                continue
+            _collect_dir_files_win(
+                plugin_entry, f"plugins/{plugin_name}", (".log",), "plugin_log"
+            )
+            for sub_entry in plugin_entry.iterdir():
+                sub_name = sub_entry.name
+                if _is_protected_name(sub_name) or _is_sensitive_name(sub_name):
+                    continue
+                if _is_reparse_or_symlink(sub_entry) or not sub_entry.is_dir():
+                    continue
+                _collect_dir_files_win(
+                    sub_entry,
+                    f"plugins/{plugin_name}/{sub_name}",
+                    (".log",),
+                    "plugin_log",
+                )
+
+    return _sort_log_entries(collected)
+
+
 def _scan_logs_entries(runtime_root: Path) -> list[FileEntryResponse]:
+    if not _is_posix():
+        return _scan_logs_entries_win(runtime_root)
+
     root_fd = _open_dir_nofollow(None, str(runtime_root))
     if root_fd is None:
         return []
@@ -465,24 +681,13 @@ def _scan_logs_entries(runtime_root: Path) -> list[FileEntryResponse]:
     finally:
         os.close(root_fd)
 
-    def _sort_key(item: tuple[float, FileEntryResponse]) -> tuple[int, float, str]:
-        mtime, entry = item
-        if entry.log_category == "crash_report":
-            priority = 0
-        elif entry.path == "logs/latest.log":
-            priority = 1
-        else:
-            priority = 2
-        return (priority, -mtime, entry.path.lower())
-
-    collected.sort(key=_sort_key)
-    return [entry for _, entry in collected]
+    return _sort_log_entries(collected)
 
 
 def _read_log_file_content(runtime_root: Path, raw_path: str) -> FileContentResponse:
     relpath, _ = _classify_allowed_log_relpath(raw_path)
     try:
-        fd = open_safe_path_fd(str(runtime_root), relpath, flags=os.O_RDONLY)
+        fd = _safe_open_file_fd(str(runtime_root), relpath, flags=os.O_RDONLY)
     except SymlinkEscapeError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -610,7 +815,7 @@ def _read_log_file_content(runtime_root: Path, raw_path: str) -> FileContentResp
 def _stream_log_file_download(runtime_root: Path, raw_path: str) -> StreamingResponse:
     relpath, _ = _classify_allowed_log_relpath(raw_path)
     try:
-        fd = open_safe_path_fd(str(runtime_root), relpath, flags=os.O_RDONLY)
+        fd = _safe_open_file_fd(str(runtime_root), relpath, flags=os.O_RDONLY)
     except SymlinkEscapeError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -694,6 +899,8 @@ async def _resolve_server_file_path(
 
     resolved_root = Path(root_path).resolve()
     clean_rel = relative_path.lstrip("/") if relative_path else ""
+    if not _is_posix() and (":" in clean_rel or clean_rel.startswith("\\")):
+        raise HTTPException(status_code=403, detail="Path escapes server root directory")  # noqa: B904
     if follow_symlink:
         target_path = (resolved_root / clean_rel).resolve()
     else:
@@ -717,7 +924,7 @@ async def _resolve_server_file_path(
         _assert_not_sensitive(target_path)
         raise HTTPException(status_code=404, detail="Path does not exist")  # noqa: B904
 
-    rel_str = str(target_path.relative_to(resolved_root))
+    rel_str = target_path.relative_to(resolved_root).as_posix()
     if rel_str == ".":
         rel_str = ""
 
@@ -954,8 +1161,8 @@ async def upload_file(
 ) -> FileEntryResponse:
     _assert_not_logs_write(scope)
     filename = file.filename or "uploaded_file"
-    # Clean filename of any path components
-    filename = Path(filename).name
+    # Clean filename of any path components (POSIX or Windows separators)
+    filename = Path(filename.replace("\\", "/")).name
 
     dest_rel_path = f"{path.strip('/')}/{filename}" if path.strip("/") else filename
     (
@@ -974,7 +1181,7 @@ async def upload_file(
     _assert_not_sensitive(target_file_path)
 
     try:
-        safe_target_str = resolve_safe_disk_path(
+        safe_target_str = _safe_resolve_path(
             str(resolved_root), rel_str, allow_create_parents=True
         )
     except SymlinkEscapeError as exc:
@@ -983,7 +1190,9 @@ async def upload_file(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     target_file_path = Path(safe_target_str)
-    if target_file_path.is_symlink():
+    if target_file_path.is_symlink() or (
+        not _is_posix() and _is_reparse_or_symlink(target_file_path)
+    ):
         raise HTTPException(status_code=403, detail="Target path must not be a symlink")
 
     chunk_size = 64 * 1024
@@ -992,12 +1201,18 @@ async def upload_file(
 
     total_bytes = 0
     parent = target_file_path.parent
-    try:
-        parent_fd = os.open(str(parent), _DIR_OPEN_FLAGS)
-    except OSError as exc:
+    parent_fd: int | None = None
+    if _is_posix():
+        try:
+            parent_fd = os.open(str(parent), _DIR_OPEN_FLAGS)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=403, detail="Upload directory is not safe or accessible"
+            ) from exc
+    elif not parent.is_dir() or _is_reparse_or_symlink(parent):
         raise HTTPException(
             status_code=403, detail="Upload directory is not safe or accessible"
-        ) from exc
+        )
 
     fd, tmp_path_str = tempfile.mkstemp(dir=str(parent), suffix=".tmp")
     tmp_path = Path(tmp_path_str)
@@ -1023,7 +1238,8 @@ async def upload_file(
         replaced = True
         local_fs._fsync_parent_dir(parent)
     finally:
-        os.close(parent_fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
         if not replaced and tmp_path.exists():
             with contextlib.suppress(OSError):
                 tmp_path.unlink()
@@ -1145,7 +1361,7 @@ async def list_live_state(
         rel_dir = ""
     if rel_dir:
         try:
-            target_dir = Path(resolve_safe_disk_path(str(live_root), rel_dir))
+            target_dir = Path(_safe_resolve_path(str(live_root), rel_dir))
         except SymlinkEscapeError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1217,7 +1433,7 @@ async def read_live_state_content(
     _advanced: Annotated[dict, Depends(require_advanced_mode)],
     path: str = Query(...),
 ) -> LiveStateFileContentResponse:
-    from app.core.allowlist import classify, open_safe_path_fd, validate_canonical_relpath
+    from app.core.allowlist import classify, validate_canonical_relpath
     from app.core.host_state import resolve_host_state_layout
     from app.core.persistence.db import database
     from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -1257,7 +1473,7 @@ async def read_live_state_content(
     import os as _os
 
     try:
-        fd = open_safe_path_fd(str(live_root), relpath, flags=_os.O_RDONLY)
+        fd = _safe_open_file_fd(str(live_root), relpath, flags=_os.O_RDONLY)
     except SymlinkEscapeError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except IsADirectoryError as exc:
@@ -1305,7 +1521,6 @@ async def write_live_state_content(
 
     from app.core.allowlist import (
         classify,
-        resolve_safe_disk_path,
         validate_canonical_relpath,
     )
     from app.core.host_state import resolve_host_state_layout
@@ -1369,7 +1584,7 @@ async def write_live_state_content(
 
         try:
             target_path = Path(
-                resolve_safe_disk_path(str(live_root), relpath, allow_create_parents=True)
+                _safe_resolve_path(str(live_root), relpath, allow_create_parents=True)
             )
         except SymlinkEscapeError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -1379,7 +1594,7 @@ async def write_live_state_content(
         if status in {"STOPPED", "CREATED", "CRASHED"}:
             # session.lock check
             lock = live_root / "world" / "session.lock"
-            if lock.exists():
+            if lock.exists() and _is_posix():
                 try:
                     import fcntl
 

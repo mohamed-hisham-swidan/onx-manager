@@ -225,7 +225,11 @@ class TestSpaStaticMiddleware:
             encoded_traversal = await client.get("/%2e%2e/%2e%2e/etc/passwd")
             assert encoded_traversal.status_code == 404
 
-            health = await client.get("/health")
+            with patch(
+                "app.modules.server.infrastructure.providers.docker.DockerProvider.ping",
+                new=AsyncMock(return_value=False),
+            ):
+                health = await client.get("/health")
             assert health.status_code == 200
             assert health.json()["status"] == "ok"
 

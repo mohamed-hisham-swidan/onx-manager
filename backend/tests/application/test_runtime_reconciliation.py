@@ -343,6 +343,16 @@ def _patch_ownership_helpers(
 
 @pytest.mark.asyncio
 class TestReconcileOrphans:
+    @pytest.fixture(autouse=True)
+    def _hermetic_identity(self):
+        from app.core.process_utils import ProcessIdentityCheck
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.verify_process_identity",
+            return_value=ProcessIdentityCheck(verified=True, reason="mocked"),
+        ):
+            yield
+
     async def test_no_orphans(self):
         with (
             patch(
@@ -375,6 +385,9 @@ class TestReconcileOrphans:
                 "app.modules.server.application.runtime_reconciliation.os.popen",
             ),
             patch(
+                "app.modules.server.application.runtime_reconciliation.subprocess.run",
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
                 return_value=[],
             ),
@@ -402,14 +415,17 @@ class TestReconcileOrphans:
                         "app.modules.server.application.runtime_reconciliation.os.popen",
                     ):
                         with patch(
-                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                            return_value=[],
+                            "app.modules.server.application.runtime_reconciliation.subprocess.run",
                         ):
                             with patch(
-                                "app.modules.server.application.runtime_reconciliation._is_project_owned_process",
-                                return_value=True,
+                                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                                return_value=[],
                             ):
-                                actions = await reconcile_orphans()
+                                with patch(
+                                    "app.modules.server.application.runtime_reconciliation._is_project_owned_process",
+                                    return_value=True,
+                                ):
+                                    actions = await reconcile_orphans()
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
@@ -560,10 +576,13 @@ class TestReconcileOrphans:
                             "app.modules.server.application.runtime_reconciliation.os.popen",
                         ):
                             with patch(
-                                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                                return_value=[],
+                                "app.modules.server.application.runtime_reconciliation.subprocess.run",
                             ):
-                                actions = await reconcile_orphans(mock_repo)
+                                with patch(
+                                    "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                                    return_value=[],
+                                ):
+                                    actions = await reconcile_orphans(mock_repo)
 
         assert len(actions) == 1
         assert actions[0]["session"] == "onx-actual-orphan"
@@ -643,10 +662,13 @@ class TestReconcileOrphans:
                             "app.modules.server.application.runtime_reconciliation.os.popen",
                         ):
                             with patch(
-                                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                                return_value=[],
+                                "app.modules.server.application.runtime_reconciliation.subprocess.run",
                             ):
-                                actions = await reconcile_orphans(mock_repo)
+                                with patch(
+                                    "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                                    return_value=[],
+                                ):
+                                    actions = await reconcile_orphans(mock_repo)
 
         assert len(actions) == 1
         assert actions[0]["session"] == "onx-actual-orphan-2"
@@ -727,10 +749,13 @@ class TestReconcileOrphans:
                             "app.modules.server.application.runtime_reconciliation.os.popen",
                         ):
                             with patch(
-                                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                                return_value=[],
+                                "app.modules.server.application.runtime_reconciliation.subprocess.run",
                             ):
-                                actions = await reconcile_orphans(mock_repo)
+                                with patch(
+                                    "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                                    return_value=[],
+                                ):
+                                    actions = await reconcile_orphans(mock_repo)
 
         assert len(actions) == 1
         assert actions[0]["session"] == "onx-srv-stopped"
@@ -808,6 +833,9 @@ class TestReconcileOrphans:
                 "app.modules.server.application.runtime_reconciliation.os.popen",
             ),
             patch(
+                "app.modules.server.application.runtime_reconciliation.subprocess.run",
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
                 return_value=[],
             ),
@@ -819,42 +847,47 @@ class TestReconcileOrphans:
         mock_kill.assert_any_call(12345, signal.SIGTERM)  # no ownership check needed
 
     async def test_audit_log_produced_for_kill_decision(self):
-        with patch(
-            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["onx-orphan"],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+                return_value=["onx-orphan"],
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
                 return_value=12345,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation._is_project_owned_process",
-                    return_value=True,
-                ):
-                    with patch(
-                        "app.modules.server.application.runtime_reconciliation.os.kill",
-                    ):
-                        with patch(
-                            "app.modules.server.application.runtime_reconciliation.os.popen",
-                        ):
-                            with patch(
-                                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                                return_value=[],
-                            ):
-                                with patch(
-                                    "app.modules.server.application.runtime_reconciliation.logger.info",
-                                ) as mock_log_info:
-                                    await reconcile_orphans()
-                                    kill_logs = [
-                                        args
-                                        for args, _ in mock_log_info.call_args_list
-                                        if "KILL_DECISION" in str(args)
-                                    ]
-                                    assert len(kill_logs) >= 1
-                                    assert all(
-                                        "decision=KILL" in str(args) or "decision=SKIP" in str(args)
-                                        for args in kill_logs
-                                    )
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._is_project_owned_process",
+                return_value=True,
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.popen",
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.subprocess.run",
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[],
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.logger.info",
+            ) as mock_log_info,
+        ):
+            await reconcile_orphans()
+            kill_logs = [
+                args
+                for args, _ in mock_log_info.call_args_list
+                if "KILL_DECISION" in str(args)
+            ]
+            assert len(kill_logs) >= 1
+            assert all(
+                "decision=KILL" in str(args) or "decision=SKIP" in str(args)
+                for args in kill_logs
+            )
 
 
 class TestRuntimeReconciliationGraceWindow:

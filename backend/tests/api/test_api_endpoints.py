@@ -406,7 +406,11 @@ async def created_server(client: AsyncClient, privileged_header: dict[str, str])
 
 class TestHealth:
     async def test_health_check(self, client: AsyncClient) -> None:
-        resp = await client.get("/health")
+        with patch(
+            "app.modules.server.infrastructure.providers.docker.DockerProvider.ping",
+            new=AsyncMock(return_value=False),
+        ):
+            resp = await client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -414,7 +418,11 @@ class TestHealth:
         assert "database" in data
 
     async def test_health_has_request_id(self, client: AsyncClient) -> None:
-        resp = await client.get("/health")
+        with patch(
+            "app.modules.server.infrastructure.providers.docker.DockerProvider.ping",
+            new=AsyncMock(return_value=False),
+        ):
+            resp = await client.get("/health")
         assert resp.headers.get("x-request-id") is not None
 
 
@@ -2077,7 +2085,11 @@ class TestErrorHandling:
         assert resp.status_code == 401
 
     async def test_health_returns_uptime(self, client: AsyncClient) -> None:
-        resp = await client.get("/health")
+        with patch(
+            "app.modules.server.infrastructure.providers.docker.DockerProvider.ping",
+            new=AsyncMock(return_value=False),
+        ):
+            resp = await client.get("/health")
         data = resp.json()
         assert data["uptime_seconds"] >= 0
 

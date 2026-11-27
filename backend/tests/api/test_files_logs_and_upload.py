@@ -394,3 +394,114 @@ async def test_logs_scope_advanced_branch_isolation_and_branch_upload(
     )
     assert up_jar.status_code == 403
     assert "plugins" in up_jar.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_windows_fallback_helpers_simulated_nt(
+    client: AsyncClient,
+    host_state: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Simulate os.name == 'nt' code paths in files.py and directory_swap._fsync_parent."""
+    from app.api.v1.routers import files as files_router
+    from app.core.allowlist import SymlinkEscapeError
+    from app.modules.versioning.infrastructure import directory_swap
+
+    # 1. _fsync_parent is a clean no-op when _is_posix() is False
+    monkeypatch.setattr(directory_swap, "_is_posix", lambda: False)
+    target_file = tmp_path / "swap-dir" / "child.txt"
+    target_file.parent.mkdir(parents=True)
+    directory_swap._fsync_parent(target_file)
+
+    # 2. Windows path helpers in files.py enforce containment & reject escapes
+    root = host_state / "win-sim-srv"
+    (root / "logs").mkdir(parents=True)
+    (root / "crash-reports").mkdir()
+    (root / "logs" / "latest.log").write_text("[INFO] win log\n", encoding="utf-8")
+    (root / "crash-reports" / "crash-1.txt").write_text("crash\n", encoding="utf-8")
+    (root / ".env").write_text("SECRET=1\n", encoding="utf-8")
+
+    outside = tmp_path / "outside.log"
+    outside.write_text("NOPE\n", encoding="utf-8")
+    if os.name == "posix":
+        os.symlink(outside, root / "logs" / "escape.log")
+
+    monkeypatch.setattr(files_router, "_is_posix", lambda: False)
+
+    with pytest.raises(ValueError):
+        files_router._resolve_safe_disk_path_win(str(root), "../outside.log")
+    with pytest.raises(ValueError):
+        files_router._resolve_safe_disk_path_win(str(root), "C:outside.log")
+    if os.name == "posix":
+        with pytest.raises(SymlinkEscapeError):
+            files_router._resolve_safe_disk_path_win(str(root), "logs/escape.log")
+        with pytest.raises(SymlinkEscapeError):
+            files_router._open_safe_path_fd_win(str(root), "logs/escape.log")
+
+    # 3. Reparse point attribute is rejected even without POSIX symlink
+    fake_reparse_dir = root / "plugins" / "JunctionPlugin"
+    fake_reparse_dir.mkdir(parents=True)
+    reparse_flag = getattr(files_router.stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    monkeypatch.setattr(
+        files_router.stat, "FILE_ATTRIBUTE_REPARSE_POINT", reparse_flag, raising=False
+    )
+    orig_lstat = files_router.os.lstat
+
+    def _fake_lstat(p, *args, **kwargs):
+        st = orig_lstat(p, *args, **kwargs)
+        if Path(p) == fake_reparse_dir:
+            class _FakeStat:
+                st_mode = st.st_mode
+                st_mtime = st.st_mtime
+                st_size = st.st_size
+                st_file_attributes = reparse_flag
+
+            return _FakeStat()
+        return st
+
+    monkeypatch.setattr(files_router.os, "lstat", _fake_lstat)
+    with pytest.raises(SymlinkEscapeError):
+        files_router._resolve_safe_disk_path_win(str(root), "plugins/JunctionPlugin/cfg.yml")
+    monkeypatch.setattr(files_router.os, "lstat", orig_lstat)
+
+    # 4. End-to-end logs listing, reading, and file upload under simulated os.name == 'nt'
+    server_id = "srv-win-sim"
+    await _seed_server(server_id, root, mode="simple")
+    header = await _seed_admin_api_key_header(client)
+
+    logs_resp = await client.get(
+        f"/api/v1/servers/{server_id}/files",
+        params={"scope": "logs"},
+        headers=header,
+    )
+    assert logs_resp.status_code == 200
+    assert [e["path"] for e in logs_resp.json()] == [
+        "crash-reports/crash-1.txt",
+        "logs/latest.log",
+    ]
+
+    log_read = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "logs/latest.log", "scope": "logs"},
+        headers=header,
+    )
+    assert log_read.status_code == 200
+    assert "[INFO] win log" in log_read.json()["content"]
+
+    upload_resp = await client.post(
+        f"/api/v1/servers/{server_id}/files/upload",
+        params={"path": "plugins"},
+        files={"file": ("win-plugin.jar", io.BytesIO(b"jar-data"), "application/java-archive")},
+        headers=header,
+    )
+    assert upload_resp.status_code == 201
+    assert upload_resp.json()["path"] == "plugins/win-plugin.jar"
+    assert (root / "plugins" / "win-plugin.jar").read_bytes() == b"jar-data"
+
+    env_resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": ".env"},
+        headers=header,
+    )
+    assert env_resp.status_code == 403

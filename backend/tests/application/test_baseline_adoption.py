@@ -446,6 +446,10 @@ class TestBaselineAdoption:
             await ensure_simple_baseline_lockfile(server_id)
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="Artifact CAS is POSIX-only",
+    )
     async def test_reconcile_addons_reflects_live_plugin_add_and_delete(
         self, tmp_path: Path
     ) -> None:
