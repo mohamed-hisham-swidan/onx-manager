@@ -12,7 +12,7 @@
     "predev": "node scripts/ensure-electron.js",
     "dev": "electron . --dev",
     "lint": "node --check src/main.js && node --check src/preload.js && node --check src/backendManager.js && node --check src/connectionsStore.js && node --check src/launcher.js && node --check scripts/ensure-electron.js",
-    "test": "node --test src/test/*.test.mjs",
+    "test": "node --test src/test",
     "build": "electron-builder",
     "build:win": "electron-builder --win nsis",
     "build:linux": "electron-builder --linux AppImage"
