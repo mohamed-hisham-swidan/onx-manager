@@ -5,7 +5,7 @@ from httpx import AsyncClient
 
 from app.core.persistence.db import database
 from app.modules.server.infrastructure.models import ServerModel
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -42,7 +42,7 @@ async def test_read_binary_file_returns_is_binary_flag(
         )
         await session.commit()
 
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",

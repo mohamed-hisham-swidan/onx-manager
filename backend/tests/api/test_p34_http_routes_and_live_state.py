@@ -17,7 +17,7 @@ from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.versioning.domain.lockfile import LoaderRef, LockfileV21
 from app.modules.versioning.infrastructure.git_branches import GitBranchService
 from app.modules.versioning.infrastructure.git_repository import GitRepositoryService
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header, _seed_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -75,7 +75,6 @@ def host_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 async def advanced_server(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> tuple[Path, dict[str, str]]:
     global WORKTREE
@@ -93,7 +92,7 @@ async def advanced_server(
     LockfileService(layout).write(SERVER_ID, _empty_lockfile())
     GitBranchService(layout).create_branch(SERVER_ID, root, "feat")
     WORKTREE = root / ".onx" / "worktrees" / "feat"
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
     try:
         yield root, header
     finally:

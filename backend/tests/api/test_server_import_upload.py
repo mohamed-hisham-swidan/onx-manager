@@ -10,7 +10,7 @@ from app.modules.server.application.services.import_service import (
     _safe_extract_zip,
     get_effective_server_dir,
 )
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -111,8 +111,8 @@ def test_get_effective_server_dir_nested_with_mac_meta(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_rejects_non_zip(client: AsyncClient, created_user: dict) -> None:
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+async def test_upload_rejects_non_zip(client: AsyncClient) -> None:
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     files = {"file": ("server.tar.gz", b"fake tar content", "application/gzip")}
     resp = await client.post("/api/v1/servers/import/upload", files=files, headers=headers)
     assert resp.status_code == 400
@@ -120,8 +120,8 @@ async def test_upload_rejects_non_zip(client: AsyncClient, created_user: dict) -
 
 
 @pytest.mark.asyncio
-async def test_upload_rejects_corrupted_zip(client: AsyncClient, created_user: dict) -> None:
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+async def test_upload_rejects_corrupted_zip(client: AsyncClient) -> None:
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     files = {"file": ("server.zip", b"not a valid zip binary", "application/zip")}
     resp = await client.post("/api/v1/servers/import/upload", files=files, headers=headers)
     assert resp.status_code == 400
@@ -130,9 +130,9 @@ async def test_upload_rejects_corrupted_zip(client: AsyncClient, created_user: d
 
 @pytest.mark.asyncio
 async def test_upload_exceeds_size_limit(
-    client: AsyncClient, created_user: dict, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     monkeypatch.setenv("MCS_IMPORT_MAX_ZIP_SIZE_MB", "1")
 
     # 1MB limit, upload 2MB payload
@@ -144,8 +144,8 @@ async def test_upload_exceeds_size_limit(
 
 
 @pytest.mark.asyncio
-async def test_upload_insufficient_disk_space(client: AsyncClient, created_user: dict) -> None:
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+async def test_upload_insufficient_disk_space(client: AsyncClient) -> None:
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     zip_bytes = _build_zip_bytes({"server.properties": b"server-port=25565\n"})
     files = {"file": ("server.zip", zip_bytes, "application/zip")}
 
@@ -159,13 +159,13 @@ async def test_upload_insufficient_disk_space(client: AsyncClient, created_user:
 
 @pytest.mark.asyncio
 async def test_upload_and_import_success(
-    client: AsyncClient, created_user: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     staging_root = tmp_path / "staging"
     staging_root.mkdir()
     monkeypatch.setenv("MCS_IMPORT_STAGING_DIR", str(staging_root))
 
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     zip_bytes = _build_zip_bytes({
         "server.properties": (
             b"server-port=25577\nmotd=Upload Test Server\nserver-name=UploadedServer\n"
@@ -209,13 +209,13 @@ async def test_upload_and_import_success(
 
 @pytest.mark.asyncio
 async def test_scan_local_zip_file(
-    client: AsyncClient, created_user: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     staging_root = tmp_path / "staging_scan"
     staging_root.mkdir()
     monkeypatch.setenv("MCS_IMPORT_STAGING_DIR", str(staging_root))
 
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     zip_bytes = _build_zip_bytes({
         "server.properties": (
             b"server-port=25588\nmotd=Local Zip Test\nserver-name=LocalZipServer\n"
@@ -242,13 +242,13 @@ async def test_scan_local_zip_file(
 
 @pytest.mark.asyncio
 async def test_import_direct_from_zip(
-    client: AsyncClient, created_user: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     staging_root = tmp_path / "staging_direct"
     staging_root.mkdir()
     monkeypatch.setenv("MCS_IMPORT_STAGING_DIR", str(staging_root))
 
-    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+    headers = await _seed_admin_api_key_header(client, permissions=["server:write"])
     zip_bytes = _build_zip_bytes({
         "server.properties": (
             b"server-port=25589\nmotd=Direct Zip Import\nserver-name=DirectZip\n"

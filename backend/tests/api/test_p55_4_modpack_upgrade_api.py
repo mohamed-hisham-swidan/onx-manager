@@ -63,7 +63,7 @@ from app.modules.versioning.infrastructure.models import (
     ServerUpgradeModel,
 )
 from app.modules.versioning.infrastructure.refresh_journal import RefreshJournalRepository
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header, _seed_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -481,9 +481,7 @@ async def p55_api(
         lambda: _health_gate_factory
     )
 
-    admin_headers = await _seed_api_key_header(
-        client, created_user["user_id"], ["admin:full"]
-    )
+    admin_headers = await _seed_admin_api_key_header(client)
 
     try:
         yield SimpleNamespace(
@@ -1253,7 +1251,7 @@ async def test_p55_rbac_unauthenticated_and_activity_log_zero_secret_leakage(
         )
         await session.commit()
     viewer_headers = await _seed_api_key_header(
-        api.client, viewer_id, ["settings:read"]
+        api.client, viewer_id, ["server:read", "settings:read"]
     )
 
     # Seed an upgrade row so GET /upgrades/{id} returns 200 for viewer
@@ -1327,11 +1325,22 @@ async def test_p55_rbac_unauthenticated_and_activity_log_zero_secret_leakage(
             res = await api.client.request(method, path, json=body)
         assert res.status_code == 401, (method, path, res.text)
 
-    # 2. Viewer gets 200 on all 5 GET routes and 403 on all 13 mutating routes
+    # 2. Viewer gets 200 on the 3 server-scoped GET routes, and 403 on host-global
+    # admin GET routes (/settings/integrations/curseforge, /lec/entries) + all 13 mutations;
+    # meanwhile global admin gets 200 on the host-global GET routes.
+    host_global_get_routes = {
+        "/api/v1/settings/integrations/curseforge",
+        "/api/v1/lec/entries",
+    }
     for method, path, body in all_routes:
         if method == "GET":
             res = await api.client.get(path, headers=viewer_headers)
-            assert res.status_code == 200, (path, res.text)
+            if path in host_global_get_routes:
+                assert res.status_code == 403, (path, res.text)
+                admin_res = await api.client.get(path, headers=api.headers)
+                assert admin_res.status_code == 200, (path, admin_res.text)
+            else:
+                assert res.status_code == 200, (path, res.text)
         else:
             if path.endswith("/modpacks/inspect") or path.endswith("/manual-upload"):
                 res = await api.client.post(

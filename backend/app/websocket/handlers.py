@@ -571,6 +571,8 @@ class WSConnectionHandler:
         if live_ctx is not None and live_ctx.get("db_error"):
             return False
         if live_ctx is None or not live_ctx.get("db_resolved"):
+            if self._authorizer.is_empty_db_user(user_id):
+                return True
             from app.core.persistence.db import database
 
             if database._session_factory is not None:

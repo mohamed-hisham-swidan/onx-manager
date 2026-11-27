@@ -247,6 +247,8 @@ async def websocket_endpoint(
                                 reason="User account not found",
                             )
                             return
+                        if _authorizer is not None:
+                            _authorizer.set_empty_db_user(user_id, True)
                     elif not user_model.is_active:
                         await ws.close(
                             code=status.WS_1008_POLICY_VIOLATION,

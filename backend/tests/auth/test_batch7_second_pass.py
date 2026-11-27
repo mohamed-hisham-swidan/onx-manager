@@ -70,16 +70,39 @@ async def client(buses, tmp_path) -> AsyncClient:
         os.environ.pop("MCS_SERVERS_DATA_DIR", None)
 
 
-async def _seed_user(user_id: str, email: str, name: str) -> None:
+async def _seed_user(
+    user_id: str, email: str, name: str, *, role_name: str | None = None
+) -> None:
+    from sqlalchemy import select
+
     from app.core.persistence.db import database
-    from app.modules.auth.infrastructure.models import UserModel
+    from app.modules.auth.infrastructure.models import RoleModel, UserModel, UserRoleModel
 
     async with database._session_factory() as session:
         session.add(
             UserModel(
-                id=user_id, email=email, password_hash="hash", display_name=name, is_active=True
+                id=user_id,
+                email=email,
+                password_hash="hash",
+                display_name=name,
+                is_active=True,
+                all_servers_access=(role_name in {"owner", "admin"}),
             )
         )
+        if role_name:
+            role_row = (
+                await session.execute(select(RoleModel).where(RoleModel.name == role_name))
+            ).scalar_one_or_none()
+            if role_row is None:
+                role_row = RoleModel(
+                    id=f"r-{role_name}-b7s2",
+                    name=role_name,
+                    description=f"{role_name} role",
+                    permissions='["admin:full"]' if role_name == "admin" else '["server:read"]',
+                )
+                session.add(role_row)
+            await session.flush()
+            session.add(UserRoleModel(user_id=user_id, role_id=role_row.id))
         await session.commit()
 
 
@@ -200,7 +223,7 @@ async def _owner_server_id(
 
 @pytest.mark.asyncio
 async def test_create_server_sets_creator_as_owner(client: AsyncClient) -> None:
-    await _seed_user("u_creator_1", "creator@b7.test", "Creator")
+    await _seed_user("u_creator_1", "creator@b7.test", "Creator", role_name="admin")
     header = await _seed_api_key_header("u_creator_1", ["server:create"])
 
     server_id = await _owner_server_id(client, header, name="Creator Server")
@@ -226,7 +249,7 @@ async def test_created_server_owner_can_start_outsider_denied(client: AsyncClien
         ServerRuntimeStatus,
     )
 
-    await _seed_user("u_owner_a", "ownera@b7.test", "Owner A")
+    await _seed_user("u_owner_a", "ownera@b7.test", "Owner A", role_name="admin")
     await _seed_user("u_outsider_b", "outsiderb@b7.test", "Outsider B")
     owner_header = await _seed_api_key_header("u_owner_a", ["server:create"])
     outsider_header = await _seed_api_key_header("u_outsider_b", ["server:write", "server:start"])
@@ -264,7 +287,7 @@ async def test_created_server_owner_can_start_outsider_denied(client: AsyncClien
 
 @pytest.mark.asyncio
 async def test_member_with_server_create_can_create_and_becomes_owner(client: AsyncClient) -> None:
-    await _seed_user("u_member_2", "member2@b7.test", "Member")
+    await _seed_user("u_member_2", "member2@b7.test", "Member", role_name="admin")
     header = await _seed_api_key_header("u_member_2", ["server:create", "user:read"])
 
     server_id = await _owner_server_id(client, header, name="Member Created")
@@ -383,9 +406,9 @@ async def test_metrics_authorization_matrix(client: AsyncClient, tmp_path) -> No
         "u_met_out",
         "u_met_other",
     )
+    await _seed_user(admin_id, "met-admin@b7.test", "Admin", role_name="admin")
     for uid, email, name in (
         (owner_id, "met-owner@b7.test", "Owner"),
-        (admin_id, "met-admin@b7.test", "Admin"),
         (dev_id, "met-dev@b7.test", "Dev"),
         (viewer_id, "met-viewer@b7.test", "Viewer"),
         (outsider_id, "met-out@b7.test", "Outsider"),

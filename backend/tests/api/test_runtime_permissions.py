@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from app.core.persistence.db import database
 from app.modules.auth.infrastructure.models import UserModel
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header, _seed_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -95,7 +95,7 @@ async def test_runtime_diagnostics_require_server_scope(
         assert resp.status_code == 200
 
         # 4. Global admin -> 200 (admin:full short-circuit)
-        admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+        admin_header = await _seed_admin_api_key_header(client)
         resp = await client.get(f"/api/v1/servers/{server_id}/runtime", headers=admin_header)
         assert resp.status_code == 200
 
@@ -129,6 +129,6 @@ async def test_runtime_ownership_requires_server_read(
         assert resp.status_code == 200
 
         # 3. Global admin -> 200
-        admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+        admin_header = await _seed_admin_api_key_header(client)
         resp = await client.get("/api/v1/servers/runtime/ownership", headers=admin_header)
         assert resp.status_code == 200

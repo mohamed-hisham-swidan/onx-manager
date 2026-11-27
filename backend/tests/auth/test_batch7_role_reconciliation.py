@@ -70,16 +70,39 @@ async def client(buses, tmp_path) -> AsyncClient:
         os.environ.pop("MCS_SERVERS_DATA_DIR", None)
 
 
-async def _seed_user(user_id: str, email: str, name: str) -> None:
+async def _seed_user(
+    user_id: str, email: str, name: str, *, role_name: str | None = None
+) -> None:
+    from sqlalchemy import select
+
     from app.core.persistence.db import database
-    from app.modules.auth.infrastructure.models import UserModel
+    from app.modules.auth.infrastructure.models import RoleModel, UserModel, UserRoleModel
 
     async with database._session_factory() as session:
         session.add(
             UserModel(
-                id=user_id, email=email, password_hash="hash", display_name=name, is_active=True
+                id=user_id,
+                email=email,
+                password_hash="hash",
+                display_name=name,
+                is_active=True,
+                all_servers_access=(role_name in {"owner", "admin"}),
             )
         )
+        if role_name:
+            role_row = (
+                await session.execute(select(RoleModel).where(RoleModel.name == role_name))
+            ).scalar_one_or_none()
+            if role_row is None:
+                role_row = RoleModel(
+                    id=f"r-{role_name}-b7",
+                    name=role_name,
+                    description=f"{role_name} role",
+                    permissions='["admin:full"]' if role_name == "admin" else '["server:read"]',
+                )
+                session.add(role_row)
+            await session.flush()
+            session.add(UserRoleModel(user_id=user_id, role_id=role_row.id))
         await session.commit()
 
 
@@ -148,7 +171,7 @@ async def _seed_api_key_header(user_id: str, permissions: list[str]) -> dict[str
 
 @pytest.mark.asyncio
 async def test_admin_global_bypass_console_and_command(client: AsyncClient, tmp_path) -> None:
-    await _seed_user("u_admin_b7", "admin@b7.test", "Admin")
+    await _seed_user("u_admin_b7", "admin@b7.test", "Admin", role_name="admin")
     await _seed_server("srv-bypass", "Bypass Server", root_path=str(tmp_path / "srv-bypass"))
 
     admin_header = await _seed_api_key_header("u_admin_b7", ["admin:full"])

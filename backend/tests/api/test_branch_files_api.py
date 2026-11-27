@@ -14,7 +14,7 @@ from app.modules.server.infrastructure.models import ServerModel
 from app.modules.versioning.domain.lockfile import LoaderRef, LockfileV21
 from app.modules.versioning.infrastructure.git_branches import GitBranchService
 from app.modules.versioning.infrastructure.git_repository import GitRepositoryService
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -68,7 +68,6 @@ async def _seed_server(
 @pytest.fixture
 async def advanced_server(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> tuple[Path, Path, dict[str, str]]:
     if os.name != "posix":
@@ -86,7 +85,7 @@ async def advanced_server(
     layout = ensure_host_state_layout()
     GitRepositoryService(layout).initialize(SERVER_ID, root, _empty_lockfile())
     GitBranchService(layout).create_branch(SERVER_ID, root, "dev")
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
     return root, layout, header
 
 
@@ -302,14 +301,13 @@ async def test_unknown_or_archived_branch_is_rejected(
 @pytest.mark.asyncio
 async def test_simple_server_keeps_live_root_files(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> None:
     root = host_state / "simple-server"
     root.mkdir()
     (root / "ops.txt").write_text("live-root\n", encoding="utf-8")
     await _seed_server(root, mode="simple", server_id=SIMPLE_SERVER_ID)
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     resp = await client.get(
         f"/api/v1/servers/{SIMPLE_SERVER_ID}/files",

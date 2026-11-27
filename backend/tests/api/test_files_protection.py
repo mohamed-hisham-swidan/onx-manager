@@ -3,7 +3,7 @@ import io
 import pytest
 from httpx import AsyncClient
 
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header
 from tests.api.test_files_api import _seed_server
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
@@ -22,7 +22,12 @@ PROTECTED_PATHS = [
 ]
 
 
-async def _setup(client: AsyncClient, created_user: dict, tmp_path, server_id: str):
+async def _setup(
+    client: AsyncClient,
+    created_user: dict,  # noqa: ARG001
+    tmp_path,
+    server_id: str,
+):
     root = tmp_path / server_id
     root.mkdir(parents=True)
     (root / ".onx" / "tests" / "t1").mkdir(parents=True)
@@ -35,7 +40,7 @@ async def _setup(client: AsyncClient, created_user: dict, tmp_path, server_id: s
     (root / "world" / ".onx" / "data.txt").write_text("x")
     (root / "ops.txt").write_text("ok")
     await _seed_server(server_id, server_id, root_path=str(root))
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
     return root, header
 
 
@@ -49,7 +54,7 @@ async def test_protected_folders_denied_for_every_operation(
     if not root.exists():
         root, header = await _setup(client, created_user, tmp_path, server_id)
     else:
-        header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+        header = await _seed_admin_api_key_header(client)
     base = f"/api/v1/servers/{server_id}/files"
     params = {"path": rel}
 

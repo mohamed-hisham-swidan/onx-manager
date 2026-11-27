@@ -40,7 +40,7 @@ from app.modules.versioning.infrastructure.models import (
     GitHubWebhookDeliveryModel,
     ServerBranchModel,
 )
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header, _seed_api_key_header
 from tests.unit.versioning.test_p52_github_sync_engine import (
     _GIT_IDENTITY,
     _git,
@@ -260,9 +260,7 @@ async def p53_api(
         event_bus, git_runner_factory=runner_factory
     )
     app.dependency_overrides[versioning_router.get_github_sync_service] = lambda: service
-    header = await _seed_api_key_header(
-        client, created_user["user_id"], ["admin:full"]
-    )
+    header = await _seed_admin_api_key_header(client)
 
     try:
         yield SimpleNamespace(

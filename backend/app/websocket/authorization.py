@@ -46,6 +46,16 @@ class ChannelAuthorizer:
     def __init__(self) -> None:
         self._user_permissions: dict[str, set[str]] = {}
         self._user_contexts: dict[str, dict[str, Any]] = {}
+        self._empty_db_users: set[str] = set()
+
+    def set_empty_db_user(self, user_id: str, is_empty: bool = True) -> None:
+        if is_empty:
+            self._empty_db_users.add(user_id)
+        else:
+            self._empty_db_users.discard(user_id)
+
+    def is_empty_db_user(self, user_id: str) -> bool:
+        return user_id in self._empty_db_users
 
     def set_permissions(self, user_id: str, permissions: set[str]) -> None:
         self._user_permissions[user_id] = set(permissions)
@@ -54,6 +64,7 @@ class ChannelAuthorizer:
         return self._user_permissions.get(user_id, set())
 
     def set_user_context(self, user_id: str, user_ctx: dict[str, Any]) -> None:
+        self._empty_db_users.discard(user_id)
         self._user_contexts[user_id] = dict(user_ctx)
         self._user_permissions[user_id] = set(user_ctx.get("permissions", []))
 
@@ -63,6 +74,7 @@ class ChannelAuthorizer:
     def clear_user(self, user_id: str) -> None:
         self._user_permissions.pop(user_id, None)
         self._user_contexts.pop(user_id, None)
+        self._empty_db_users.discard(user_id)
 
     def can_subscribe(self, user_id: str, channel: str) -> bool:
         if not isinstance(channel, str) or not channel:

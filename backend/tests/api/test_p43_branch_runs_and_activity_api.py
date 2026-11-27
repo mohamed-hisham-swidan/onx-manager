@@ -34,7 +34,7 @@ from app.modules.versioning.infrastructure.models import (
     ServerDataTemplateModel,
     ServerRuntimeModel,
 )
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header, _seed_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -199,9 +199,7 @@ async def p43_api(
     await _create_branch(SERVER_ID, "feat-a")
     await _create_branch(SERVER_ID, "feat-b")
 
-    header = await _seed_api_key_header(
-        client, created_user["user_id"], ["admin:full"]
-    )
+    header = await _seed_admin_api_key_header(client)
     runner = FakeDockerRunner()
     service = BranchRuntimeService(
         ensure_host_state_layout(),

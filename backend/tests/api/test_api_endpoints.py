@@ -181,6 +181,58 @@ async def _seed_api_key_header(
     return {"Authorization": f"Bearer {raw_key}"}
 
 
+async def _seed_admin_api_key_header(
+    client: AsyncClient,
+    user_id: str = "u-test-admin",
+    permissions: list[str] | None = None,
+) -> dict[str, str]:
+    from sqlalchemy import select
+
+    from app.core.persistence.db import database
+    from app.core.security import hash_password
+    from app.modules.auth.infrastructure.models import RoleModel, UserModel, UserRoleModel
+
+    async with database._session_factory() as session:
+        user_row = await session.get(UserModel, user_id)
+        if user_row is None:
+            session.add(
+                UserModel(
+                    id=user_id,
+                    username=f"admin-{user_id}",
+                    email=f"{user_id}@test.com",
+                    password_hash=hash_password("admin-password-123"),
+                    display_name="Test Admin",
+                    is_active=True,
+                    all_servers_access=True,
+                )
+            )
+        role_row = (
+            await session.execute(select(RoleModel).where(RoleModel.name == "admin"))
+        ).scalar_one_or_none()
+        if role_row is None:
+            role_row = RoleModel(
+                id="r-test-admin",
+                name="admin",
+                description="Admin role",
+                permissions='["admin:full"]',
+            )
+            session.add(role_row)
+        await session.flush()
+        existing_link = (
+            await session.execute(
+                select(UserRoleModel).where(
+                    UserRoleModel.user_id == user_id,
+                    UserRoleModel.role_id == role_row.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_link is None:
+            session.add(UserRoleModel(user_id=user_id, role_id=role_row.id))
+        await session.commit()
+
+    return await _seed_api_key_header(client, user_id, permissions or ["admin:full"])
+
+
 async def _seed_plugin(
     server_id: str,
     name: str,

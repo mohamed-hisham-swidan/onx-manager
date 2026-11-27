@@ -8,7 +8,7 @@ from httpx import AsyncClient
 from app.core.persistence.db import database
 from app.modules.auth.infrastructure.models import UserModel
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header, _seed_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -71,11 +71,11 @@ async def test_files_missing_server(client: AsyncClient, auth_header: dict[str, 
 
 
 @pytest.mark.asyncio
-async def test_files_missing_root_path(client: AsyncClient, created_user: dict):
+async def test_files_missing_root_path(client: AsyncClient):
     server_id = "srv-no-root"
     await _seed_server(server_id, "No Root Server", root_path=None)
 
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=admin_header)
     assert resp.status_code == 400
     data = resp.json()
@@ -84,13 +84,13 @@ async def test_files_missing_root_path(client: AsyncClient, created_user: dict):
 
 
 @pytest.mark.asyncio
-async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tmp_path):
+async def test_files_happy_path_crud(client: AsyncClient, tmp_path):
     server_id = "srv-crud-test"
     server_root = tmp_path / "server_crud"
     server_root.mkdir(parents=True, exist_ok=True)
 
     # Seed admin API key header
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     # Pre-create a file
     test_file = server_root / "ops.txt"
@@ -181,13 +181,13 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
 
 
 @pytest.mark.asyncio
-async def test_files_upload_end_to_end(client: AsyncClient, created_user: dict, tmp_path):
+async def test_files_upload_end_to_end(client: AsyncClient, tmp_path):
     server_id = "srv-upload-test"
     server_root = tmp_path / "server_upload"
     server_root.mkdir(parents=True, exist_ok=True)
     await _seed_server(server_id, "Upload Server", root_path=str(server_root))
 
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     # Multipart file upload
     file_bytes = b"plugin_binary_content_data"
@@ -211,12 +211,12 @@ async def test_files_upload_end_to_end(client: AsyncClient, created_user: dict, 
 
 
 @pytest.mark.asyncio
-async def test_files_path_traversal_prevention(client: AsyncClient, created_user: dict, tmp_path):
+async def test_files_path_traversal_prevention(client: AsyncClient, tmp_path):
     server_id = "srv-security-test"
     server_root = tmp_path / "server_secure"
     server_root.mkdir(parents=True, exist_ok=True)
 
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     # Secret outside root
     secret_dir = tmp_path / "outside_secret"
@@ -363,7 +363,7 @@ async def test_files_permissions_enforcement(client: AsyncClient, created_user: 
     assert resp.status_code == 200
 
     # 6. Global Admin -> 200/201/204 on all routes (admin:full short-circuit)
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=admin_header)
     assert resp.status_code == 200
 
@@ -385,9 +385,9 @@ async def _seed_secrets_server(tmp_path, owner_id: str | None = None) -> tuple[s
 
 
 @pytest.mark.asyncio
-async def test_server_properties_content_and_download_blocked(client, created_user, tmp_path):
+async def test_server_properties_content_and_download_blocked(client, tmp_path):
     server_id, _ = await _seed_secrets_server(tmp_path)
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     # .env is sensitive and blocked
     resp = await client.get(
@@ -415,9 +415,9 @@ async def test_server_properties_content_and_download_blocked(client, created_us
 
 
 @pytest.mark.asyncio
-async def test_server_properties_path_normalization_bypass_fails(client, created_user, tmp_path):
+async def test_server_properties_path_normalization_bypass_fails(client, tmp_path):
     server_id, _ = await _seed_secrets_server(tmp_path)
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     content_url = f"/api/v1/servers/{server_id}/files/content"
     download_url = f"/api/v1/servers/{server_id}/files/download"
@@ -430,10 +430,10 @@ async def test_server_properties_path_normalization_bypass_fails(client, created
 
 
 @pytest.mark.asyncio
-async def test_server_properties_case_variation_blocked(client, created_user, tmp_path):
+async def test_server_properties_case_variation_blocked(client, tmp_path):
     server_id, server_root = await _seed_secrets_server(tmp_path)
     (server_root / ".ENV").write_text("SECRET_KEY=case-secret")
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     content_url = f"/api/v1/servers/{server_id}/files/content"
 
@@ -455,9 +455,9 @@ async def test_server_properties_no_rename_move_route_exists() -> None:
 
 
 @pytest.mark.asyncio
-async def test_server_properties_ordinary_files_still_work(client, created_user, tmp_path):
+async def test_server_properties_ordinary_files_still_work(client, tmp_path):
     server_id, _ = await _seed_secrets_server(tmp_path)
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",
@@ -555,10 +555,10 @@ async def test_server_properties_role_matrix_and_isolation(client, created_user,
 
 
 @pytest.mark.asyncio
-async def test_server_properties_write_and_upload_blocked(client, created_user, tmp_path):
+async def test_server_properties_write_and_upload_blocked(client, tmp_path):
     """ISS-035: Sensitive writes (e.g. .env) return 403, server.properties write succeeds."""
     server_id, server_root = await _seed_secrets_server(tmp_path)
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     # Attempt write to sensitive file .env
     resp = await client.put(
@@ -601,10 +601,10 @@ async def test_server_properties_write_and_upload_blocked(client, created_user, 
 
 
 @pytest.mark.asyncio
-async def test_delete_sensitive_file_blocked(client, created_user, tmp_path):
+async def test_delete_sensitive_file_blocked(client, tmp_path):
     """F059: Deleting sensitive files (.env) returns 403 Forbidden."""
     server_id, server_root = await _seed_secrets_server(tmp_path)
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     # Attempt to delete sensitive file .env
     resp = await client.delete(
@@ -638,7 +638,7 @@ async def test_delete_sensitive_file_blocked(client, created_user, tmp_path):
 
 @pytest.mark.asyncio
 async def test_files_listing_includes_metadata_and_hides_env(
-    client: AsyncClient, created_user: dict, tmp_path
+    client: AsyncClient, tmp_path
 ):
     server_id = "srv-meta-env"
     server_root = tmp_path / "server_meta_env"
@@ -650,7 +650,7 @@ async def test_files_listing_includes_metadata_and_hides_env(
     (server_root / "config").mkdir()
 
     await _seed_server(server_id, "Meta Server", root_path=str(server_root))
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=admin_header)
     assert resp.status_code == 200
@@ -673,7 +673,7 @@ async def test_files_listing_includes_metadata_and_hides_env(
 
 @pytest.mark.asyncio
 async def test_files_content_read_and_write_reject_over_5mb_with_413(
-    client: AsyncClient, created_user: dict, tmp_path
+    client: AsyncClient, tmp_path
 ):
     server_id = "srv-5mb-cap"
     server_root = tmp_path / "server_5mb"
@@ -682,7 +682,7 @@ async def test_files_content_read_and_write_reject_over_5mb_with_413(
     (server_root / "huge.log").write_bytes(oversized)
 
     await _seed_server(server_id, "Cap Server", root_path=str(server_root))
-    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    admin_header = await _seed_admin_api_key_header(client)
 
     read_resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",

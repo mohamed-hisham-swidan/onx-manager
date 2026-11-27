@@ -23,7 +23,7 @@ from app.modules.versioning.infrastructure.models import (
     ServerCommitModel,
     ServerRuntimeModel,
 )
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -69,7 +69,6 @@ async def _seed_server(server_id: str, root: Path, *, mode: str = "simple") -> N
 @pytest.mark.asyncio
 async def test_logs_scope_listing_sorting_containment_and_readonly(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
     tmp_path: Path,
 ) -> None:
@@ -117,7 +116,7 @@ async def test_logs_scope_listing_sorting_containment_and_readonly(
     os.utime(crash_txt, (now - 2000, now - 2000))
 
     await _seed_server(server_id, root, mode="simple")
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files",
@@ -217,7 +216,6 @@ async def test_logs_scope_listing_sorting_containment_and_readonly(
 @pytest.mark.asyncio
 async def test_logs_scope_large_file_tail_and_download(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> None:
     server_id = "srv-logs-tail"
@@ -230,7 +228,7 @@ async def test_logs_scope_large_file_tail_and_download(
     (root / "logs" / "latest.log").write_bytes(padding + tail_marker)
 
     await _seed_server(server_id, root, mode="simple")
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",
@@ -259,7 +257,6 @@ async def test_logs_scope_large_file_tail_and_download(
 )
 async def test_logs_scope_advanced_branch_isolation_and_branch_upload(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> None:
     server_id = "srv-adv-logs-upload"
@@ -275,7 +272,7 @@ async def test_logs_scope_advanced_branch_isolation_and_branch_upload(
     layout = ensure_host_state_layout()
     GitRepositoryService(layout).initialize(server_id, root, _empty_lockfile())
     GitBranchService(layout).create_branch(server_id, root, "dev")
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     # 1. main sees main's live logs
     main_logs = await client.get(

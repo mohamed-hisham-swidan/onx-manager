@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -126,10 +127,22 @@ def is_local_profile_and_loopback_bound(settings: AppSettings | None = None) -> 
 
 
 def default_bootstrap_access_mode(settings: AppSettings | None = None) -> AccessMode:
-    """Default to GLOBAL (invite-only) on VPS or non-loopback binds, LOCAL on local loopback."""
-    cfg = settings or ConfigFactory.global_settings()
+    """Default to GLOBAL (invite-only) on explicit VPS profile or non-loopback binds, LOCAL otherwise."""
+    explicit_profile = (
+        os.environ.get("ONX_DEPLOYMENT_PROFILE")
+        or os.environ.get("MCS_DEPLOYMENT_PROFILE")
+        or ""
+    ).strip().lower()
+    if settings is not None and "deployment_profile" in getattr(
+        settings, "model_fields_set", set()
+    ):
+        explicit_profile = str(settings.deployment_profile).strip().lower()
     configured_host, _ = get_panel_bind()
-    if cfg.deployment_profile == "vps" or not is_loopback_bind_host(configured_host):
+    active_host = config_mod._ACTIVE_PANEL_BIND_HOST
+    non_loopback = not is_loopback_bind_host(configured_host) or (
+        active_host is not None and not is_loopback_bind_host(active_host)
+    )
+    if explicit_profile == "vps" or non_loopback:
         return AccessMode.GLOBAL
     return AccessMode.LOCAL
 

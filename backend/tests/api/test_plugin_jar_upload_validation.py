@@ -18,7 +18,7 @@ from app.modules.versioning.domain.lockfile import LoaderRef, LockfileV21, parse
 from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 from app.modules.versioning.infrastructure.git_branches import GitBranchService
 from app.modules.versioning.infrastructure.git_repository import GitRepositoryService
-from tests.api.test_api_endpoints import _seed_api_key_header
+from tests.api.test_api_endpoints import _seed_admin_api_key_header
 
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
@@ -72,14 +72,13 @@ async def _seed_server(server_id: str, root: Path, *, mode: str = "simple") -> N
 @pytest.mark.asyncio
 async def test_simple_plugin_upload_validates_descriptors_and_rejects_invalid_jars(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> None:
     server_id = "srv-simple-jar-upload"
     root = host_state / "simple-jar-srv"
     root.mkdir(parents=True)
     await _seed_server(server_id, root, mode="simple")
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     # 1. Rejects non-.jar extension
     bad_ext = await client.post(
@@ -159,7 +158,6 @@ async def test_simple_plugin_upload_validates_descriptors_and_rejects_invalid_ja
 )
 async def test_advanced_branch_plugin_upload_validates_and_ingests_to_cas(
     client: AsyncClient,
-    created_user: dict,
     host_state: Path,
 ) -> None:
     server_id = "srv-adv-jar-upload"
@@ -171,7 +169,7 @@ async def test_advanced_branch_plugin_upload_validates_and_ingests_to_cas(
     layout = ensure_host_state_layout()
     GitRepositoryService(layout).initialize(server_id, root, _empty_lockfile())
     GitBranchService(layout).create_branch(server_id, root, "dev")
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    header = await _seed_admin_api_key_header(client)
 
     valid_jar = _make_jar_bytes(
         {"paper-plugin.yml": "name: BranchPaperPlugin\nversion: 1.2.3\nmain: com.ex.Main\n"}
