@@ -1,0 +1,105 @@
+name: Windows CI
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-windows:
+    name: Backend Tests (${{ matrix.shard.name }}, Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: app-api
+            args: "tests/api tests/application tests/auth tests/integration tests/tasks"
+          - name: core-unit-infra
+            args: "--ignore=tests/api --ignore=tests/application --ignore=tests/auth --ignore=tests/integration --ignore=tests/tasks tests"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run backend test suite (${{ matrix.shard.name }})
+        working-directory: backend
+        run: python -m pytest -q --tb=short --durations=10 -o faulthandler_timeout=600 ${{ matrix.shard.args }}
+
+      - name: Run Windows Simple-mode + non-POSIX clean-export tests
+        if: matrix.shard.name == 'core-unit-infra'
+        working-directory: backend
+        run: python -m pytest -v --tb=short tests/test_windows_lifecycle_w01.py tests/infrastructure/test_clean_export.py
+
+      - name: Repo contract & lint gates
+        if: matrix.shard.name == 'core-unit-infra'
+        working-directory: backend
+        run: |
+          python ../scripts/check-db-revision
+          python ../scripts/check-ruff-baseline
+          python ../scripts/check-version-propagation
+          python ../scripts/check-route-contract
+          python ../scripts/check-ps1-bom
+          python ../scripts/check-stray-db
+
+  frontend-windows:
+    name: Frontend Checks (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+
+  desktop-windows:
+    name: Desktop Checks (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci
+      - run: npm test

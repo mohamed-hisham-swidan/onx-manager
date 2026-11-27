@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -185,6 +186,7 @@ class TestServerPortHardening:
         assert "rcon.port=25599" not in props_text
         assert "enable-rcon=false" not in props_text
 
+    @pytest.mark.skipif(os.name != "posix", reason="Native Git repository operations require POSIX")
     @pytest.mark.asyncio
     async def test_advanced_mode_main_persists_port_without_empty_pending_branch(
         self, event_bus: EventBus, tmp_path: Path
@@ -245,6 +247,7 @@ class TestServerPortHardening:
             )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Branch runtime and Git settings require POSIX")
 @pytest.mark.usefixtures("init_test_db")
 class TestBranchRuntimeSettingsHardening:
     @pytest.mark.asyncio

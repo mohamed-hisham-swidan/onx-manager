@@ -1,8 +1,4 @@
-name: macos-once
-
-# Manual-only one-shot macOS smoke test workflow.
-# Triggered exclusively via workflow_dispatch to avoid consuming macOS runner
-# minutes on regular pushes, pull requests, or schedules.
+name: macOS CI
 
 on:
   workflow_dispatch:
@@ -19,7 +15,7 @@ concurrency:
 
 jobs:
   macos-smoke:
-    name: macOS Smoke Test
+    name: macOS Smoke & Desktop Gate
     runs-on: macos-latest
     timeout-minutes: 25
     env:

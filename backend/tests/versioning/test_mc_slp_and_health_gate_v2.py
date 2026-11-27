@@ -605,6 +605,7 @@ async def test_startup_reconciler_closes_stranded_steps_and_applying_upgrades(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Artifact CAS requires a POSIX environment")
 @pytest.mark.asyncio
 async def test_ensure_cas_and_lec_emits_structured_artifact_progress(
     tmp_path: Path,
