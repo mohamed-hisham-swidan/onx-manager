@@ -9,13 +9,25 @@
 Run servers in Docker containers, stream live console & metrics, manage Plugins and Mods natively from Modrinth, isolate config changes in Git branches, and run 1-click safe upgrades with automatic rollback — as a **VPS web panel**, **native host install**, or **Desktop app**.
 
 <p align="center">
-  <!-- Swap to dynamic badge once a GitHub Release is published:
-       https://img.shields.io/github/v/release/mohamed-hisham-swidan/onx-manager?include_prereleases&style=flat&color=0ea5e9 -->
-  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/releases"><img src="https://img.shields.io/badge/Release-v0.1.0-0ea5e9?style=flat" alt="Release v0.1.0" /></a>
-  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml"><img src="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml/badge.svg" alt="Linux CI" /></a>
-  <a href="#3-docker-compose-containerized-panel--dood"><img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker Ready" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/mohamed-hisham-swidan/onx-manager?style=flat&color=22c55e" alt="License" /></a>
-  <a href="https://discord.gg/8AfQMv4CH"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord Community" /></a>
+  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/releases">
+    <img src="https://img.shields.io/badge/v0.1.0-0ea5e9?style=flat&logo=git&logoColor=white" alt="v0.1.0" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/mohamed-hisham-swidan/onx-manager/ci-linux.yml?style=flat&logo=githubactions&logoColor=white&label=Tests" alt="Tests" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="#quick-start">
+    <img src="https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/Apache--2.0-D22128?style=flat&logo=apache&logoColor=white" alt="Apache-2.0" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://discord.gg/8AfQMv4CH">
+    <img src="https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord" />
+  </a>
 </p>
 
 </div>
