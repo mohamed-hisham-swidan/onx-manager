@@ -9,25 +9,7 @@
 Run servers in Docker containers, stream live console & metrics, manage Plugins and Mods natively from Modrinth, isolate config changes in Git branches, and run 1-click safe upgrades with automatic rollback — as a **VPS web panel**, **native host install**, or **Desktop app**.
 
 <p align="center">
-  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/releases">
-    <img src="https://img.shields.io/badge/v0.1.0-0ea5e9?style=flat&logo=git&logoColor=white" alt="v0.1.0" />
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/mohamed-hisham-swidan/onx-manager/ci-linux.yml?style=flat&logo=githubactions&logoColor=white&label=Tests" alt="Tests" />
-  </a>
-  &nbsp;&nbsp;
-  <a href="#quick-start">
-    <img src="https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker" />
-  </a>
-  &nbsp;&nbsp;
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/Apache--2.0-D22128?style=flat&logo=apache&logoColor=white" alt="Apache-2.0" />
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://discord.gg/8AfQMv4CH">
-    <img src="https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord" />
-  </a>
+  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/releases"><img src="https://img.shields.io/badge/v0.1.0-0ea5e9?style=flat&logo=git&logoColor=white" alt="v0.1.0" /></a>&nbsp;&nbsp;<a href="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml"><img src="https://img.shields.io/badge/Tests-22c55e?style=flat&logo=githubactions&logoColor=white" alt="Tests" /></a>&nbsp;&nbsp;<a href="#quick-start"><img src="https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker" /></a>&nbsp;&nbsp;<a href="LICENSE"><img src="https://img.shields.io/badge/Apache--2.0-D22128?style=flat&logo=apache&logoColor=white" alt="Apache-2.0" /></a>&nbsp;&nbsp;<a href="https://discord.gg/8AfQMv4CH"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 </div>
