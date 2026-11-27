@@ -6,6 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const {
@@ -21,7 +22,7 @@ test("resolveInstallDir finds repository checkout root automatically", () => {
 });
 
 test("resolveInstallDir honors ONX_INSTALL_DIR and APPIMAGE ancestor paths", () => {
-  const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "..");
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   const appImagePath = path.join(repoRoot, "desktop", "dist", "ONX-Manager-0.1.0-x86_64.AppImage");
   assert.equal(
     resolveInstallDir(null, { APPIMAGE: appImagePath }, "/tmp", "/tmp/mount/app"),

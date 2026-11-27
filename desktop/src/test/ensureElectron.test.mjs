@@ -111,7 +111,9 @@ test("checkElectronBinary detects missing path.txt, missing binary, and valid bi
     });
     assert.equal(okResult.ok, true);
     assert.equal(okResult.binaryPath, binPath);
-    assert.notEqual(fs.statSync(binPath).mode & 0o100, 0);
+    if (process.platform !== "win32") {
+      assert.notEqual(fs.statSync(binPath).mode & 0o100, 0);
+    }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
