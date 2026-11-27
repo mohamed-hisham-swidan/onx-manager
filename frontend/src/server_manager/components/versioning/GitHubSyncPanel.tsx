@@ -22,6 +22,7 @@ export interface GitHubSyncPanelProps {
   isFetching: boolean;
   isPushing: boolean;
   syncAlert: GitHubSyncAlertState | null;
+  canEdit?: boolean;
   onDismissSyncAlert: () => void;
   onFetchNow: () => void;
   onPushBranch: () => void;
@@ -38,7 +39,7 @@ const BADGE_CLASS =
 const SECONDARY_BUTTON_CLASS =
   "inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 const PRIMARY_BUTTON_CLASS =
-  "inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 const DANGER_BUTTON_CLASS =
   "inline-flex items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 py-1.5 text-xs font-medium text-status-danger hover:bg-status-danger/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 
@@ -158,6 +159,7 @@ export function GitHubSyncPanel({
   isFetching,
   isPushing,
   syncAlert,
+  canEdit = true,
   onDismissSyncAlert,
   onFetchNow,
   onPushBranch,
@@ -190,14 +192,16 @@ export function GitHubSyncPanel({
               Not Connected
             </span>
           </div>
-          <button
-            type="button"
-            onClick={onOpenConnectModal}
-            className={PRIMARY_BUTTON_CLASS}
-          >
-            <Icon name="plus" size={13} />
-            Connect GitHub
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onOpenConnectModal}
+              className={PRIMARY_BUTTON_CLASS}
+            >
+              <Icon name="plus" size={13} />
+              Connect GitHub
+            </button>
+          )}
         </div>
         <p className="text-xs text-text-muted">
           Connect a private GitHub repository using a fine-grained PAT or
@@ -300,29 +304,33 @@ export function GitHubSyncPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={onFetchNow}
-            disabled={isFetching || isPushing}
-            className={SECONDARY_BUTTON_CLASS}
-          >
-            <Icon name="download" size={13} />
-            {isFetching ? "Fetching..." : "Fetch Now"}
-          </button>
-          <button
-            type="button"
-            onClick={onPushBranch}
-            disabled={pushDisabled}
-            title={
-              status.needs_reauth
-                ? "Rotate or reconnect your GitHub credential before pushing"
-                : `Push branch '${selectedBranch}' to GitHub`
-            }
-            className={SECONDARY_BUTTON_CLASS}
-          >
-            <Icon name="upload" size={13} />
-            {isPushing ? "Pushing..." : `Push ${selectedBranch}`}
-          </button>
+          {canEdit && (
+            <>
+              <button
+                type="button"
+                onClick={onFetchNow}
+                disabled={isFetching || isPushing}
+                className={SECONDARY_BUTTON_CLASS}
+              >
+                <Icon name="download" size={13} />
+                {isFetching ? "Fetching..." : "Fetch Now"}
+              </button>
+              <button
+                type="button"
+                onClick={onPushBranch}
+                disabled={pushDisabled}
+                title={
+                  status.needs_reauth
+                    ? "Rotate or reconnect your GitHub credential before pushing"
+                    : `Push branch '${selectedBranch}' to GitHub`
+                }
+                className={SECONDARY_BUTTON_CLASS}
+              >
+                <Icon name="upload" size={13} />
+                {isPushing ? "Pushing..." : `Push ${selectedBranch}`}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={onOpenDeliveriesModal}
@@ -331,22 +339,26 @@ export function GitHubSyncPanel({
             <Icon name="bell" size={13} />
             Webhook Deliveries
           </button>
-          <button
-            type="button"
-            onClick={onOpenRotateModal}
-            className={SECONDARY_BUTTON_CLASS}
-          >
-            <Icon name="restart" size={13} />
-            Rotate Credentials
-          </button>
-          <button
-            type="button"
-            onClick={onOpenDisconnectModal}
-            className={DANGER_BUTTON_CLASS}
-          >
-            <Icon name="x" size={13} />
-            Disconnect
-          </button>
+          {canEdit && (
+            <>
+              <button
+                type="button"
+                onClick={onOpenRotateModal}
+                className={SECONDARY_BUTTON_CLASS}
+              >
+                <Icon name="restart" size={13} />
+                Rotate Credentials
+              </button>
+              <button
+                type="button"
+                onClick={onOpenDisconnectModal}
+                className={DANGER_BUTTON_CLASS}
+              >
+                <Icon name="x" size={13} />
+                Disconnect
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -371,14 +383,16 @@ export function GitHubSyncPanel({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onOpenRotateModal}
-            className="inline-flex items-center gap-1 rounded-lg border border-status-danger-border bg-surface-card px-2.5 py-1 text-[11px] font-semibold text-status-danger hover:bg-status-danger/10 transition-colors cursor-pointer"
-          >
-            <Icon name="restart" size={11} />
-            Reconnect / Rotate Credentials
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onOpenRotateModal}
+              className="inline-flex items-center gap-1 rounded-lg border border-status-danger-border bg-surface-card px-2.5 py-1 text-[11px] font-semibold text-status-danger hover:bg-status-danger/10 transition-colors cursor-pointer"
+            >
+              <Icon name="restart" size={11} />
+              Reconnect / Rotate Credentials
+            </button>
+          )}
         </div>
       )}
 

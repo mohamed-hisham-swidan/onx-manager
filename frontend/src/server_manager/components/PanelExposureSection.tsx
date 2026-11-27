@@ -361,6 +361,11 @@ export function PanelExposureSection() {
   const isQuickActive =
     panel?.method === "cloudflare_tunnel" &&
     (panel?.cloudflare_mode === "quick" || panel?.ephemeral || panel?.cloudflare_tunnel_id === "quick");
+  const isQuickStarting =
+    isEnabled &&
+    isQuickActive &&
+    !panel?.public_address &&
+    panel?.status !== "ERROR";
   const isTokenModeActive =
     panel?.method === "cloudflare_tunnel" && isEnabled && !isQuickActive;
 
@@ -653,21 +658,22 @@ export function PanelExposureSection() {
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
           Select Exposure Method
         </span>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-3">
           {/* 1. None */}
           <button
             type="button"
+            aria-pressed={draftMethod === "none"}
             onClick={() => handleSelectMethod("none")}
-            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+            className={`min-w-0 overflow-hidden p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "none"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
                 : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <h4 className="text-sm font-semibold text-text-primary">Local Only</h4>
+            <div className="flex items-start justify-between gap-2 mb-1 min-w-0">
+              <h4 className="text-sm font-semibold text-text-primary min-w-0">Local Only</h4>
               {draftMethod === "none" && (
-                <span className="text-xs font-medium text-text-accent">Selected</span>
+                <Icon name="check" size={15} className="text-text-accent shrink-0 mt-0.5" />
               )}
             </div>
             <p className="text-xs text-text-muted">
@@ -678,22 +684,23 @@ export function PanelExposureSection() {
           {/* 2. Cloudflare */}
           <button
             type="button"
+            aria-pressed={draftMethod === "cloudflare_tunnel"}
             onClick={() => handleSelectMethod("cloudflare_tunnel")}
-            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+            className={`min-w-0 overflow-hidden p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "cloudflare_tunnel"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
                 : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
+            <div className="flex items-start justify-between gap-2 mb-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                 <h4 className="text-sm font-semibold text-text-primary">Cloudflare</h4>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent-primary/12 text-text-accent">
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent-primary/12 text-text-accent shrink-0">
                   Recommended
                 </span>
               </div>
               {draftMethod === "cloudflare_tunnel" && (
-                <span className="text-xs font-medium text-text-accent">Selected</span>
+                <Icon name="check" size={15} className="text-text-accent shrink-0 mt-0.5" />
               )}
             </div>
             <p className="text-xs text-text-muted">
@@ -704,17 +711,18 @@ export function PanelExposureSection() {
           {/* 3. playit.gg */}
           <button
             type="button"
+            aria-pressed={draftMethod === "playit_http"}
             onClick={() => handleSelectMethod("playit_http")}
-            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+            className={`min-w-0 overflow-hidden p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "playit_http"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
                 : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <h4 className="text-sm font-semibold text-text-primary">playit.gg</h4>
+            <div className="flex items-start justify-between gap-2 mb-1 min-w-0">
+              <h4 className="text-sm font-semibold text-text-primary min-w-0">playit.gg</h4>
               {draftMethod === "playit_http" && (
-                <span className="text-xs font-medium text-text-accent">Selected</span>
+                <Icon name="check" size={15} className="text-text-accent shrink-0 mt-0.5" />
               )}
             </div>
             <p className="text-xs text-text-muted">
@@ -725,17 +733,18 @@ export function PanelExposureSection() {
           {/* 4. Port Forward */}
           <button
             type="button"
+            aria-pressed={draftMethod === "port_forward"}
             onClick={() => handleSelectMethod("port_forward")}
-            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+            className={`min-w-0 overflow-hidden p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
               draftMethod === "port_forward"
                 ? "border-accent-primary bg-accent-primary/10 shadow-xs"
                 : "border-border-subtle hover:border-border-hover bg-surface-page"
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <h4 className="text-sm font-semibold text-text-primary">Port Forward</h4>
+            <div className="flex items-start justify-between gap-2 mb-1 min-w-0">
+              <h4 className="text-sm font-semibold text-text-primary min-w-0">Port Forward</h4>
               {draftMethod === "port_forward" && (
-                <span className="text-xs font-medium text-text-accent">Selected</span>
+                <Icon name="check" size={15} className="text-text-accent shrink-0 mt-0.5" />
               )}
             </div>
             <p className="text-xs text-text-muted">
@@ -953,7 +962,20 @@ export function PanelExposureSection() {
                   </span>
                 </div>
 
-                {isQuickActive && publicUrl && (
+                {((isUpdating && cloudflareMode === "quick") || isQuickStarting) && (
+                  <div
+                    data-testid="quick-tunnel-starting-row"
+                    className="flex items-center gap-2.5 p-3 rounded-lg bg-surface-card border border-border-default text-xs text-text-secondary"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-accent-primary border-t-transparent"
+                    />
+                    <span>Starting Quick Tunnel &amp; waiting for trycloudflare.com URL...</span>
+                  </div>
+                )}
+
+                {isQuickActive && isEnabled && panel?.status === "ACTIVE" && publicUrl && (
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-surface-card border border-status-success-border">
                     <span className="font-mono text-xs text-accent-primary break-all">{publicUrl}</span>
                     <div className="flex items-center gap-2 shrink-0">
@@ -982,10 +1004,10 @@ export function PanelExposureSection() {
                   <button
                     type="button"
                     onClick={() => handleSaveConfiguration("quick")}
-                    disabled={isUpdating}
+                    disabled={isUpdating || isQuickStarting}
                     className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
                   >
-                    {isUpdating
+                    {isUpdating || isQuickStarting
                       ? "Starting Quick Tunnel..."
                       : isQuickActive && isEnabled
                       ? "Restart Quick Tunnel"

@@ -51,7 +51,7 @@ def init_jwt_from_settings(settings: AppSettings) -> None:
 
     if settings.jwt_private_key:
         pem_data = settings.jwt_private_key.encode()
-        logger.info("Loading JWT private key from MCS_JWT_PRIVATE_KEY env var")
+        logger.info("Loading JWT private key from ONX_JWT_PRIVATE_KEY env var")
     elif target_path.exists():
         ensure_private_key_permissions(
             target_path,

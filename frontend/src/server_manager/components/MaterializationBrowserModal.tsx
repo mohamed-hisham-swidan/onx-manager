@@ -333,7 +333,8 @@ export function MaterializationBrowserModal({
       ariaLabel="Worktree Materialization Explorer"
       description="Explore materialized commit worktree snapshots in isolated workspaces"
       size="full"
-      className="max-w-6xl h-[90vh] flex flex-col"
+      className="max-w-6xl h-[90vh]"
+      bodyClassName="flex flex-col overflow-hidden"
       closeOnBackdrop={!isBusy}
       closeOnEscape={!isBusy}
       closeButtonAriaLabel="Close modal"

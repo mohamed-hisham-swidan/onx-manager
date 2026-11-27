@@ -255,8 +255,10 @@ async def test_container_installer_runner_command_construction() -> None:
         with contextlib.suppress(Exception):
             await gen.aclose()
 
-    mock_exec.assert_awaited_once()
-    call_args = list(mock_exec.await_args[0])
+    assert mock_exec.await_count == 2
+    call_args = list(mock_exec.await_args_list[0].args)
+    rm_args = list(mock_exec.await_args_list[1].args)
+    assert rm_args[:5] == ["docker", "-H", "tcp://127.0.0.1:2375", "rm", "-f"]
     assert call_args[0] == "docker"
     assert call_args[1] == "-H"
     assert call_args[2] == "tcp://127.0.0.1:2375"

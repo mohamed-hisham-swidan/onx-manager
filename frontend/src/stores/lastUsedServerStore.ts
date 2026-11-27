@@ -13,6 +13,7 @@ function loadLastUsedServer(): string {
 interface LastUsedServerState {
   lastUsedServerId: string;
   setLastUsedServer: (serverId: string) => void;
+  clear: () => void;
 }
 
 export const useLastUsedServerStore = create<LastUsedServerState>((set) => ({
@@ -23,5 +24,12 @@ export const useLastUsedServerStore = create<LastUsedServerState>((set) => ({
       localStorage.setItem(STORAGE_KEY, serverId);
     } catch { /* ignore storage errors */ }
     set({ lastUsedServerId: serverId });
+  },
+
+  clear: () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch { /* ignore storage errors */ }
+    set({ lastUsedServerId: "" });
   },
 }));

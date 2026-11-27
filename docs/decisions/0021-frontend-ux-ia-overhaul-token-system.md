@@ -110,7 +110,7 @@ The following items are isolated into separate functional tasks outside visual l
 - **Zero Unapproved Dependencies**: No new runtime npm libraries are introduced without explicit owner approval.
 - **Atmosphere & Trademark Safety**: Absolutely zero Mojang/Minecraft trademarks, brand logos, proprietary textures, or look-alike lettering. Original voxel/pixel artistic touches are deferred to Stage 3.
 - **Batch Cadence**: Work is executed in approximately 19 small, focused batches. Every batch begins with a targeted targeted code audit of the exact file lines it modifies and must fit within a 30-minute agent execution window.
-- **Peer Review & Commits**: Every batch must be independently reviewed by a separate agent before completion. Per project engineering policies, only the repository owner commits changes.
+- **Peer Review & Commits**: Every batch must be independently peer-reviewed before completion. Per project engineering policies, only the repository owner commits changes.
 
 ## Why
 

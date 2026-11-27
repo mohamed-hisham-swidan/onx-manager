@@ -6,7 +6,6 @@ from app.api.deps import (
     get_command_bus,
     get_event_bus,
     get_query_bus,
-    require_permission,
     require_server_permission,
 )
 from app.api.errors import check_command_result
@@ -104,7 +103,7 @@ async def _load_server_aggregate(server_id: str):
 @router.get(
     "",
     response_model=list[PluginResponse],
-    dependencies=[Depends(require_server_permission("server.{id}.plugins", "server.{id}.view"))],
+    dependencies=[Depends(require_server_permission("server.{id}.plugins.view"))],
 )
 async def list_plugins(
     server_id: str,
@@ -147,8 +146,7 @@ _PLUGIN_FAMILY_LOADERS = frozenset(
     "/marketplace/search",
     response_model=PluginSearchResultsResponse,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
-        Depends(require_server_permission("server.{id}.plugins", "server.{id}.view")),
+        Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
 async def search_marketplace(
@@ -212,8 +210,7 @@ async def search_marketplace(
     "/marketplace/projects/{project_id}/versions",
     response_model=PluginVersionsResponse,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
-        Depends(require_server_permission("server.{id}.plugins", "server.{id}.view")),
+        Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
 async def get_project_versions(
@@ -267,7 +264,6 @@ async def get_project_versions(
     response_model=InstallModrinthPluginResponse,
     status_code=201,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
         Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
@@ -305,7 +301,7 @@ async def install_from_marketplace(
 @router.get(
     "/{plugin_id}",
     response_model=PluginResponse,
-    dependencies=[Depends(require_server_permission("server.{id}.plugins", "server.{id}.view"))],
+    dependencies=[Depends(require_server_permission("server.{id}.plugins.view"))],
 )
 async def get_plugin(
     server_id: str,
@@ -332,7 +328,6 @@ async def get_plugin(
     "/{plugin_id}",
     status_code=204,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
         Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
@@ -367,7 +362,6 @@ async def uninstall_plugin(
     "/{plugin_id}/enable",
     response_model=dict,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
         Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
@@ -402,7 +396,6 @@ async def enable_plugin(
     "/{plugin_id}/disable",
     response_model=dict,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
         Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
@@ -438,7 +431,6 @@ async def disable_plugin(
     response_model=dict,
     status_code=201,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
         Depends(require_server_permission("server.{id}.plugins")),
     ],
 )
@@ -495,7 +487,6 @@ async def upload_mod(
     "/toggle",
     response_model=dict,
     dependencies=[
-        Depends(require_permission("plugin:manage")),
         Depends(require_server_permission("server.{id}.plugins")),
     ],
 )

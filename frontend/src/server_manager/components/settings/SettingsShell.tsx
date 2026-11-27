@@ -15,6 +15,7 @@ export interface SettingsShellProps {
   showFullVpsControls: boolean;
   onToggleVpsControls: () => void;
   isOwner: boolean;
+  isAdminOrOwner?: boolean;
   children: React.ReactNode;
 }
 
@@ -27,13 +28,17 @@ export function SettingsShell({
   showFullVpsControls,
   onToggleVpsControls,
   isOwner,
+  isAdminOrOwner = true,
   children,
 }: SettingsShellProps) {
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  const visibleItems = SETTINGS_NAV_ITEMS.filter(
-    (item) => showFullControls || !item.vpsOnly || item.id === activeTab,
-  );
+  const visibleItems = SETTINGS_NAV_ITEMS.filter((item) => {
+    if (!showFullControls && item.vpsOnly && item.id !== activeTab) return false;
+    if (item.ownerOnly && !isOwner && item.id !== activeTab) return false;
+    if (item.adminOnly && !isAdminOrOwner && item.id !== activeTab) return false;
+    return true;
+  });
   const panelItems = visibleItems.filter((i) => i.group === "panel");
   const teamItems = visibleItems.filter((i) => i.group === "team");
 

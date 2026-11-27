@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ConflictError, InvalidValueError
+from app.core.local_auth import default_bootstrap_access_mode
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import hash_api_key, hash_password
 from app.modules.auth.domain.aggregate import AccessMode, Role, User
@@ -21,7 +22,7 @@ class BootstrapInstanceCommand(Command):
     email: str | None = None
     password: str
     display_name: str | None = None
-    access_mode: str = "LOCAL"
+    access_mode: str | None = None
 
 
 class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
@@ -48,7 +49,8 @@ class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
             except ValueError as e:
                 raise InvalidValueError("email", command.email, str(e)) from e
 
-        mode_str = command.access_mode.upper()
+        raw_mode = command.access_mode or default_bootstrap_access_mode().value
+        mode_str = raw_mode.upper()
         if mode_str not in ("LOCAL", "GLOBAL"):
             raise InvalidValueError(
                 "access_mode", command.access_mode, "Access mode must be LOCAL or GLOBAL"

@@ -263,8 +263,16 @@ class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
                     if validated_simple_port is not None and server.runtime:
                         server.runtime.port = validated_simple_port
                 if command.min_memory_mb is not None or command.max_memory_mb is not None:
-                    min_mb = command.min_memory_mb or server.memory.min_mb
-                    max_mb = command.max_memory_mb or server.memory.max_mb
+                    min_mb = (
+                        command.min_memory_mb
+                        if command.min_memory_mb is not None
+                        else server.memory.min_mb
+                    )
+                    max_mb = (
+                        command.max_memory_mb
+                        if command.max_memory_mb is not None
+                        else server.memory.max_mb
+                    )
                     server.update_memory(MemoryAllocation(min_mb=min_mb, max_mb=max_mb))
                 if command.cpu_cores is not None or command.cpu_affinity is not None:
                     cores = (

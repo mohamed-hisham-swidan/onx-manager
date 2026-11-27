@@ -403,7 +403,7 @@ class SimpleStagingExporter:
         del commit_sha  # Simple mode is Git-free.
         if os.name != "posix":
             raise ServerModeVersioningDisabledError(
-                "Simple staging swap requires POSIX in this slice"
+                "Staging swap requires a POSIX host"
             )
         destination = self._clean_export._prepare_destination(staging)
         try:
@@ -1170,11 +1170,18 @@ class ModpackUpgradeService:
             expected_sha256 = resolution.sha256
             expected_size = resolution.size
         elif loader_id == "fabric":
-            installer_ver = "0.16.10"
-            url = (
-                f"https://meta.fabricmc.net/v2/versions/loader/"
-                f"{target_mc}/{loader_ver}/{installer_ver}/server/jar"
+            from app.modules.server.application.services.jar_service import (
+                _resolve_download_url_async,
             )
+
+            if loader_ver == "latest":
+                url = await _resolve_download_url_async("fabric", target_mc)
+            else:
+                installer_ver = "1.0.1"
+                url = (
+                    f"https://meta.fabricmc.net/v2/versions/loader/"
+                    f"{target_mc}/{loader_ver}/{installer_ver}/server/jar"
+                )
         elif loader_id == "vanilla":
             from app.modules.server.application.services.jar_service import (
                 _resolve_download_url_async,
@@ -1803,6 +1810,13 @@ class ModpackUpgradeService:
             raise NotFoundError(
                 f"Authoritative host lockfile missing for Simple server '{upgrade.server_id}'"
             )
+
+        if not panel_properties:
+            from app.modules.versioning.infrastructure.runtime_adapters import (
+                _read_panel_properties,
+            )
+
+            panel_properties = _read_panel_properties(Path(server_root))
 
         plan = _install_plan_from_dict(upgrade.plan_json) if upgrade.plan_json else None
         target_files = await self._ensure_cas_and_lec(

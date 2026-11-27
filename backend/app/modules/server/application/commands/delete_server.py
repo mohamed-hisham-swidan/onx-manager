@@ -209,6 +209,9 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                         error_code="DELETE_STOP_NOT_CONFIRMED",
                     )
 
+        # 6b. Tear down active per-server exposure tunnels and UPnP mappings BEFORE deleting rows
+        await _teardown_server_exposures(sid)
+
         # 7. Teardown provider resources (containers, process trees, caches)
         if provider is not None:
             try:
@@ -258,6 +261,8 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 uow.add_event(event)
             await uow.commit()
 
+        await _stop_playit_if_unused()
+
         logger.info(
             'Server "%s" deleted — server_id=%s',
             server_name,
@@ -305,6 +310,158 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 )
 
         return CommandResult(success=True, data={"server_id": command.server_id})
+
+
+async def _teardown_server_exposures(server_id: str) -> None:
+    """Best-effort teardown of per-server cloudflared, playit tunnels, and UPnP mappings."""
+    try:
+        from sqlalchemy import select
+        from sqlalchemy.exc import OperationalError
+
+        from app.core.persistence.db import database
+        from app.modules.exposure.application.commands import (
+            _exposure_supervisor_key,
+            _extract_target_external_port,
+            _panel_encryption,
+        )
+        from app.modules.exposure.domain.value_objects import ExposureMethod
+        from app.modules.exposure.infrastructure.cloudflared import (
+            _server_supervisors,
+            get_server_cloudflared_supervisor,
+        )
+        from app.modules.exposure.infrastructure.models import (
+            ServerExposureModel,
+            ServerExposureTargetModel,
+        )
+        from app.modules.exposure.infrastructure.playit_api import PlayitApiClient
+        from app.modules.exposure.infrastructure.repository import SQLHostAgentRepository
+        from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
+
+        if database._session_factory is None:
+            return
+
+        async with database.session_factory() as session:
+            try:
+                rows = (
+                    (
+                        await session.execute(
+                            select(ServerExposureModel).where(
+                                ServerExposureModel.server_id == server_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                exp_ids = [str(exp.id) for exp in rows if getattr(exp, "id", None)]
+                targets_by_exp: dict[str, list[ServerExposureTargetModel]] = {}
+                if exp_ids:
+                    tgt_rows = (
+                        (
+                            await session.execute(
+                                select(ServerExposureTargetModel).where(
+                                    ServerExposureTargetModel.exposure_id.in_(exp_ids)
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    for tgt in tgt_rows:
+                        targets_by_exp.setdefault(str(tgt.exposure_id), []).append(tgt)
+                agent = await SQLHostAgentRepository(session).get()
+            except OperationalError as exc:
+                if "no such table" in str(exc).lower():
+                    return
+                raise
+
+        for exp in rows:
+            branch = getattr(exp, "branch_name", "main") or "main"
+            method = str(getattr(exp, "method", "") or "").lower()
+            sup_key = _exposure_supervisor_key(server_id, branch)
+            exp_targets = targets_by_exp.get(str(exp.id), [])
+
+            if method == ExposureMethod.CLOUDFLARE_TCP.value or sup_key in _server_supervisors:
+                try:
+                    await asyncio.wait_for(
+                        get_server_cloudflared_supervisor(sup_key).stop(),
+                        timeout=5.0,
+                    )
+                    _server_supervisors.pop(sup_key, None)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to stop cloudflared supervisor %s on server delete: %s",
+                        sup_key,
+                        exc,
+                    )
+
+            if method == ExposureMethod.PORT_FORWARD.value:
+                for target in exp_targets:
+                    ext_port = _extract_target_external_port(target)
+                    proto = str(getattr(target, "protocol", "tcp") or "tcp").upper()
+                    if ext_port:
+                        try:
+                            await asyncio.wait_for(
+                                AsyncUPnPService(timeout=1, rpc_timeout=2.0).delete_mapping(
+                                    int(ext_port), protocol=proto
+                                ),
+                                timeout=3.0,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "UPnP delete_mapping(%s/%s) failed during server %s delete: %s",
+                                ext_port,
+                                proto,
+                                server_id,
+                                exc,
+                            )
+
+            if (
+                method == ExposureMethod.PLAYIT.value
+                and agent.is_claimed
+                and agent.secret_ciphertext
+            ):
+                try:
+                    secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                    secret_hex = secret_bytes.decode("utf-8")
+                    api_client = PlayitApiClient()
+                    for target in exp_targets:
+                        tid = getattr(target, "playit_tunnel_id", None)
+                        if tid:
+                            await asyncio.wait_for(
+                                api_client.delete_tunnel(secret_hex, str(tid)),
+                                timeout=5.0,
+                            )
+                except Exception as exc:
+                    logger.warning(
+                        "Playit tunnel cleanup failed during server %s delete: %s",
+                        server_id,
+                        exc,
+                    )
+
+        logger.debug("Finished exposure teardown pass for server %s", server_id)
+    except Exception as exc:
+        logger.warning(
+            "Exposure teardown failed for server %s (continuing delete): %s",
+            server_id,
+            exc,
+        )
+
+
+async def _stop_playit_if_unused() -> None:
+    """Stop host playit daemon if no remaining server or panel exposure requires it."""
+    try:
+        from app.core.persistence.db import database
+        from app.modules.exposure.application.commands import compute_desired_agent_running
+        from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
+
+        if database._session_factory is None:
+            return
+        async with database.session_factory() as session:
+            if not await compute_desired_agent_running(session):
+                await asyncio.wait_for(get_playit_supervisor().stop(), timeout=5.0)
+    except Exception as exc:
+        logger.debug("Post-delete playit idle check skipped/failed: %s", exc)
 
 
 async def _cleanup_server_scoped_records(session: Any, server_id: str) -> None:

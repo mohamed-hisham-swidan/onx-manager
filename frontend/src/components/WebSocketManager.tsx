@@ -8,7 +8,7 @@ import { useProvisionProgressStore, toProvisionProgressEvent } from "@/stores/pr
 import { useOperationStore } from "@/operations/stores/operationStore";
 import type { OperationEvent } from "@/operations/types";
 import type { MetricsSnapshot } from "@/services/api";
-import { MAX_POINTS } from "@/server_manager/components/ServerMetricsCharts";
+import { MAX_POINTS } from "@/server_manager/hooks/useServerMetrics";
 
 const WS_KEY_MAP: Record<string, string[]> = {
   "servers:list": ["servers", "list"],

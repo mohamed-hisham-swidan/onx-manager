@@ -62,7 +62,10 @@ def test_check_python_accepts_312():
 
 
 def test_check_python_rejects_313_with_exact_text():
-    with patch("platform.python_version", return_value="3.13.0"):
+    with (
+        patch("launcher.find_backend_venv", return_value=None),
+        patch("platform.python_version", return_value="3.13.0"),
+    ):
         with pytest.raises(ValidationError) as exc_info:
             Validator.check_python()
         msg = str(exc_info.value)
@@ -71,7 +74,10 @@ def test_check_python_rejects_313_with_exact_text():
 
 
 def test_check_python_rejects_314():
-    with patch("platform.python_version", return_value="3.14.0"):
+    with (
+        patch("launcher.find_backend_venv", return_value=None),
+        patch("platform.python_version", return_value="3.14.0"),
+    ):
         with pytest.raises(ValidationError) as exc_info:
             Validator.check_python()
         msg = str(exc_info.value)
@@ -515,7 +521,10 @@ def test_prerequisites_error_text_has_no_312plus_claim():
             assert "python -m venv" not in fix
             assert expected_stop in fix
 
-    with patch("platform.python_version", return_value="3.14.0"):
+    with (
+        patch("launcher.find_backend_venv", return_value=None),
+        patch("platform.python_version", return_value="3.14.0"),
+    ):
         with pytest.raises(ValidationError) as exc_info:
             Validator.check_python()
         assert "3.12+" not in str(exc_info.value)

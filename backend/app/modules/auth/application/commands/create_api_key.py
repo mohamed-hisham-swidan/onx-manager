@@ -37,18 +37,22 @@ class CreateApiKeyHandler(CommandHandler[CreateApiKeyCommand]):
 
         if command.caller_permissions is not None or command.caller_roles is not None:
             caller_perms = set(command.caller_permissions or [])
-            caller_roles = set(command.caller_roles or [])
-            is_unrestricted = (
-                "owner" in caller_roles
-                or "admin:full" in caller_perms
-                or "global.*" in caller_perms
-            )
-            if not is_unrestricted:
-                for p_raw in command.permissions:
-                    if p_raw not in caller_perms:
-                        raise PermissionDenied(
-                            f"Cannot grant API key permission '{p_raw}' not held by caller"
-                        )
+            caller_roles = {str(r).lower() for r in (command.caller_roles or [])}
+            is_owner = "owner" in caller_roles
+            is_admin = "admin" in caller_roles or "admin:full" in caller_perms
+
+            for p_raw in command.permissions:
+                if (
+                    p_raw in ("global:*", "global.*")
+                    or p_raw.startswith(("global.", "panel."))
+                ) and not is_owner:
+                    raise PermissionDenied(
+                        f"Only the instance Owner can mint API keys with '{p_raw}'"
+                    )
+                if not is_owner and not is_admin and p_raw not in caller_perms:
+                    raise PermissionDenied(
+                        f"Cannot grant API key permission '{p_raw}' not held by caller"
+                    )
 
         api_key = ApiKey(
             api_key_id=ApiKeyId(uuid.uuid4().hex),

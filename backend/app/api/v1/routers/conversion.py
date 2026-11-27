@@ -1,4 +1,4 @@
-"""P7-2 Conversion API routes: Simple <-> Advanced mode conversion (OD-v8.6-3)."""
+"""Server mode conversion API routes (Simple <-> Advanced)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
-from app.api.deps import require_permission
+from app.api.deps import require_versioning_permission
 from app.api.v1.schemas.conversion import (
     ConvertToAdvancedRequest,
     ConvertToAdvancedResponse,
@@ -37,7 +37,7 @@ def _build_conversion_service() -> ConversionService:
 async def convert_to_advanced(
     server_id: Annotated[str, Path(description="Server ID")],
     _current_user: Annotated[
-        dict[str, Any], Depends(require_permission("server.versioning.manage"))
+        dict[str, Any], Depends(require_versioning_permission("server.versioning.manage"))
     ],
     conversion: Annotated[ConversionService, Depends(_build_conversion_service)],
     _body: ConvertToAdvancedRequest | None = None,
@@ -77,7 +77,7 @@ async def convert_to_advanced(
 async def convert_to_simple(
     server_id: Annotated[str, Path(description="Server ID")],
     _current_user: Annotated[
-        dict[str, Any], Depends(require_permission("server.versioning.manage"))
+        dict[str, Any], Depends(require_versioning_permission("server.versioning.manage"))
     ],
     conversion: Annotated[ConversionService, Depends(_build_conversion_service)],
     body: ConvertToSimpleRequest | None = None,

@@ -738,7 +738,9 @@ def validate_addon_jar(
                     )
                 _read_bounded_zip_entry(zf, full_name_map[matched_mod])
                 meta = parse_jar_metadata(file_content, preferred_server_type=server_type)
-                if not ((meta.name and meta.name.strip()) or (meta.mod_id and meta.mod_id.strip())):
+                if not meta.loader or not (
+                    (meta.name and meta.name.strip()) or (meta.mod_id and meta.mod_id.strip())
+                ):
                     raise InvalidPluginJarError(
                         f"Not a valid mod JAR: invalid or incomplete {matched_mod}"
                     )

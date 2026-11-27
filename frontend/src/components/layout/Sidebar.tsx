@@ -1,9 +1,11 @@
-import React, { useRef, useEffect } from "react";
+import React, { useContext, useRef, useEffect } from "react";
 import { NavLink, Link } from "react-router-dom";
+import { QueryClientContext } from "@tanstack/react-query";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
+import { useAuthPermissions } from "@/hooks/useAuthPermissions";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import type { ServerMode } from "@/server_manager/types";
 import { resolveServerMode } from "@/server_manager/utils/serverMode";
@@ -14,7 +16,13 @@ export interface ServerContext {
   serverType?: string;
   supportsMods?: boolean;
   supportsPlugins?: boolean;
+  canConsoleView?: boolean;
   canFiles?: boolean;
+  canSettings?: boolean;
+  canPluginsView?: boolean;
+  canExposureView?: boolean;
+  canBackupsView?: boolean;
+  canVersioningView?: boolean;
   mode?: ServerMode;
   branch?: string;
 }
@@ -32,6 +40,7 @@ const GLOBAL_NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boole
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
+  const hasQueryClient = Boolean(useContext(QueryClientContext));
   const isServerContext = Boolean(serverContext);
   const showVersioning = resolveServerMode(serverContext?.mode) === "advanced";
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
@@ -150,54 +159,35 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
 
             <nav aria-label="Server sections" className="flex-1 overflow-y-auto p-2 space-y-4">
               {/* Group 1: Core Workspace */}
-              <div>
-                <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-                  Core Workspace
-                </div>
-                <div className="mt-1 flex flex-col gap-0.5">
-                  <ServerNavLink
-                    to={withBranch(`/servers/${serverContext.serverId}/console`)}
-                    label="Console"
-                    icon="dashboard"
-                    onNavigate={handleNavigate}
-                  />
-                  {serverContext.canFiles !== false && (
-                    <ServerNavLink
-                      to={withBranch(`/servers/${serverContext.serverId}/files`)}
-                      label="Files"
-                      icon="folder"
-                      onNavigate={handleNavigate}
-                    />
-                  )}
-                  <ServerNavLink
-                    to={withBranch(`/servers/${serverContext.serverId}/settings`)}
-                    label="Settings"
-                    icon="settings"
-                    onNavigate={handleNavigate}
-                  />
-                </div>
-              </div>
-
-              {/* Group 2: Add-ons & Content */}
-              {(serverContext.supportsMods || serverContext.supportsPlugins) && (
+              {(serverContext.canConsoleView !== false ||
+                serverContext.canFiles !== false ||
+                serverContext.canSettings !== false) && (
                 <div>
                   <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-                    Add-ons & Content
+                    Core Workspace
                   </div>
                   <div className="mt-1 flex flex-col gap-0.5">
-                    {serverContext.supportsMods && (
+                    {serverContext.canConsoleView !== false && (
                       <ServerNavLink
-                        to={withBranch(`/servers/${serverContext.serverId}/mods`)}
-                        label="Mods"
-                        icon="plugin"
+                        to={withBranch(`/servers/${serverContext.serverId}/console`)}
+                        label="Console"
+                        icon="dashboard"
                         onNavigate={handleNavigate}
                       />
                     )}
-                    {serverContext.supportsPlugins && (
+                    {serverContext.canFiles !== false && (
                       <ServerNavLink
-                        to={withBranch(`/servers/${serverContext.serverId}/plugins`)}
-                        label="Plugins"
-                        icon="plugin"
+                        to={withBranch(`/servers/${serverContext.serverId}/files`)}
+                        label="Files"
+                        icon="folder"
+                        onNavigate={handleNavigate}
+                      />
+                    )}
+                    {serverContext.canSettings !== false && (
+                      <ServerNavLink
+                        to={withBranch(`/servers/${serverContext.serverId}/settings`)}
+                        label="Settings"
+                        icon="settings"
                         onNavigate={handleNavigate}
                       />
                     )}
@@ -205,25 +195,57 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                 </div>
               )}
 
+              {/* Group 2: Add-ons & Content */}
+              {serverContext.canPluginsView !== false &&
+                (serverContext.supportsMods || serverContext.supportsPlugins) && (
+                  <div>
+                    <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                      Add-ons & Content
+                    </div>
+                    <div className="mt-1 flex flex-col gap-0.5">
+                      {serverContext.supportsMods && (
+                        <ServerNavLink
+                          to={withBranch(`/servers/${serverContext.serverId}/mods`)}
+                          label="Mods"
+                          icon="plugin"
+                          onNavigate={handleNavigate}
+                        />
+                      )}
+                      {serverContext.supportsPlugins && (
+                        <ServerNavLink
+                          to={withBranch(`/servers/${serverContext.serverId}/plugins`)}
+                          label="Plugins"
+                          icon="plugin"
+                          onNavigate={handleNavigate}
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
               {/* Group 3: Operations & DevOps */}
               <div>
                 <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
                   Operations & DevOps
                 </div>
                 <div className="mt-1 flex flex-col gap-0.5">
-                  <ServerNavLink
-                    to={withBranch(`/servers/${serverContext.serverId}/network`)}
-                    label="Network & Exposure"
-                    icon="activity"
-                    onNavigate={handleNavigate}
-                  />
-                  <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/backups`}
-                    label="Backups"
-                    icon="backup"
-                    onNavigate={handleNavigate}
-                  />
-                  {showVersioning && (
+                  {serverContext.canExposureView !== false && (
+                    <ServerNavLink
+                      to={withBranch(`/servers/${serverContext.serverId}/network`)}
+                      label="Network & Exposure"
+                      icon="activity"
+                      onNavigate={handleNavigate}
+                    />
+                  )}
+                  {serverContext.canBackupsView !== false && (
+                    <ServerNavLink
+                      to={`/servers/${serverContext.serverId}/backups`}
+                      label="Backups"
+                      icon="backup"
+                      onNavigate={handleNavigate}
+                    />
+                  )}
+                  {showVersioning && serverContext.canVersioningView !== false && (
                     <ServerNavLink
                       to={withBranch(`/servers/${serverContext.serverId}/versioning`)}
                       label="Versions & Sandboxes"
@@ -241,38 +263,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
               </div>
             </nav>
           </div>
+        ) : hasQueryClient ? (
+          <GlobalSidebarNav handleGlobalNavigate={handleGlobalNavigate} />
         ) : (
-          /* Global Navigation */
-          <nav aria-label="Main" className="flex flex-col gap-1 p-2">
-            {GLOBAL_NAV_ITEMS.map(({ to, label, icon, end }) => {
-              const isMarketplace = to === "/marketplace";
-              return (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={end}
-                  onClick={() => handleGlobalNavigate(isMarketplace)}
-                  className={({ isActive }) =>
-                    `group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-accent-primary/10 text-text-accent font-semibold"
-                        : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-                    }`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      {isActive && (
-                        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-primary" />
-                      )}
-                      <Icon name={icon} size={20} className="shrink-0" />
-                      <span className="truncate">{label}</span>
-                    </>
-                  )}
-                </NavLink>
-              );
-            })}
-          </nav>
+          <GlobalNavList items={GLOBAL_NAV_ITEMS} handleGlobalNavigate={handleGlobalNavigate} />
         )}
 
         {/* Legal Disclaimer Footer */}
@@ -335,5 +329,65 @@ function ServerNavLink({
         </>
       )}
     </NavLink>
+  );
+}
+
+function GlobalSidebarNav({
+  handleGlobalNavigate,
+}: {
+  handleGlobalNavigate: (isMarketplace: boolean) => void;
+}) {
+  const auth = useAuthPermissions();
+  const visibleItems = GLOBAL_NAV_ITEMS.filter((item) => {
+    if (item.to === "/settings") return auth.canAccessGlobalSettings;
+    if (item.to === "/marketplace") {
+      return auth.isAdmin || (!auth.isViewer && auth.canViewPlugins());
+    }
+    if (item.to === "/backups") {
+      return auth.isAdmin || auth.canViewBackups();
+    }
+    return true;
+  });
+  return <GlobalNavList items={visibleItems} handleGlobalNavigate={handleGlobalNavigate} />;
+}
+
+function GlobalNavList({
+  items,
+  handleGlobalNavigate,
+}: {
+  items: { to: string; label: string; icon: IconName; end?: boolean }[];
+  handleGlobalNavigate: (isMarketplace: boolean) => void;
+}) {
+  return (
+    <nav aria-label="Main" className="flex flex-col gap-1 p-2">
+      {items.map(({ to, label, icon, end }) => {
+        const isMarketplace = to === "/marketplace";
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            onClick={() => handleGlobalNavigate(isMarketplace)}
+            className={({ isActive }) =>
+              `group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                isActive
+                  ? "bg-accent-primary/10 text-text-accent font-semibold"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-primary" />
+                )}
+                <Icon name={icon} size={20} className="shrink-0" />
+                <span className="truncate">{label}</span>
+              </>
+            )}
+          </NavLink>
+        );
+      })}
+    </nav>
   );
 }

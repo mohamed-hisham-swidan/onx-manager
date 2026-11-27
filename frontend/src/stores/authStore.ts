@@ -78,6 +78,12 @@ export const useAuthStore = create<AuthState>((set, get) => {
       queryClient.clear();
       useActivityStore.getState().clear();
       useProvisionProgressStore.getState().clear();
+      void import("@/operations/stores/operationStore")
+        .then((m) => m.useOperationStore.getState().reset?.())
+        .catch(() => {});
+      void import("@/stores/lastUsedServerStore")
+        .then((m) => m.useLastUsedServerStore.getState().clear?.())
+        .catch(() => {});
       set({ accessToken: null, refreshToken: null, expiresAt: null, isAuthenticated: false });
     },
 

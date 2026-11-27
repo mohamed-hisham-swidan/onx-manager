@@ -5,25 +5,30 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from pydantic import Field
+
+from app.core.authorization import ROLE_ADMIN, ROLE_OWNER, resolve_primary_role
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import InvalidValueError, PermissionDenied
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.auth.application.access_policy import resolve_invite_policy
 from app.modules.auth.domain.aggregate import Invitation
 from app.modules.auth.infrastructure.repository import SQLInvitationRepository, SQLUserRepository
-from app.modules.server.infrastructure.repository import (
-    SQLServerMembershipRepository,
-    SQLServerRepository,
-)
+from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import UserId
 
 
 class CreateInviteCommand(Command):
     creator_id: str
     email: str | None = None
-    global_role: str = "member"
+    role: str | None = None
+    global_role: str | None = None
     server_id: str | None = None
+    server_ids: list[str] = Field(default_factory=list)
     server_role: str | None = None
+    all_servers_access: bool = False
+    denied_permissions: list[str] = Field(default_factory=list)
     max_uses: int = 1
     expires_in_hours: int | None = 48
 
@@ -33,10 +38,17 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: CreateInviteCommand) -> CommandResult:
-        if command.server_role and command.server_role not in ("admin", "dev", "viewer"):
-            raise InvalidValueError(
-                "server_role", command.server_role, "Server role must be admin, dev, or viewer"
+        target_role, merged_server_ids, effective_all_servers, denied_caps = (
+            resolve_invite_policy(
+                role=command.role,
+                global_role=command.global_role,
+                server_role=command.server_role,
+                server_id=command.server_id,
+                server_ids=command.server_ids,
+                all_servers_access=command.all_servers_access,
+                denied_permissions=command.denied_permissions,
             )
+        )
 
         raw_secret = secrets.token_urlsafe(24)
         raw_token = f"mcis_{raw_secret}"
@@ -50,6 +62,11 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
         )
 
         invitation_id = f"inv_{uuid.uuid4().hex}"
+        legacy_server_role = (
+            "server_admin"
+            if target_role == "server_admin"
+            else ("viewer" if target_role == "viewer" else None)
+        )
 
         invitation = Invitation(
             invitation_id=invitation_id,
@@ -57,9 +74,12 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
             token_prefix=token_prefix,
             creator_id=command.creator_id,
             email=command.email,
-            global_role=command.global_role,
-            server_id=command.server_id,
-            server_role=command.server_role,
+            global_role=target_role,
+            server_id=merged_server_ids[0] if merged_server_ids else None,
+            server_role=legacy_server_role,
+            server_ids=merged_server_ids,
+            denied_permissions=denied_caps,
+            all_servers_access=effective_all_servers,
             max_uses=command.max_uses,
             expires_at=expires_at,
         )
@@ -72,59 +92,31 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
             if creator is None:
                 raise PermissionDenied("Invalid or missing invitation creator")
 
-            creator_role_names = {r.name for r in creator.roles}
-            is_owner = "owner" in creator_role_names or any(
+            creator_role_names = [r.name for r in creator.roles]
+            creator_primary = resolve_primary_role(creator_role_names)
+            is_owner = creator_primary == ROLE_OWNER or any(
                 r.has_permission("global", "*") for r in creator.roles
             )
             is_global_admin = (
                 is_owner
-                or "admin" in creator_role_names
+                or creator_primary == ROLE_ADMIN
                 or any(r.has_permission("admin", "full") for r in creator.roles)
             )
 
-            target_global = (command.global_role or "member").lower()
-            if target_global == "owner" and not is_owner:
+            if not is_global_admin:
+                raise PermissionDenied("Only instance Owners or Admins can create invitations")
+
+            if target_role == ROLE_OWNER and not is_owner:
                 raise PermissionDenied(
-                    "Cannot create invitation with global_role 'owner' without owner privileges"
-                )
-            if target_global == "admin" and not is_global_admin:
-                raise PermissionDenied(
-                    "Cannot create invitation with global_role 'admin' without admin privileges"
+                    "Cannot create invitation with role 'owner' without owner privileges"
                 )
 
-            if command.server_id:
+            if merged_server_ids:
                 server_repo = SQLServerRepository(uow.session)
-                server = await server_repo.get(command.server_id)
-                if server is None:
-                    raise InvalidValueError("server_id", command.server_id, "Server not found")
-
-                has_server_admin = is_global_admin or (server.owner_id == str(creator.user_id))
-                has_server_dev = False
-
-                if not has_server_admin:
-                    membership_repo = SQLServerMembershipRepository(uow.session)
-                    membership = await membership_repo.get_membership(
-                        command.server_id, str(creator.user_id)
-                    )
-                    if membership:
-                        if membership.role == "admin":
-                            has_server_admin = True
-                        elif membership.role == "dev":
-                            has_server_dev = True
-
-                target_server_role = (command.server_role or "viewer").lower()
-                if target_server_role == "admin" and not has_server_admin:
-                    raise PermissionDenied(
-                        "Cannot grant server_role 'admin' without server admin privileges"
-                    )
-                if target_server_role == "dev" and not (has_server_admin or has_server_dev):
-                    raise PermissionDenied(
-                        "Cannot grant server_role 'dev' without server dev/admin privileges"
-                    )
-                if target_server_role == "viewer" and not (has_server_admin or has_server_dev):
-                    raise PermissionDenied(
-                        "Cannot grant server_role 'viewer' without server access"
-                    )
+                for sid in merged_server_ids:
+                    server = await server_repo.get(sid)
+                    if server is None:
+                        raise InvalidValueError("server_ids", sid, f"Server '{sid}' not found")
 
             repo = SQLInvitationRepository(uow.session)
             await repo.save(invitation)
@@ -137,9 +129,13 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
                 "token": raw_token,
                 "token_prefix": token_prefix,
                 "email": command.email,
-                "global_role": command.global_role,
-                "server_id": command.server_id,
-                "server_role": command.server_role,
+                "role": target_role,
+                "global_role": target_role,
+                "server_id": invitation.server_id,
+                "server_ids": merged_server_ids,
+                "server_role": legacy_server_role,
+                "all_servers_access": effective_all_servers,
+                "denied_permissions": denied_caps,
                 "status": invitation.status.value,
                 "max_uses": invitation.max_uses,
                 "expires_at": expires_at.isoformat() if expires_at else None,

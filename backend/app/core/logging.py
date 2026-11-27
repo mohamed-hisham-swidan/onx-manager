@@ -121,6 +121,7 @@ def configure_logging(
             if getattr(existing, "_onx_configured", False):
                 existing.close()
         sub_logger.handlers.clear()
+        sub_logger.propagate = False
         for h in handlers:
             sub_logger.addHandler(h)
 

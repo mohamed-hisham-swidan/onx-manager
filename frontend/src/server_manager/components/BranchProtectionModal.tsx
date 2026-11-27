@@ -13,11 +13,12 @@ export interface BranchProtectionModalProps {
   onClose: () => void;
   serverId: string;
   branch: ServerBranch | null;
+  canEdit?: boolean;
   onProtectionUpdated: () => void;
 }
 
 const DEFAULT_POLICY: BranchProtectionPolicy = {
-  require_test_pass: true,
+  require_test_pass: false,
   allow_direct_commit: false,
   allow_force_bypass: true,
   prevent_deletion: true,
@@ -28,6 +29,7 @@ export function BranchProtectionModal({
   onClose,
   serverId,
   branch,
+  canEdit = true,
   onProtectionUpdated,
 }: BranchProtectionModalProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
@@ -47,7 +49,6 @@ export function BranchProtectionModal({
     }
   }
 
-  // Load branch protection state
   useEffect(() => {
     if (!isOpen || !branch) return;
     let isMounted = true;
@@ -56,13 +57,14 @@ export function BranchProtectionModal({
       .getBranchProtection(serverId, branch.name)
       .then((res: BranchProtectionResponse) => {
         if (!isMounted) return;
-        setIsProtected(res.is_protected);
+        const isMain = branch.name === "main";
+        setIsProtected(isMain ? true : res.is_protected);
         if (res.policy) {
           setPolicy({
-            require_test_pass: res.policy.require_test_pass ?? true,
-            allow_direct_commit: res.policy.allow_direct_commit ?? false,
+            require_test_pass: res.policy.require_test_pass ?? false,
+            allow_direct_commit: isMain ? false : (res.policy.allow_direct_commit ?? false),
             allow_force_bypass: res.policy.allow_force_bypass ?? true,
-            prevent_deletion: res.policy.prevent_deletion ?? true,
+            prevent_deletion: isMain ? true : (res.policy.prevent_deletion ?? true),
           });
         } else {
           setPolicy(DEFAULT_POLICY);
@@ -83,6 +85,8 @@ export function BranchProtectionModal({
 
   if (!isOpen || !branch) return null;
 
+  const isMainBranch = branch.name === "main";
+
   const handleClose = () => {
     if (!isSaving) {
       onClose();
@@ -90,10 +94,11 @@ export function BranchProtectionModal({
   };
 
   const handleSavePolicy = async () => {
+    if (!canEdit) return;
     setIsSaving(true);
     setError(null);
     try {
-      if (isProtected) {
+      if (isProtected || isMainBranch) {
         await api.setBranchProtection(serverId, branch.name, { policy });
         toast("success", "Protection Updated", `Branch protection updated for '${branch.name}'`);
       } else {
@@ -127,10 +132,39 @@ export function BranchProtectionModal({
       closeOnBackdrop={!isSaving}
       closeOnEscape={!isSaving}
       closeButtonAriaLabel="Close modal"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={isSaving}
+            className="rounded-lg border border-border-default bg-surface-muted px-3.5 py-2 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleSavePolicy}
+              disabled={isLoading || isSaving}
+              className="rounded-lg bg-accent-primary hover:bg-accent-hover px-4 py-2 text-xs font-semibold text-accent-contrast-text disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {isSaving
+                ? "Saving Policy..."
+                : isProtected || isMainBranch
+                  ? "Apply Protection"
+                  : "Disable Protection"}
+            </button>
+          )}
+        </div>
+      }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         {error && (
-          <div role="alert" className="rounded-lg bg-status-danger-bg border border-status-danger-border p-3 text-sm text-status-danger">
+          <div
+            role="alert"
+            className="rounded-lg bg-status-danger-bg border border-status-danger-border p-3 text-sm text-status-danger"
+          >
             {error}
           </div>
         )}
@@ -141,6 +175,14 @@ export function BranchProtectionModal({
           </div>
         ) : (
           <div className="space-y-4">
+            {isMainBranch && (
+              <div className="rounded-lg border border-status-info-border bg-status-info-bg p-3 text-xs text-text-primary">
+                Production branch <code className="font-mono font-semibold">main</code> is
+                always system-protected (cannot be deleted, archived, or committed to directly;
+                changes enter <code className="font-mono font-semibold">main</code> via branch merge).
+              </div>
+            )}
+
             {/* Protection Master Toggle */}
             <div className="flex items-center justify-between p-3 rounded-lg border border-border-default bg-surface-card">
               <label htmlFor="master-protection-toggle" className="cursor-pointer">
@@ -148,17 +190,20 @@ export function BranchProtectionModal({
                   Enable Branch Protection
                 </span>
                 <span className="text-xs text-text-muted">
-                  Enforce promotion gating and deletion invariants on this branch.
+                  Enforce commit gating and deletion safeguards on this branch.
                 </span>
               </label>
-              <label htmlFor="master-protection-toggle" className="relative inline-flex items-center cursor-pointer">
+              <label
+                htmlFor="master-protection-toggle"
+                className={`relative inline-flex items-center ${isMainBranch || !canEdit ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+              >
                 <input
                   id="master-protection-toggle"
                   type="checkbox"
                   aria-label="Enable branch protection"
-                  checked={isProtected}
+                  checked={isProtected || isMainBranch}
                   onChange={(e) => setIsProtected(e.target.checked)}
-                  disabled={isSaving}
+                  disabled={isSaving || isMainBranch || !canEdit}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-surface-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-accent-contrast-text after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-accent-contrast-text after:border-border-default after:border after:rounded-full after:h-5 after:w-5 after:transition-all border border-border-default peer-checked:bg-accent-primary"></div>
@@ -166,34 +211,11 @@ export function BranchProtectionModal({
             </div>
 
             {/* Granular Policies */}
-            {isProtected && (
-              <div className="space-y-3 pt-2">
+            {(isProtected || isMainBranch) && (
+              <div className="space-y-3 pt-1">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                   Enforcement Rules
                 </h3>
-
-                {/* Require Test Pass */}
-                <div className="flex items-start justify-between gap-4 p-3 rounded-lg border border-border-default bg-surface-card">
-                  <label htmlFor="rule-require-test" className="cursor-pointer">
-                    <span className="text-xs font-semibold text-text-primary block">
-                      Require Passing Test Run
-                    </span>
-                    <span className="text-xs text-text-muted">
-                      Block commit promotion if the latest test run failed or no verified test exists.
-                    </span>
-                  </label>
-                  <input
-                    id="rule-require-test"
-                    type="checkbox"
-                    aria-label="Require passing test run"
-                    checked={policy.require_test_pass}
-                    onChange={(e) =>
-                      setPolicy((p) => ({ ...p, require_test_pass: e.target.checked }))
-                    }
-                    disabled={isSaving}
-                    className="mt-1 h-4 w-4 rounded border-border-default text-accent-primary focus:ring-accent-primary disabled:opacity-50"
-                  />
-                </div>
 
                 {/* Allow Direct Commit */}
                 <div className="flex items-start justify-between gap-4 p-3 rounded-lg border border-border-default bg-surface-card">
@@ -202,18 +224,20 @@ export function BranchProtectionModal({
                       Allow Direct Commits
                     </span>
                     <span className="text-xs text-text-muted">
-                      If disabled, direct commits and live changes are rejected without an isolated test run.
+                      {isMainBranch
+                        ? "Always disabled on main; updates enter via working branch merges."
+                        : "If disabled, direct commits to this branch are blocked unless overridden."}
                     </span>
                   </label>
                   <input
                     id="rule-allow-direct"
                     type="checkbox"
                     aria-label="Allow direct commits"
-                    checked={policy.allow_direct_commit}
+                    checked={isMainBranch ? false : policy.allow_direct_commit}
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, allow_direct_commit: e.target.checked }))
                     }
-                    disabled={isSaving}
+                    disabled={isSaving || isMainBranch || !canEdit}
                     className="mt-1 h-4 w-4 rounded border-border-default text-accent-primary focus:ring-accent-primary disabled:opacity-50"
                   />
                 </div>
@@ -225,7 +249,7 @@ export function BranchProtectionModal({
                       Allow Administrative Force Bypass
                     </span>
                     <span className="text-xs text-text-muted">
-                      Allow operators with bypass permission to override protection during emergencies.
+                      Allow server admins and operators to override protection with an audit-logged reason.
                     </span>
                   </label>
                   <input
@@ -236,7 +260,7 @@ export function BranchProtectionModal({
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, allow_force_bypass: e.target.checked }))
                     }
-                    disabled={isSaving}
+                    disabled={isSaving || !canEdit}
                     className="mt-1 h-4 w-4 rounded border-border-default text-accent-primary focus:ring-accent-primary disabled:opacity-50"
                   />
                 </div>
@@ -245,7 +269,7 @@ export function BranchProtectionModal({
                 <div className="flex items-start justify-between gap-4 p-3 rounded-lg border border-border-default bg-surface-card">
                   <label htmlFor="rule-prevent-deletion" className="cursor-pointer">
                     <span className="text-xs font-semibold text-text-primary block">
-                      Prevent Branch Deletion & Archival
+                      Prevent Branch Deletion &amp; Archival
                     </span>
                     <span className="text-xs text-text-muted">
                       Disallow archiving or deleting this branch while protection remains active.
@@ -255,11 +279,11 @@ export function BranchProtectionModal({
                     id="rule-prevent-deletion"
                     type="checkbox"
                     aria-label="Prevent branch deletion and archival"
-                    checked={policy.prevent_deletion}
+                    checked={isMainBranch ? true : policy.prevent_deletion}
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, prevent_deletion: e.target.checked }))
                     }
-                    disabled={isSaving}
+                    disabled={isSaving || isMainBranch || !canEdit}
                     className="mt-1 h-4 w-4 rounded border-border-default text-accent-primary focus:ring-accent-primary disabled:opacity-50"
                   />
                 </div>
@@ -267,26 +291,6 @@ export function BranchProtectionModal({
             )}
           </div>
         )}
-
-        {/* Footer Actions */}
-        <div className="flex justify-end gap-2 pt-2 border-t border-border-default">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isSaving}
-            className="rounded-lg border border-border-default bg-surface-muted px-3.5 py-2 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover disabled:opacity-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSavePolicy}
-            disabled={isLoading || isSaving}
-            className="rounded-lg bg-accent-primary hover:bg-accent-hover px-4 py-2 text-xs font-semibold text-accent-contrast-text disabled:opacity-50 transition-colors"
-          >
-            {isSaving ? "Saving Policy..." : isProtected ? "Apply Protection" : "Disable Protection"}
-          </button>
-        </div>
       </div>
     </Modal>
   );

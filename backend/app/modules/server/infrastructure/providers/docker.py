@@ -498,6 +498,26 @@ def allocate_host_rcon_port(
     return start_candidate
 
 
+def _is_dood_environment() -> bool:
+    return bool(
+        os.environ.get("ONX_HOST_DATA_DIR")
+        or os.environ.get("MCS_HOST_DATA_DIR")
+        or Path("/.dockerenv").exists()
+    )
+
+
+def resolve_dood_rcon_endpoint(
+    container_ip: str | None,
+    container_rcon_port: int,
+    host_rcon_port: int,
+) -> tuple[str, int]:
+    """Resolve the authoritative RCON (host, port) for host or DooD deployments."""
+    cip = (container_ip or "").strip()
+    if _is_dood_environment() and cip and cip not in ("0.0.0.0", "::", "*"):
+        return cip, container_rcon_port
+    return "127.0.0.1", host_rcon_port
+
+
 def _extract_host_rcon_port_from_inspect(
     info: dict[str, Any] | None,
     container_rcon_port: int = 25575,
@@ -802,6 +822,7 @@ class DockerProvider(ServerProvider):
 
         # Companion UDP/TCP ports (e.g., Simple Voice Chat 24454/udp, Geyser 19132/udp, Dynmap 8123/tcp)
         companion_port_specs: list[str] = []
+        companion_reserved_ports: set[int] = set()
         for cp in cfg.get("companion_ports") or ():
             if not isinstance(cp, dict):
                 continue
@@ -809,12 +830,17 @@ class DockerProvider(ServerProvider):
                 cp_port = int(cp.get("port") or 0)
             except (TypeError, ValueError):
                 continue
-            if cp_port <= 0 or cp_port > 65535 or cp_port == port:
+            if cp_port <= 0 or cp_port > 65535:
                 continue
             cp_proto = str(cp.get("protocol") or "tcp").strip().lower()
+            if cp_port == port and cp_proto == "tcp":
+                continue
+            companion_reserved_ports.add(cp_port)
             cp_bind = f"{host_ip}:{cp_port}:{cp_port}" if host_ip else f"{cp_port}:{cp_port}"
             if cp_proto == "both":
                 for p_suffix in ("tcp", "udp"):
+                    if cp_port == port and p_suffix == "tcp":
+                        continue
                     spec = f"{cp_bind}/{p_suffix}"
                     if spec not in companion_port_specs:
                         companion_port_specs.append(spec)
@@ -826,9 +852,9 @@ class DockerProvider(ServerProvider):
                     companion_port_specs.append(spec)
                     create_args.extend(["-p", spec])
 
-        # RCON Port: published EXCLUSIVELY to loopback (127.0.0.1) for security (Decision 6).
-        # Cross-check cached RCON ports, live Docker published ports, and OS socket probes
-        # so multiple servers never collide on 127.0.0.1:25575.
+        # RCON Port: published exclusively to loopback (127.0.0.1) for security.
+        # Cross-check cached RCON ports, live Docker published ports, companion ports,
+        # and OS socket probes so multiple servers never collide on 127.0.0.1:25575.
         rcon_port: int | None = None
         container_rcon_port = 25575
         explicit_rcon_port = cfg.get("rcon_port")
@@ -839,7 +865,11 @@ class DockerProvider(ServerProvider):
         )
         if rcon_enabled:
             live_docker_ports = await self._live_docker_published_ports_excluding(server_id)
-            reserved_rcon_ports = self._active_rcon_ports_excluding(server_id) | live_docker_ports
+            reserved_rcon_ports = (
+                self._active_rcon_ports_excluding(server_id)
+                | live_docker_ports
+                | companion_reserved_ports
+            )
 
         if explicit_rcon_port:
             with contextlib.suppress(ValueError, TypeError):
@@ -1153,9 +1183,12 @@ class DockerProvider(ServerProvider):
                         or rcon_port
                         or container_rcon_port
                     )
+                    rcon_connect_host, rcon_connect_port = resolve_dood_rcon_endpoint(
+                        container_ip, container_rcon_port, live_rcon_port
+                    )
                     rcon_info_entry = {
-                        "host": "127.0.0.1",
-                        "port": live_rcon_port,
+                        "host": rcon_connect_host,
+                        "port": rcon_connect_port,
                         "container_port": container_rcon_port,
                         "password": props.get("rcon.password", ""),
                         "server_dir": server_dir,
@@ -1340,10 +1373,13 @@ class DockerProvider(ServerProvider):
                     host_rcon_port=eff_rcon_port,
                     container_rcon_port=container_rcon_port,
                 )
+            rcon_connect_host, rcon_connect_port = resolve_dood_rcon_endpoint(
+                container_ip, container_rcon_port, eff_rcon_port
+            )
             if rcon_pwd:
                 entry = {
-                    "host": "127.0.0.1",
-                    "port": eff_rcon_port,
+                    "host": rcon_connect_host,
+                    "port": rcon_connect_port,
                     "container_port": container_rcon_port,
                     "password": rcon_pwd,
                     "server_dir": server_dir,
@@ -1351,9 +1387,12 @@ class DockerProvider(ServerProvider):
                 self._rcon_cache[server_id] = entry
                 self._rcon_info[server_id] = entry
         elif rcon_port and cfg.get("rcon_password"):
+            rcon_connect_host, rcon_connect_port = resolve_dood_rcon_endpoint(
+                container_ip, container_rcon_port, rcon_port
+            )
             entry = {
-                "host": "127.0.0.1",
-                "port": rcon_port,
+                "host": rcon_connect_host,
+                "port": rcon_connect_port,
                 "container_port": container_rcon_port,
                 "password": str(cfg["rcon_password"]),
                 "server_dir": server_dir,
@@ -1450,20 +1489,14 @@ class DockerProvider(ServerProvider):
                         host_rcon_port = _read_persisted_rcon_port(server_dir)
                     resolved_port = host_rcon_port or container_rcon_port
                     if pwd:
-                        in_dood = bool(
-                            os.environ.get("ONX_HOST_DATA_DIR")
-                            or os.environ.get("MCS_HOST_DATA_DIR")
-                            or Path("/.dockerenv").exists()
-                        )
-                        rcon_host = "127.0.0.1"
-                        rcon_connect_port = resolved_port
-                        if in_dood:
+                        cip: str | None = None
+                        if _is_dood_environment():
                             cname = self._resolve_container_name(handle)
                             if cname:
                                 cip = await self.get_container_ip(cname)
-                                if cip:
-                                    rcon_host = cip
-                                    rcon_connect_port = container_rcon_port
+                        rcon_host, rcon_connect_port = resolve_dood_rcon_endpoint(
+                            cip, container_rcon_port, resolved_port
+                        )
                         entry = {
                             "host": rcon_host,
                             "port": rcon_connect_port,

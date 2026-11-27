@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from app.api.deps import get_query_bus, require_server_permission
+from app.api.deps import get_query_bus, require_files_read_permission, require_server_permission
 from app.api.v1.dependencies.server_mode import require_advanced_mode
 from app.api.v1.schemas.files import (
     FileContentResponse,
@@ -185,8 +185,8 @@ def _assert_file_mutation_allowed(
             raise HTTPException(  # noqa: B904
                 status_code=403,
                 detail=(
-                    f"Directory '{relative_path}' is not editable on an Advanced Git branch "
-                    "(Class A/C or runtime-managed directory)."
+                    f"Directory '{relative_path}' is managed at runtime and cannot be "
+                    "edited directly on a Git branch."
                 ),
             )
 
@@ -195,21 +195,20 @@ def _assert_file_mutation_allowed(
         if raw_class != "B":
             if raw_class == "A-JAR" or relative_path.casefold().endswith(".jar"):
                 detail = (
-                    "JAR files cannot be uploaded in Files on an Advanced branch (Class A). "
-                    "Use the Plugins page to upload and validate .jar plugins."
+                    "JAR files cannot be uploaded in Files on an Advanced branch. "
+                    "Use the Plugins or Mods page to upload and validate .jar files."
                 )
             elif raw_class == "QUARANTINE":
-                detail = f"Blocked executable or hostile file '{relative_path}' in Advanced Mode."
+                detail = f"Blocked executable or unsafe file '{relative_path}' in Advanced Mode."
             elif raw_class == "C":
                 detail = (
-                    f"File '{relative_path}' is a Live State (Class C) file and cannot be edited "
+                    f"File '{relative_path}' is a live runtime state file and cannot be edited "
                     "on a Git branch; use the Live State view on 'main'."
                 )
             else:
                 detail = (
-                    f"File '{relative_path}' is blocked by Allow-list v2.3 (Class {raw_class}) "
-                    "on an Advanced branch. Only Class-B configuration files and "
-                    "server-icon.png are allowed here."
+                    f"File '{relative_path}' cannot be edited on an Advanced branch. "
+                    "Only tracked configuration files and server-icon.png are allowed here."
                 )
             raise HTTPException(status_code=403, detail=detail)  # noqa: B904
 
@@ -667,7 +666,7 @@ async def _resolve_server_file_path(
     if branch == "live-state":
         raise HTTPException(  # noqa: B904
             status_code=422,
-            detail="Use /files/live-state endpoints to access Live State Class-C files",
+            detail="Use /files/live-state endpoints to access live runtime state files",
         )
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
     if server is None:
@@ -732,7 +731,7 @@ async def list_files(
     branch: str | None = Query(default=None),
     scope: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
-    _current_user: dict = Depends(require_server_permission("server.{id}.files")),  # noqa: B008
+    _current_user: dict = Depends(require_files_read_permission()),  # noqa: B008
 ) -> list[FileEntryResponse]:
     if _normalize_scope(scope) == "logs":
         runtime_root = await _resolve_logs_runtime_root(server_id, branch, query_bus)
@@ -813,7 +812,7 @@ async def read_file_content(
     branch: str | None = Query(default=None),
     scope: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
-    _current_user: dict = Depends(require_server_permission("server.{id}.files")),  # noqa: B008
+    _current_user: dict = Depends(require_files_read_permission()),  # noqa: B008
 ) -> FileContentResponse:
     if _normalize_scope(scope) == "logs":
         runtime_root = await _resolve_logs_runtime_root(server_id, branch, query_bus)
@@ -1044,9 +1043,7 @@ async def download_file(
     branch: str | None = Query(default=None),
     scope: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
-    _current_user: dict = Depends(  # noqa: B008
-        require_server_permission("server.{id}.files")  # noqa: B008
-    ),
+    _current_user: dict = Depends(require_files_read_permission()),  # noqa: B008
 ) -> Response:
     if _normalize_scope(scope) == "logs":
         runtime_root = await _resolve_logs_runtime_root(server_id, branch, query_bus)
@@ -1101,13 +1098,13 @@ async def create_directory(
     )
 
 
-# --- P3-4 Live State endpoints ---
+# --- Live State endpoints ---
 
 
 @router.get("/live-state", response_model=LiveStateFileListResponse)
 async def list_live_state(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_server_permission("server.{id}.files"))],
+    _current_user: Annotated[dict, Depends(require_files_read_permission())],
     _advanced: Annotated[dict, Depends(require_advanced_mode)],
     path: str = Query(default="/"),
 ) -> LiveStateFileListResponse:
@@ -1123,11 +1120,15 @@ async def list_live_state(
         server = await server_repo.get(ServerId(server_id))
         if server is None:
             raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
-        live_root = Path(
-            getattr(server, "deployment", None).root_path
-            if getattr(server, "deployment", None) is not None
-            else getattr(server, "root_path", "")
-        ).resolve()
+        if getattr(server, "deployment", None) is not None:
+            raw_root = getattr(server.deployment, "root_path", "")
+        else:
+            raw_root = getattr(server, "root_path", "")
+        if not raw_root:
+            raise HTTPException(
+                status_code=400, detail="Server deployment root path is not configured"
+            )
+        live_root = Path(raw_root).resolve()
 
     layout = resolve_host_state_layout()
     dyn = DynamicClassCService(layout)
@@ -1184,7 +1185,10 @@ async def list_live_state(
                     include = True
             if not include:
                 continue
-            st = entry.stat()
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
             if entry.is_dir() or entry_rel.startswith(
                 ("world/", "world_nether/", "world_the_end/")
             ) or entry_rel.lower().endswith((".mca", ".dat", ".dat_old", ".mcr", ".lock")):
@@ -1209,7 +1213,7 @@ async def list_live_state(
 @router.get("/live-state/content", response_model=LiveStateFileContentResponse)
 async def read_live_state_content(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_server_permission("server.{id}.files"))],
+    _current_user: Annotated[dict, Depends(require_files_read_permission())],
     _advanced: Annotated[dict, Depends(require_advanced_mode)],
     path: str = Query(...),
 ) -> LiveStateFileContentResponse:
@@ -1231,11 +1235,15 @@ async def read_live_state_content(
         server = await server_repo.get(ServerId(server_id))
         if server is None:
             raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
-        live_root = Path(
-            getattr(server, "deployment", None).root_path
-            if getattr(server, "deployment", None) is not None
-            else getattr(server, "root_path", "")
-        ).resolve()
+        if getattr(server, "deployment", None) is not None:
+            raw_root = getattr(server.deployment, "root_path", "")
+        else:
+            raw_root = getattr(server, "root_path", "")
+        if not raw_root:
+            raise HTTPException(
+                status_code=400, detail="Server deployment root path is not configured"
+            )
+        live_root = Path(raw_root).resolve()
 
     layout = resolve_host_state_layout()
     dyn = DynamicClassCService(layout)
@@ -1243,7 +1251,7 @@ async def read_live_state_content(
     cls = classify(relpath, dynamic_class_c=dynamic_set)
     if cls != "C":
         raise HTTPException(  # noqa: B904
-            status_code=403, detail=f"Path '{relpath}' is Class {cls}, not Live State Class C"
+            status_code=403, detail=f"Path '{relpath}' is not a live runtime state file"
         )
 
     import os as _os
@@ -1318,11 +1326,15 @@ async def write_live_state_content(
         server = await server_repo.get(ServerId(server_id))
         if server is None:
             raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
-        live_root = Path(
-            getattr(server, "deployment", None).root_path
-            if getattr(server, "deployment", None) is not None
-            else getattr(server, "root_path", "")
-        ).resolve()
+        if getattr(server, "deployment", None) is not None:
+            raw_root = getattr(server.deployment, "root_path", "")
+        else:
+            raw_root = getattr(server, "root_path", "")
+        if not raw_root:
+            raise HTTPException(
+                status_code=400, detail="Server deployment root path is not configured"
+            )
+        live_root = Path(raw_root).resolve()
 
     from app.modules.versioning.application.repo_lease import RepoLeaseManager
     layout = resolve_host_state_layout()
@@ -1332,7 +1344,7 @@ async def write_live_state_content(
         cls = classify(relpath, dynamic_class_c=dynamic_set)
         if cls != "C":
             raise HTTPException(  # noqa: B904
-                status_code=403, detail=f"Path '{relpath}' is not a Live State Class C file"
+                status_code=403, detail=f"Path '{relpath}' is not a live runtime state file"
             )
         if relpath.startswith(("world/", "world_nether/", "world_the_end/")) or relpath.endswith(
             (".dat", ".dat_old", ".mca", ".mcr", ".lock")
@@ -1355,7 +1367,14 @@ async def write_live_state_content(
                 detail=f"Cannot edit live state while server is in {server.status} state",
             )
 
-        target_path = resolve_safe_disk_path(str(live_root), relpath, allow_create_parents=True)
+        try:
+            target_path = Path(
+                resolve_safe_disk_path(str(live_root), relpath, allow_create_parents=True)
+            )
+        except SymlinkEscapeError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         if status in {"STOPPED", "CREATED", "CRASHED"}:
             # session.lock check
@@ -1399,7 +1418,6 @@ async def write_live_state_content(
             default_provider_for_platform,
         )
         from app.modules.server.infrastructure.providers import provider_factory
-        from app.modules.server.infrastructure.repository import SQLServerRepository
 
         provider_name = getattr(server, "provider", None) or default_provider_for_platform()
         if getattr(server, "runtime", None) is not None and getattr(server.runtime, "provider", None):  # noqa: E501

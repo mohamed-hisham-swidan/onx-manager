@@ -104,7 +104,7 @@ def slp_version_matches_mc(version_name: str | None, target_mc: str) -> bool:
     target = target_mc.strip()
     if not target:
         return False
-    pattern = rf"(?<![0-9.]){re.escape(target)}(?![0-9])"
+    pattern = rf"(?<![0-9.]){re.escape(target)}(?![0-9.])"
     return bool(re.search(pattern, version_name.strip()))
 
 

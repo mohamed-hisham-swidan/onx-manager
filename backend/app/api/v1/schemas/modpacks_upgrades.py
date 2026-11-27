@@ -1,4 +1,4 @@
-"""Pydantic schemas for P5.5 Modpacks, 1-Click Safe Upgrades, LEC, and CurseForge integration."""
+"""Pydantic schemas for Modpacks, 1-Click Safe Upgrades, Loader Cache, and CurseForge integration."""
 
 from __future__ import annotations
 

@@ -80,6 +80,26 @@ export function CreateTagModal({
       closeOnBackdrop={!isSubmitting}
       closeOnEscape={!isSubmitting}
       closeButtonAriaLabel="Close modal"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={(e) => void handleSubmit(e)}
+            disabled={isSubmitting || !tagName.trim()}
+            className="px-4 py-1.5 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-lg transition-colors shadow-sm cursor-pointer"
+          >
+            {isSubmitting ? "Creating..." : "Create Tag"}
+          </button>
+        </div>
+      }
     >
       <div className="space-y-4">
         {/* Error Alert */}
@@ -110,24 +130,6 @@ export function CreateTagModal({
             <p className="text-[11px] text-text-muted mt-1">
               Tags are permanent immutable checkpoints in the repository DAG.
             </p>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-default">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isSubmitting}
-              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !tagName.trim()}
-              className="px-4 py-1.5 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-lg transition-colors shadow-sm"
-            >
-              {isSubmitting ? "Creating..." : "Create Tag"}
-            </button>
           </div>
         </form>
       </div>

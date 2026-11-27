@@ -327,8 +327,8 @@ The integration suite will live in `backend/tests/e2e/` and use the existing Doc
 
 CI enforces the following 6 quality gates on every push/PR to `master`:
 
-1. **DB Compatibility Floor** (`scripts/check-db-revision`): verifies database matches compatible Alembic migration head (`b1e2100000033`).
-2. **Route/Permission Contract** (`scripts/check-route-contract`): verifies live route table matches `contracts/permissions.yaml` exactly (215 live routes vs 215 contract entries).
+1. **DB Compatibility Floor** (`scripts/check-db-revision`): verifies database matches compatible Alembic migration head (`b1e2100000034`).
+2. **Route/Permission Contract** (`scripts/check-route-contract`): verifies live route table matches `contracts/permissions.yaml` exactly (217 live routes vs 215 contract entries).
 3. **Ruff Baseline Gate** (`scripts/check-ruff-baseline`): zero new violations beyond tracked baseline (`backend/ruff-baseline.json`).
 4. **Version Propagation** (`scripts/check-version-propagation`): verifies `pyproject.toml`, runtime (`backend/app/core/version.py`), and frontend package versions agree (`0.1.0`).
 5. **PowerShell UTF-8 BOM** (`scripts/check-ps1-bom`): verifies all 5 tracked `.ps1` files contain a valid UTF-8 BOM.

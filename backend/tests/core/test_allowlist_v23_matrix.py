@@ -1,12 +1,8 @@
-"""Red tests for Allow-list v2.3 (SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7).
+"""Allow-list classification matrix tests.
 
-Production code does not exist yet. The matrix rows are parsed from the spec's
-normative ``tsv`` block at test time, never retyped. Only the literal two-character
-sequences ``\\n`` and ``\\x00`` are decoded; every other character (real backslashes,
-trailing spaces) stays literal.
-
-Until ``app.core.allowlist`` lands, the classification, Step-0 and dir_fd tests fail
-with ImportError -- the expected red state.
+Matrix rows are loaded from ``fixtures/allowlist_matrix.tsv`` (110 canonical cases).
+Only the literal two-character sequences ``\\n`` and ``\\x00`` are decoded; every
+other character (real backslashes, trailing spaces) stays literal.
 """
 
 from __future__ import annotations
@@ -20,31 +16,27 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SPEC_PATH = REPO_ROOT / "docs" / "design" / "SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md"
+SPEC_PATH = Path(__file__).resolve().parent / "fixtures" / "allowlist_matrix.tsv"
 
 EXPECTED_ROW_COUNT = 110
 
-# Copied verbatim from the spec (Tests & Verification, Cross-loader Health Gate).
 HEALTH_GATE_DONE_REGEX = re.compile(
     r"^.*?\bINFO\b.*?: Done \([0-9.,]+s\)! For help, type [\"']help[\"']"
 )
 
 
 def _decode_literal(text: str) -> str:
-    """Decode only the spec's two literal escapes; leave everything else untouched."""
+    """Decode only the two literal escapes; leave everything else untouched."""
     return text.replace("\\n", "\n").replace("\\x00", "\x00")
 
 
 def _parse_matrix_block(source: Path) -> list[tuple[str, str]]:
-    """Return ``(path, expected)`` rows from the spec's ```tsv block.
+    """Return ``(path, expected)`` rows from the TSV fixture.
 
     Lines are deliberately not stripped: a trailing space can be part of a path.
     """
-    lines = source.read_text(encoding="utf-8").split("\n")
-    start = lines.index("```tsv")
-    end = lines.index("```", start + 1)
-    block = lines[start + 1 : end]
+    raw_lines = source.read_text(encoding="utf-8").split("\n")
+    block = raw_lines[:-1] if raw_lines and raw_lines[-1] == "" else raw_lines
     if not block or block[0] != "path\texpected":
         raise ValueError(f"unexpected TSV header: {block[:1]!r}")
     rows: list[tuple[str, str]] = []

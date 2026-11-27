@@ -8,7 +8,7 @@ import { GeneralSettingsTab } from "@/server_manager/components/settings/General
 import { AppearanceSettingsSection } from "@/server_manager/components/AppearanceSettingsSection";
 import { ModpacksCacheTab } from "@/server_manager/components/settings/ModpacksCacheTab";
 import { AccessSection } from "@/server_manager/components/AccessSection";
-import { InvitationsSection } from "@/server_manager/components/InvitationsSection";
+import { UsersPermissionsSection } from "@/server_manager/components/UsersPermissionsSection";
 import { ApiKeysPage } from "@/server_manager/pages/ApiKeysPage";
 import {
   useSettingsPermissions,
@@ -20,14 +20,24 @@ const VALID_TABS = new Set<SettingsTabId>([
   "appearance",
   "integrations",
   "access",
-  "invitations",
+  "users",
   "api-keys",
 ]);
 
-function resolveTab(rawTab: string | null): SettingsTabId {
-  if (!rawTab || rawTab === "system") return "general";
-  if (VALID_TABS.has(rawTab as SettingsTabId)) return rawTab as SettingsTabId;
-  return "general";
+function resolveTab(rawTab: string | null): {
+  tab: SettingsTabId;
+  initialSubTab: "users" | "invitations";
+} {
+  if (!rawTab || rawTab === "system") {
+    return { tab: "general", initialSubTab: "users" };
+  }
+  if (rawTab === "invitations") {
+    return { tab: "users", initialSubTab: "invitations" };
+  }
+  if (VALID_TABS.has(rawTab as SettingsTabId)) {
+    return { tab: rawTab as SettingsTabId, initialSubTab: "users" };
+  }
+  return { tab: "general", initialSubTab: "users" };
 }
 
 function isForbiddenError(err: unknown): boolean {
@@ -38,7 +48,7 @@ function isForbiddenError(err: unknown): boolean {
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = resolveTab(searchParams.get("tab"));
+  const { tab: activeTab, initialSubTab } = resolveTab(searchParams.get("tab"));
 
   const handleTabChange = (tabId: SettingsTabId) => {
     setSearchParams(
@@ -58,7 +68,7 @@ export function SettingsPage() {
   const { data: settings, isLoading, error, refetch } = useSettings();
   const { isLocal, showFullControls, showFullVpsControls, toggleShowFullVpsControls } =
     useDeploymentProfile();
-  const { isOwner } = useSettingsPermissions();
+  const { isOwner, isAdminOrOwner, hasResolvedUser } = useSettingsPermissions();
 
   if (isLoading) {
     return (
@@ -89,6 +99,12 @@ export function SettingsPage() {
     return <ErrorState message="Settings not available" />;
   }
 
+  const isNonOwnerOnAccess = hasResolvedUser && !isOwner && activeTab === "access";
+  const isNonAdminOnRestricted =
+    hasResolvedUser &&
+    !isAdminOrOwner &&
+    (activeTab === "general" || activeTab === "integrations" || activeTab === "users");
+
   return (
     <SettingsShell
       activeTab={activeTab}
@@ -99,11 +115,22 @@ export function SettingsPage() {
       showFullVpsControls={showFullVpsControls}
       onToggleVpsControls={toggleShowFullVpsControls}
       isOwner={isOwner}
+      isAdminOrOwner={!hasResolvedUser || isAdminOrOwner}
     >
       {isSettingsForbidden && !canBypassSettings403 ? (
         <ForbiddenState
           title="Settings Access Restricted"
           message="You do not have permission to view panel settings."
+        />
+      ) : isNonOwnerOnAccess ? (
+        <ForbiddenState
+          title="Owner Access Required"
+          message="Only the instance Owner can configure panel exposure and access mode."
+        />
+      ) : isNonAdminOnRestricted ? (
+        <ForbiddenState
+          title="Settings Access Restricted"
+          message="Only instance Owners and Administrators can access this section."
         />
       ) : activeTab === "general" && settings ? (
         <GeneralSettingsTab settings={settings} />
@@ -113,8 +140,8 @@ export function SettingsPage() {
         <ModpacksCacheTab />
       ) : activeTab === "access" ? (
         <AccessSection />
-      ) : activeTab === "invitations" ? (
-        <InvitationsSection />
+      ) : activeTab === "users" ? (
+        <UsersPermissionsSection initialSubTab={initialSubTab} />
       ) : (
         <ApiKeysPage />
       )}

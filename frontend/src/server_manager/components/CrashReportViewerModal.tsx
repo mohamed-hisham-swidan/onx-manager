@@ -50,10 +50,19 @@ export function CrashReportViewerModal({
       closeOnBackdrop={true}
       closeOnEscape={true}
       closeButtonAriaLabel="Close crash report viewer"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-surface-muted hover:bg-surface-hover text-text-primary border border-border-default text-xs font-medium transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      }
     >
-      <div className="flex flex-col space-y-4 text-text-primary max-h-[75vh]">
-        {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-1 space-y-4">
+      <div className="space-y-4 text-text-primary">
           {isLoading ? (
             <div className="py-12 text-center text-text-muted space-y-2">
               <div className="inline-block w-6 h-6 border-2 border-status-danger border-t-transparent rounded-full animate-spin" />
@@ -232,18 +241,6 @@ export function CrashReportViewerModal({
               </div>
             </>
           ) : null}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border-default">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-surface-muted hover:bg-surface-hover text-text-primary border border-border-default text-xs font-medium transition-colors"
-          >
-            Close
-          </button>
-        </div>
       </div>
     </Modal>
   );

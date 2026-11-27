@@ -36,21 +36,22 @@ class AppSettings(BaseSettings):
     event_bus_retry_attempts: int = 3
     event_bus_subscriber_timeout: float = 10.0
     saga_timeout_seconds: int = 300
-    jwt_private_key: str = ""
+    jwt_private_key: str = Field(default="", repr=False)
     jwt_private_key_path: str = ""
     servers_data_dir: str = "data/servers"
     backup_encryption_key_path: str = ""
     master_kek_file: str = ""
-    master_kek: str = ""
+    master_kek: str = Field(default="", repr=False)
     curseforge_api_key: str = Field(default="", repr=False)
     storage_backend: str = "local"
     backup_storage_path: str = "data/backups"
     plugin_providers: str = "modrinth"
     s3_bucket: str = ""
     s3_region: str = "us-east-1"
-    s3_access_key_id: str = ""
-    s3_secret_access_key: str = ""
+    s3_access_key_id: str = Field(default="", repr=False)
+    s3_secret_access_key: str = Field(default="", repr=False)
     s3_endpoint_url: str = ""
+    s3_prefix: str = ""
     panel_bind_host: str = "127.0.0.1"
     panel_bind_port: int = 8000
     metrics_interval_seconds: float = 5.0
@@ -284,11 +285,21 @@ def get_panel_bind() -> tuple[str, int]:
     return host, settings.panel_bind_port
 
 
+def _is_ipv4_loopback(host: str) -> bool:
+    import ipaddress
+
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return addr.version == 4 and addr.is_loopback
+
+
 def panel_ingress_target() -> str:
     """Compute the Cloudflare ingress service target from the panel bind.
 
     The ingress MUST target a loopback/local address. ``0.0.0.0`` (and any
-    non-loopback host) is rejected as a tunnel ingress target (Decision 3).
+    non-loopback host) is rejected as a tunnel ingress target.
     """
     host, port = get_panel_bind()
     host = host.strip().lower()
@@ -300,7 +311,7 @@ def panel_ingress_target() -> str:
         )
     if host in ("localhost", "::1"):
         host = "127.0.0.1"
-    if not host.startswith("127."):
+    if not _is_ipv4_loopback(host):
         raise InvalidValueError(
             "panel_bind_host",
             host,
@@ -321,7 +332,7 @@ def local_panel_ingress_target() -> str:
     normalized = host.strip().lower()
     if normalized in ("0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0", "", "localhost", "::1"):
         return f"http://127.0.0.1:{port}"
-    if normalized.startswith("127."):
+    if _is_ipv4_loopback(normalized):
         return f"http://{normalized}:{port}"
     raise InvalidValueError(
         "panel_bind_host",

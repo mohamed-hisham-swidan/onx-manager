@@ -40,6 +40,9 @@ export function useServerFilesController() {
   const api = useMemo(() => createAuthenticatedApi(), []);
 
   const canAccessFiles = serverId ? permissions.canFiles(serverId) : false;
+  const canViewLogsOnly = Boolean(
+    serverId && !canAccessFiles && (permissions.canViewLogs?.(serverId) ?? false),
+  );
   const urlBranch = searchParams.get("branch") || undefined;
   const activeBranch = branchContext
     ? branchContext.gitBacked
@@ -51,12 +54,13 @@ export function useServerFilesController() {
   const fileParam = searchParams.get("file") || searchParams.get("edit");
   const tabParam = searchParams.get("tab");
   const viewParam = searchParams.get("view") || searchParams.get("mode");
-  const viewMode: FilesViewMode =
+  const requestedViewMode: FilesViewMode =
     tabParam === "logs"
       ? "logs"
       : tabParam === "live-state" || viewParam === "live-state" || viewParam === "live_state"
         ? "live-state"
         : "branch";
+  const viewMode: FilesViewMode = canViewLogsOnly ? "logs" : requestedViewMode;
   const isLiveState = viewMode === "live-state";
   const isLogsView = viewMode === "logs";
   const isNonMainLiveStateReadOnly = Boolean(isLiveState && activeBranch && activeBranch !== "main");
@@ -66,7 +70,7 @@ export function useServerFilesController() {
       : branchContext?.serverMode === "advanced" ||
         branchContext?.gitBacked === true ||
         isLiveState;
-  const showViewSwitcher = true;
+  const showViewSwitcher = !canViewLogsOnly;
 
   const [splitView, setSplitView] = useState(false);
   const [splitRatio, setSplitRatio] = useState<number>(() => readStoredSplitRatio());
@@ -128,10 +132,11 @@ export function useServerFilesController() {
     }
   }
 
-  const previousBranchRef = useRef(activeBranch);
+  const previousScopeRef = useRef(`${serverId ?? ""}::${activeBranch ?? ""}`);
   useEffect(() => {
-    if (previousBranchRef.current === activeBranch) return;
-    previousBranchRef.current = activeBranch;
+    const scopeKey = `${serverId ?? ""}::${activeBranch ?? ""}`;
+    if (previousScopeRef.current === scopeKey) return;
+    previousScopeRef.current = scopeKey;
     setUserEdited(false);
     setEditContent("");
     setOpenedFileMeta(null);
@@ -144,7 +149,7 @@ export function useServerFilesController() {
       next.delete("edit");
       return next;
     }, { replace: true });
-  }, [activeBranch, setSearchParams]);
+  }, [serverId, activeBranch, setSearchParams]);
 
   const editingFile = useMemo<FileItem | null>(() => {
     if (!fileParam) return null;
@@ -437,7 +442,10 @@ export function useServerFilesController() {
       setSelectedPaths(new Set());
       setShowBulkDelete(false);
     },
-    onError: (err) => handleMutationError("Failed to delete selected items", err),
+    onError: (err) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
+      handleMutationError("Failed to delete selected items", err);
+    },
   });
 
   const uploadBatchMutation = useMutation({

@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -434,15 +435,16 @@ async def _auto_repair(
             MismatchType.TMUX_PID_DEAD,
             MismatchType.DB_STARTING_DEAD,
         ):
-            server.crash(
-                exit_code=-1,
-                last_log_lines=[
-                    f"Runtime reconciliation: {m.detail}",
-                ],
-            )
-            await repo.save(server)
-            actions.append(f"Marked CRASHED: {m.detail}")
-            repaired = True
+            if server.status != ServerStatus.CRASHED:
+                server.crash(
+                    exit_code=-1,
+                    last_log_lines=[
+                        f"Runtime reconciliation: {m.detail}",
+                    ],
+                )
+                await repo.save(server)
+                actions.append(f"Marked CRASHED: {m.detail}")
+                repaired = True
 
         elif m.mismatch_type == MismatchType.DB_RUNNING_NO_SUPERVISOR:
             actions.append("No automatic repair — supervisor not running but DB says RUNNING")
@@ -644,7 +646,13 @@ async def reconcile_orphans(
                 except (ProcessLookupError, OSError):
                     pass
                 platform_force_kill(pid)
-        os.popen(f"tmux kill-session -t {session} 2>/dev/null")
+        subprocess.run(
+            ["tmux", "kill-session", "-t", session],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
         actions.append({"type": "orphan_tmux", "session": session, "pid": pid, "action": "killed"})
 
     all_java_pids = _find_all_java_pids()
@@ -717,12 +725,15 @@ async def reconcile_orphans(
 
 def _get_tmux_pid(session_name: str) -> int | None:
     try:
-        proc = os.popen(
-            f"tmux list-panes -t {session_name} -F '#{{pane_pid}}' 2>/dev/null",
+        res = subprocess.run(
+            ["tmux", "list-panes", "-t", session_name, "-F", "#{pane_pid}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
-        output = proc.read()
-        proc.close()
-        if output and output.strip().splitlines():
+        output = res.stdout or ""
+        if output.strip().splitlines():
             line = output.strip().splitlines()[0]
             if line.isdigit():
                 return int(line)

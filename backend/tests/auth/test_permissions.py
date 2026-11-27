@@ -98,11 +98,3 @@ class TestPermissionEvaluator:
         result = await evaluator.filter_by_permission([admin_user, viewer_user], "server:read")
         assert len(result) == 1
         assert result[0].user_id == admin_user.user_id
-
-    async def test_abac_evaluation(self, evaluator: PermissionEvaluator, admin_user: User) -> None:
-        assert evaluator.evaluate_abac(admin_user, "server", "read") is True
-
-    async def test_abac_with_resource_owner(
-        self, evaluator: PermissionEvaluator, admin_user: User
-    ) -> None:
-        assert evaluator.evaluate_abac(admin_user, "server", "read", resource_owner_id="u1") is True

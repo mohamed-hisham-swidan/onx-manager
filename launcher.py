@@ -1743,6 +1743,24 @@ class Validator:
 
     @staticmethod
     def check_python() -> tuple[str, str]:
+        python_path = find_backend_venv()
+        if python_path is not None and python_path.exists():
+            try:
+                proc = subprocess.run(
+                    [str(python_path), "-c", "import platform; print(platform.python_version())"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    venv_ver = proc.stdout.strip()
+                    v_major, v_minor = (int(x) for x in venv_ver.split(".")[:2])
+                    if (v_major, v_minor) == PINNED_PYTHON:
+                        return venv_ver, str(python_path)
+            except Exception:
+                pass
+
         ver = platform.python_version()
         try:
             major, minor = (int(x) for x in ver.split(".")[:2])
@@ -1762,7 +1780,6 @@ class Validator:
                     "3.12 interpreter."
                 ),
             )
-        python_path = find_backend_venv()
         if python_path is None:
             python_path = Path("python3" if os.name != "nt" else "python")
         return ver, str(python_path)
@@ -4566,6 +4583,7 @@ def main() -> int:
         cfg.backend_only = False
     if "--headless" in args:
         cfg.headless = True
+        cfg.open_browser = False
     if "--no-browser" in args:
         cfg.open_browser = False
     if "open" in args:

@@ -691,7 +691,20 @@ async def test_branch_scoped_activity_filtering(p43_api: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_rbac_read_vs_mutate(p43_api: Any) -> None:
+    from app.modules.server.infrastructure.models import ServerMembershipModel
+
     api = p43_api
+    async with database.session_factory() as session:
+        session.add(
+            ServerMembershipModel(
+                id="mem-p43-rbac",
+                server_id=SERVER_ID,
+                user_id=api.user["user_id"],
+                role="server_admin",
+            )
+        )
+        await session.commit()
+
     viewer = await _seed_api_key_header(
         api.client, api.user["user_id"], ["server:version:read"]
     )

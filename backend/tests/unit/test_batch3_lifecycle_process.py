@@ -7,8 +7,6 @@ import pytest
 
 from app.modules.exposure.infrastructure.playit_agent import PlayitAgentSupervisor
 from app.modules.plugin.domain.aggregate import _PLUGIN_TRANSITIONS, Plugin, PluginStatus
-from app.modules.plugin.infrastructure.lifecycle import PluginLifecycleManager, RuntimeStatus
-from app.modules.plugin.infrastructure.runner.subprocess import SubprocessPluginRunner
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.shared.value_objects import PluginId, PluginVersion, ServerId
 
@@ -31,42 +29,6 @@ def test_f038_plugin_mark_uninstalled_transition():
     assert plugin.status == PluginStatus.UNINSTALLED
     events = plugin.collect_events()
     assert any(e.__class__.__name__ == "PluginUninstalledEvent" for e in events)
-
-
-@pytest.mark.asyncio
-async def test_f041_lifecycle_on_heartbeat_missed_restarts():
-    """F041: PluginLifecycleManager restarts runner when heartbeat missed <= max attempts."""
-    mock_runner = MagicMock()
-    mock_runner.start = AsyncMock()
-    mock_runner.stop = AsyncMock()
-
-    mgr = PluginLifecycleManager(mock_runner)
-    await mgr.enable("p1", "/fake/dir", {"entry_point": "main.py"})
-    assert await mgr.get_status("p1") == RuntimeStatus.ENABLED
-
-    # Missed heartbeat 1/3 triggers restart
-    await mgr.on_heartbeat_missed("p1")
-    assert await mgr.get_status("p1") == RuntimeStatus.ENABLED
-    assert mock_runner.start.call_count == 2  # once on enable, once on restart
-
-    # Exceeding MAX_RESTART_ATTEMPTS transitions to FAILED
-    mgr._restart_counts["p1"] = 3
-    await mgr.on_heartbeat_missed("p1")
-    assert await mgr.get_status("p1") == RuntimeStatus.FAILED
-
-
-@pytest.mark.asyncio
-async def test_f042_subprocess_runner_restart():
-    """F042: SubprocessPluginRunner.restart retrieves saved config and calls start."""
-    runner = SubprocessPluginRunner()
-    runner.start = AsyncMock()
-    runner.stop = AsyncMock()
-
-    runner._plugin_configs["p1"] = ("/fake/plugins/p1", {"entry_point": "plugin.py"})
-    await runner.restart("p1")
-
-    runner.stop.assert_awaited_once_with("p1")
-    runner.start.assert_awaited_once_with("p1", "/fake/plugins/p1", {"entry_point": "plugin.py"})
 
 
 @pytest.mark.asyncio

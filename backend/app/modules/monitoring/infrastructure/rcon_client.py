@@ -41,7 +41,11 @@ class AsyncRCONClient:
         except (OSError, TimeoutError) as exc:
             raise RCONError(f"Failed to connect to {self._host}:{self._port}: {exc}") from exc
 
-        await self._authenticate()
+        try:
+            await self._authenticate()
+        except Exception:
+            await self.close()
+            raise
 
     async def _authenticate(self) -> None:
         self._request_id += 1
@@ -162,7 +166,7 @@ class PersistentRCONClient:
         try:
             await self._client.connect()
         except Exception:
-            self._client = None
+            await self._close_unlocked()
             raise
         return self._client
 
@@ -180,6 +184,9 @@ class PersistentRCONClient:
                     # not be reused. Close it before propagating the cancel.
                     await self._close_unlocked()
                     raise
+                except AuthenticationError:
+                    await self._close_unlocked()
+                    raise
                 except Exception as exc:
                     last_error = exc
                     await self._close_unlocked()
@@ -189,7 +196,11 @@ class PersistentRCONClient:
 
     async def _close_unlocked(self) -> None:
         if self._client is not None:
-            await self._client.close()
+            import inspect
+
+            res = self._client.close()
+            if inspect.isawaitable(res):
+                await res
             self._client = None
 
     async def close(self) -> None:

@@ -34,7 +34,7 @@ Modern npm versions block package `postinstall` scripts (including `electron`'s 
 
 If `desktop/node_modules` lives on a filesystem mounted with `noexec` (`EACCES`), `ensure-electron.js` prints instructions to copy `dist/` to an executable folder and set `ELECTRON_OVERRIDE_DIST_PATH`.
 
-Press `Ctrl+Shift+K` (`Cmd+Shift+K` on macOS) or use **Connection → Switch Connection** at any time to switch between Local Mode and saved Remote servers.
+Press `Ctrl+Shift+K` (`Cmd+Shift+K` on macOS) or select **Switch Connection** from the system tray menu at any time to switch between Local Mode and saved Remote servers.
 
 ## Packaging Installers
 

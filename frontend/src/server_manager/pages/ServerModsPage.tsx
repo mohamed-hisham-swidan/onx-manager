@@ -277,7 +277,10 @@ export function ServerModsPage() {
     onError: (err) => toast("error", "Commit failed", errorMessage(err)),
   });
 
-  const { data: mods, isLoading, error } = usePluginsList(effectiveServerId, activeBranch);
+  const { data: mods, isLoading, error } = usePluginsList(
+    isNonModdedServer ? "" : effectiveServerId,
+    activeBranch,
+  );
   const uploadMod = useUploadPluginOrMod(effectiveServerId, activeBranch);
   const toggleMod = useToggleModState(effectiveServerId, activeBranch);
   const uninstallMod = useUninstallPlugin(effectiveServerId, activeBranch);
@@ -407,15 +410,17 @@ export function ServerModsPage() {
                   Install Modpack (.mrpack / CurseForge)
                 </button>
               )}
-              <button
-                type="button"
-                disabled={isMainProtected || !canManagePlugins}
-                onClick={handleBrowseMarketplace}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-              >
-                <Icon name="plus" size={16} />
-                Browse Marketplace
-              </button>
+              {!isNonModdedServer && (
+                <button
+                  type="button"
+                  disabled={isMainProtected || !canManagePlugins}
+                  onClick={handleBrowseMarketplace}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                >
+                  <Icon name="plus" size={16} />
+                  Browse Marketplace
+                </button>
+              )}
             </>
           ) : undefined
         }
@@ -464,7 +469,11 @@ export function ServerModsPage() {
               </div>
               {isPluginLoader(activeServerType) && (
                 <Link
-                  to={`/servers/${effectiveServerId}/plugins`}
+                  to={
+                    activeBranch
+                      ? `/servers/${effectiveServerId}/plugins?branch=${encodeURIComponent(activeBranch)}`
+                      : `/servers/${effectiveServerId}/plugins`
+                  }
                   className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors"
                 >
                   <Icon name="plugin" size={14} />
@@ -497,22 +506,26 @@ export function ServerModsPage() {
                     Switch to {firstWorkingBranch}
                   </button>
                 )}
-                <input
-                  type="text"
-                  value={quickBranchName}
-                  onChange={(e) => setQuickBranchName(e.target.value)}
-                  placeholder="mod-test"
-                  aria-label="New working branch name"
-                  className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary focus:border-accent-primary focus:outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={!quickBranchName.trim() || createBranchMutation.isPending}
-                  onClick={() => createBranchMutation.mutate(quickBranchName.trim())}
-                  className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-semibold text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
-                >
-                  {createBranchMutation.isPending ? "Creating..." : "Create Working Branch"}
-                </button>
+                {canManagePlugins && (
+                  <>
+                    <input
+                      type="text"
+                      value={quickBranchName}
+                      onChange={(e) => setQuickBranchName(e.target.value)}
+                      placeholder="mod-test"
+                      aria-label="New working branch name"
+                      className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary focus:border-accent-primary focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!quickBranchName.trim() || createBranchMutation.isPending}
+                      onClick={() => createBranchMutation.mutate(quickBranchName.trim())}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-semibold text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+                    >
+                      {createBranchMutation.isPending ? "Creating..." : "Create Working Branch"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -533,7 +546,7 @@ export function ServerModsPage() {
               <button
                 type="button"
                 data-testid="mods-commit-btn"
-                disabled={commitLockfileMutation.isPending}
+                disabled={!canManagePlugins || commitLockfileMutation.isPending}
                 onClick={() => commitLockfileMutation.mutate()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover disabled:opacity-50 cursor-pointer"
               >

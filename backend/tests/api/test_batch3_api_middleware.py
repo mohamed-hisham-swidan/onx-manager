@@ -85,9 +85,9 @@ async def test_f052_options_preflight_bypasses_auth():
 # --- F053: Schedules endpoint requires authentication at gateway ---
 @pytest.mark.asyncio
 async def test_f053_schedules_requires_auth():
-    # Assert /api/v1/schedules is NOT in public prefixes
+    # Assert /api/v1/schedules is NOT in public routes
     auth_mw = AuthMiddleware(app=MagicMock())
-    assert "/api/v1/schedules" not in auth_mw._public_prefixes
+    assert "/api/v1/schedules" not in auth_mw._public_routes
 
     async with AsyncClient(
         transport=ASGITransport(app=app),

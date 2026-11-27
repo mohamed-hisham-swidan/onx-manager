@@ -182,6 +182,17 @@ describe("ServerSettingsPage", () => {
 
   it("opens Upgrades & Mode and the Change Version drawer from ?tab=lifecycle&action=change-version", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(["auth", "me"], {
+      user_id: "u1",
+      username: "admin",
+      email: null,
+      display_name: "Admin",
+      is_active: true,
+      roles: ["owner"],
+      permissions: ["admin:full"],
+      created_at: "",
+      last_login_at: null,
+    });
     render(
       <QueryClientProvider client={qc}>
         <MemoryRouter

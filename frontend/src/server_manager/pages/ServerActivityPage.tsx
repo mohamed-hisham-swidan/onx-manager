@@ -94,6 +94,20 @@ export function ServerActivityPage() {
   const [branchFilter, setBranchFilter] = useState<string>(
     activeContextBranch || "all",
   );
+  const [branches, setBranches] = useState<ServerBranch[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
+
+  const [prevServerId, setPrevServerId] = useState<string | undefined>(serverId);
+  if (serverId !== prevServerId) {
+    setPrevServerId(serverId);
+    setOffset(0);
+    setCategoryFilter("all");
+    setSearchQuery("");
+    setExpandedLogIds(new Set());
+    setBranches([]);
+    setBranchFilter(activeContextBranch || "all");
+  }
   const [prevContextBranch, setPrevContextBranch] = useState<string | undefined>(
     activeContextBranch,
   );
@@ -102,9 +116,6 @@ export function ServerActivityPage() {
     setBranchFilter(activeContextBranch || "all");
     setOffset(0);
   }
-  const [branches, setBranches] = useState<ServerBranch[]>([]);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

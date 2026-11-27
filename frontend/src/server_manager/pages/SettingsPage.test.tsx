@@ -116,6 +116,15 @@ function renderPage(initialEntry = "/settings") {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  qc.setQueryData(["currentUser"], {
+    user_id: "u1",
+    roles: ["owner"],
+    display_name: "Owner",
+    email: "owner@example.com",
+    is_active: true,
+    created_at: "2026-01-01T00:00:00Z",
+    last_login_at: null,
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -305,7 +314,7 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("switches between Appearance, Modpacks & Cache, Invitations, and API Keys tabs", async () => {
+  it("switches between Appearance, Modpacks & Cache, Users & Invitations, and API Keys tabs", async () => {
     renderPage();
 
     fireEvent.click(screen.getAllByRole("tab", { name: /Appearance/i })[0]);
@@ -315,6 +324,8 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("CurseForge API Key")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("tab", { name: /Invitations/i })[0]);
+    expect(await screen.findByRole("heading", { name: "Team Members" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Invitations" }));
     expect(await screen.findByRole("heading", { name: "Invitations" })).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("tab", { name: /API Keys/i })[0]);

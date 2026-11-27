@@ -194,7 +194,10 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
             command.message,
         )
 
-        from app.modules.versioning.domain.value_objects import CommitManifest
+        from app.modules.versioning.domain.value_objects import (
+            CommitManifest,
+            normalize_server_type_str,
+        )
 
         # D-7: project native Git commit into SQLite so DB-backed queries see it.
         if result.commit_id:
@@ -208,7 +211,7 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                     parent_commit_id=result.parent_commit_id,
                     parent_commit_ids=[result.parent_commit_id] if result.parent_commit_id else [],
                     manifest=CommitManifest(
-                        server_type=str(server.server_type),
+                        server_type=normalize_server_type_str(server.server_type),
                         minecraft_version=str(server.minecraft_version),
                     ),
                 )

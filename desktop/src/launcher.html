@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none';" />
   <title>ONX Manager — Connect</title>
   <style>
     :root {
@@ -197,7 +197,7 @@
           </div>
           <div style="margin-bottom: 12px;">
             <label for="remote-url">Panel URL</label>
-            <input id="remote-url" type="url" placeholder="https://mc.example.com" required />
+            <input id="remote-url" type="text" inputmode="url" placeholder="https://mc.example.com" required />
           </div>
           <div id="remote-status" class="alert" style="display:none; margin-bottom: 12px;"></div>
           <div class="row">

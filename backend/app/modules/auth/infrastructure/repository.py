@@ -92,6 +92,8 @@ class SQLUserRepository:
                 display_name=user.display_name,
                 is_active=user.is_active,
                 last_login_at=user.last_login_at,
+                denied_permissions=list(user.denied_permissions),
+                all_servers_access=bool(user.all_servers_access),
                 roles=[],
             )
             self._session.add(model)
@@ -103,6 +105,8 @@ class SQLUserRepository:
             model.display_name = user.display_name
             model.is_active = user.is_active
             model.last_login_at = user.last_login_at
+            model.denied_permissions = list(user.denied_permissions)
+            model.all_servers_access = bool(user.all_servers_access)
             model.roles = [r for r in model.roles if r.id in user_role_ids]
             existing_role_ids = {r.id for r in model.roles}
 
@@ -191,6 +195,8 @@ class SQLUserRepository:
             is_active=model.is_active,
             created_at=model.created_at,
             last_login_at=model.last_login_at,
+            denied_permissions=list(getattr(model, "denied_permissions", None) or []),
+            all_servers_access=bool(getattr(model, "all_servers_access", False)),
         )
 
     def _model_to_domain_role(self, model: RoleModel) -> Role:
@@ -233,10 +239,12 @@ class SQLSystemStateRepository:
     async def get(self, id: str = "default") -> SystemState:
         model = await self._session.get(SystemStateModel, id)
         if model is None:
+            from app.core.local_auth import default_bootstrap_access_mode
+
             return SystemState(
                 id=id,
                 initialized=False,
-                access_mode=AccessMode.LOCAL,
+                access_mode=default_bootstrap_access_mode(),
                 password_configured=False,
             )
         return self._model_to_domain(model)
@@ -246,10 +254,12 @@ class SQLSystemStateRepository:
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:
+            from app.core.local_auth import default_bootstrap_access_mode
+
             return SystemState(
                 id=id,
                 initialized=False,
-                access_mode=AccessMode.LOCAL,
+                access_mode=default_bootstrap_access_mode(),
                 password_configured=False,
             )
         return self._model_to_domain(model)
@@ -316,6 +326,9 @@ class SQLInvitationRepository:
         model.global_role = invitation.global_role
         model.server_id = invitation.server_id
         model.server_role = invitation.server_role
+        model.server_ids_json = list(invitation.server_ids)
+        model.denied_permissions_json = list(invitation.denied_permissions)
+        model.all_servers_access = bool(invitation.all_servers_access)
         model.status = str(
             invitation.status.value
             if isinstance(invitation.status, InviteStatus)
@@ -349,6 +362,12 @@ class SQLInvitationRepository:
         return True
 
     def _model_to_domain(self, model: InvitationModel) -> Invitation:
+        raw_server_ids = getattr(model, "server_ids_json", None)
+        resolved_server_ids = list(raw_server_ids) if isinstance(raw_server_ids, list) else []
+        if not resolved_server_ids and model.server_id:
+            resolved_server_ids = [model.server_id]
+        raw_denied = getattr(model, "denied_permissions_json", None)
+        resolved_denied = list(raw_denied) if isinstance(raw_denied, list) else []
         return Invitation(
             invitation_id=model.id,
             token_hash=model.token_hash,
@@ -358,6 +377,9 @@ class SQLInvitationRepository:
             global_role=model.global_role,
             server_id=model.server_id,
             server_role=model.server_role,
+            server_ids=resolved_server_ids,
+            denied_permissions=resolved_denied,
+            all_servers_access=bool(getattr(model, "all_servers_access", False)),
             status=model.status,
             max_uses=model.max_uses,
             use_count=model.use_count,

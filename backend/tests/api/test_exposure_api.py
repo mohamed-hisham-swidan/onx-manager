@@ -156,13 +156,51 @@ async def _seed_user(client) -> dict:
     return resp.json()
 
 
+async def _assign_db_role(user_id: str, role_name: str) -> None:
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.modules.auth.infrastructure.models import RoleModel, UserRoleModel
+
+    perms_map = {
+        "owner": "admin:full,global:*",
+        "admin": "admin:full",
+        "server_admin": "server:read",
+        "viewer": "server:read",
+    }
+    async with database._session_factory() as session:
+        role = (
+            await session.execute(select(RoleModel).where(RoleModel.name == role_name))
+        ).scalar_one_or_none()
+        if role is None:
+            role = RoleModel(
+                id=uuid.uuid4().hex,
+                name=role_name,
+                permissions=perms_map.get(role_name, "server:read"),
+                description=role_name,
+            )
+            session.add(role)
+            await session.flush()
+        existing = (
+            await session.execute(
+                select(UserRoleModel).where(UserRoleModel.user_id == user_id)
+            )
+        ).scalars().all()
+        for row in existing:
+            await session.delete(row)
+        session.add(UserRoleModel(user_id=user_id, role_id=role.id))
+        await session.commit()
+
+
 async def _owner_header(_client, user: dict) -> dict[str, str]:
     from app.modules.auth.infrastructure.jwt import create_access_token
 
+    await _assign_db_role(user["user_id"], "owner")
     token = create_access_token(
         user_id=user["user_id"],
         roles=["owner"],
-        permissions=["server:create", "server:write", "server:delete", "server:read"],
+        permissions=["admin:full", "global:*"],
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -214,6 +252,8 @@ async def _grant_exposure(
 
 async def _seed_user_with_perm(client, permissions: list[str]) -> dict:
     user = await _seed_user(client)
+    if any(p in ("admin:full", "exposure.credentials.manage") for p in permissions):
+        await _assign_db_role(user["user_id"], "admin")
     header = await _seed_api_key_header(client, user["user_id"], permissions)
     return user, header
 
@@ -269,10 +309,7 @@ async def test_exposure_agent_reset_and_remove_credentials(exposure_client) -> N
 
 
 async def test_exposure_agent_reconcile(exposure_client) -> None:
-    user = await _seed_user(exposure_client)
-    header = await _seed_api_key_header(
-        exposure_client, user["user_id"], ["exposure.credentials.manage"]
-    )
+    user, header = await _seed_user_with_perm(exposure_client, ["exposure.credentials.manage"])
     resp = await exposure_client.post("/api/v1/exposure/agent/reconcile", headers=header)
     assert resp.status_code == 200
     assert resp.json()["reconciled"] is True
@@ -617,6 +654,7 @@ async def test_server_exposure_grant_holder_manage(exposure_client) -> None:
     sid = server["server_id"]
 
     grantee_user = await _seed_user(exposure_client)
+    await _assign_db_role(grantee_user["user_id"], "server_admin")
     grantee = await _seed_api_key_header(
         exposure_client,
         grantee_user["user_id"],

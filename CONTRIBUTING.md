@@ -2,15 +2,13 @@
 
 Thanks for your interest in contributing to ONX Manager! This guide covers the development workflow, code conventions, governance basics, and quality gates.
 
-<!-- TODO(HUMAN): Customize PR review SLA, branch naming preferences, and community discussion links -->
-
 ---
 
 ## Getting Started
 
 1. Fork the repository and clone your fork.
 2. Run `./scripts/bootstrap` to set up the environment (venv, dependencies, migrations), or follow [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-3. Start the dev environment via `python launcher.py --dev` (or run backend `uvicorn` + frontend `npm run dev` directly).
+3. Start the dev environment via `python3 launcher.py --dev` (or run backend `uvicorn` + frontend `npm run dev` directly).
 4. Read [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) and [docs/reference/dependency-graph.md](docs/reference/dependency-graph.md) before making cross-module changes.
 
 ---
@@ -71,7 +69,6 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `style`, `ci`
 - **Significant architectural or contract changes**: Open an issue first to discuss design trade-offs. Accepted architectural decisions are documented as ADRs under [`docs/decisions/`](docs/decisions/README.md).
 - **Versioning**: Public releases follow SemVer 2.0.0 ([`docs/VERSIONING.md`](docs/VERSIONING.md)).
 
-<!-- TODO(HUMAN): Clarify maintainer approval requirements and whether external PRs should target `master` or a staging branch -->
 
 ---
 
@@ -82,13 +79,13 @@ Before submitting a PR, verify all of the following:
 | Gate | Command | Requirement |
 |---|---|---|
 | Version Propagation | `python3 scripts/check-version-propagation` | All versions match `0.1.0` |
-| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000033` |
+| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000034` |
 | Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
-| Route/Permission Contract | `python3 scripts/check-route-contract` | 215 / 215 routes match `contracts/permissions.yaml` |
+| Route/Permission Contract | `python3 scripts/check-route-contract` | 217 / 217 routes match `contracts/permissions.yaml` |
 | PowerShell UTF-8 BOM | `python3 scripts/check-ps1-bom` | All `.ps1` scripts have valid UTF-8 BOM |
 | Stray DB Check | `python3 scripts/check-stray-db` | No stray SQLite `.db` files at repo root or backend root |
-| Backend Tests | `cd backend && pytest` | All tests passing (5,318 passed, 7 skipped across 328 `test_*.py` files) |
-| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test && npm run build` | Typecheck, lint, tests (1,353 passed across 139 test files), and build passing |
+| Backend Tests | `cd backend && pytest` | All tests passing (`cd backend && .venv/bin/pytest tests/ -q`) |
+| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test && npm run build` | Typecheck, lint (0 warnings), tests, and production build passing |
 
 ### PR Checklist
 
@@ -104,4 +101,3 @@ Before submitting a PR, verify all of the following:
 - Check [Getting Started](docs/getting-started.md) for environment setup
 - Check [Development Guide](docs/DEVELOPMENT.md) for common workflows
 - Review our [Code of Conduct](CODE_OF_CONDUCT.md) and [Security Policy](SECURITY.md)
-<!-- TODO(HUMAN): Add link to GitHub Discussions / Discord / issue templates if enabled -->

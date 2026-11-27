@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -140,6 +141,59 @@ async def broadcast_channel_lines(channel: str, lines: list[str]) -> int:
     return await _registry.broadcast(channel, msg.to_json())
 
 
+async def disconnect_user_sessions(user_id: str, reason: str = "Session invalidated") -> None:
+    """Force-close all active WebSocket connections for a user and clear bindings."""
+    if _authorizer is not None:
+        _authorizer.clear_user(user_id)
+    if _registry is None:
+        return
+    await _registry.clear_user_bindings(user_id)
+    entries = await _registry.get_user_connection_entries(user_id)
+    for cid, ws in entries:
+        with contextlib.suppress(Exception):
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason=reason)
+        await _registry.deregister(cid)
+        if _authenticator is not None:
+            _authenticator.remove_connection(cid)
+
+
+async def revalidate_user_sessions(user_id: str) -> None:
+    """Recompute live DB context for connected WebSockets and prune revoked channels."""
+    if _authorizer is None or _registry is None:
+        return
+    from app.core.authorization import (
+        database_has_users,
+        load_user_auth_context,
+        load_user_model_with_roles,
+    )
+    from app.core.persistence.db import database
+
+    if database._session_factory is None:
+        return
+    try:
+        async with database.session_factory() as db:
+            user_model = await load_user_model_with_roles(db, user_id)
+            if user_model is None:
+                if await database_has_users(db):
+                    await disconnect_user_sessions(user_id, reason="User account not found")
+                return
+            if not user_model.is_active:
+                await disconnect_user_sessions(user_id, reason="Account disabled")
+                return
+            live_ctx = await load_user_auth_context(db, user_model)
+    except Exception:
+        return
+
+    _authorizer.set_user_context(user_id, live_ctx)
+    entries = await _registry.get_user_connection_entries(user_id)
+    for cid, _ws in entries:
+        subs = await _registry.get_subscriptions(cid)
+        for ch in subs:
+            if not _authorizer.can_subscribe(user_id, ch):
+                await _registry.unsubscribe(cid, ch)
+                await _registry.unbind_user_channel(user_id, ch)
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(
     ws: WebSocket,
@@ -150,6 +204,7 @@ async def websocket_endpoint(
         init_websocket(event_bus)
 
     token = token or ws.query_params.get("token", "")
+    live_ctx: dict[str, Any] | None = None
     if not token:
         from app.core.local_auth import resolve_local_auto_auth
         from app.core.persistence.db import database
@@ -169,13 +224,54 @@ async def websocket_endpoint(
         try:
             claims = verify_ws_token(token)
             user_id = claims["user_id"]
-            permissions = claims["permissions"]
+            permissions = set(claims["permissions"])
         except Exception as e:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(e))
             return
+
+        from app.core.authorization import (
+            database_has_users,
+            load_user_auth_context,
+            load_user_model_with_roles,
+        )
+        from app.core.persistence.db import database
+
+        if database._session_factory is not None:
+            try:
+                async with database.session_factory() as db:
+                    user_model = await load_user_model_with_roles(db, user_id)
+                    if user_model is None:
+                        if await database_has_users(db):
+                            await ws.close(
+                                code=status.WS_1008_POLICY_VIOLATION,
+                                reason="User account not found",
+                            )
+                            return
+                    elif not user_model.is_active:
+                        await ws.close(
+                            code=status.WS_1008_POLICY_VIOLATION,
+                            reason="Account is deactivated",
+                        )
+                        return
+                    else:
+                        live_ctx = await load_user_auth_context(db, user_model)
+                        permissions = set(live_ctx.get("permissions", []))
+            except Exception as exc:
+                logger.warning(
+                    "WebSocket DB authorization lookup failed for user %s: %s",
+                    user_id,
+                    exc,
+                )
+                await ws.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="Authorization check failed",
+                )
+                return
 
     await ws.accept()
 
     handler = _handler
     if handler is not None:
+        if _authorizer is not None and live_ctx is not None:
+            _authorizer.set_user_context(user_id, live_ctx)
         await handler.handle(ws, token, user_id, permissions)

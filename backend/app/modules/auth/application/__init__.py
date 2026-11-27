@@ -2,6 +2,10 @@ from app.modules.auth.application.commands.accept_invite import (
     AcceptInviteCommand,
     AcceptInviteHandler,
 )
+from app.modules.auth.application.commands.admin_create_user import (
+    AdminCreateUserCommand,
+    AdminCreateUserHandler,
+)
 from app.modules.auth.application.commands.bootstrap_instance import (
     BootstrapInstanceCommand,
     BootstrapInstanceHandler,
@@ -39,6 +43,10 @@ from app.modules.auth.application.commands.update_access_mode import (
     UpdateAccessModeHandler,
 )
 from app.modules.auth.application.commands.update_user import UpdateUserCommand, UpdateUserHandler
+from app.modules.auth.application.commands.update_user_access import (
+    UpdateUserAccessCommand,
+    UpdateUserAccessHandler,
+)
 from app.modules.auth.application.queries.get_current_user import (
     GetCurrentUserHandler,
     GetCurrentUserQuery,
@@ -69,6 +77,10 @@ __all__ = [
     "RevokeApiKeyHandler",
     "UpdateUserCommand",
     "UpdateUserHandler",
+    "UpdateUserAccessCommand",
+    "UpdateUserAccessHandler",
+    "AdminCreateUserCommand",
+    "AdminCreateUserHandler",
     "DeleteUserCommand",
     "DeleteUserHandler",
     "BootstrapInstanceCommand",

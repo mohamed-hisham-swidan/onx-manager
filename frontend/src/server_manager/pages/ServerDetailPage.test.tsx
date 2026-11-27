@@ -129,17 +129,20 @@ function renderPage(serverId = "srv-1") {
     created_at: "",
     last_login_at: null,
   });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/servers/${serverId}`]}>
-        <Routes>
-          <Route path="/servers/:serverId" element={<ServerDetailPage />} />
-          <Route path="/servers/:serverId/settings" element={<SettingsRouteProbe />} />
-          <Route path="/servers" element={<div data-testid="servers-list">Servers</div>} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return {
+    qc,
+    ...render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[`/servers/${serverId}`]}>
+          <Routes>
+            <Route path="/servers/:serverId" element={<ServerDetailPage />} />
+            <Route path="/servers/:serverId/settings" element={<SettingsRouteProbe />} />
+            <Route path="/servers" element={<div data-testid="servers-list">Servers</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("ServerDetailPage", () => {
@@ -441,13 +444,13 @@ describe("ServerDetailPage", () => {
 
   it("hides Install Modpack action on non-modded servers and shows it on modded loaders", () => {
     mockData = { ...mockServer, server_type: "vanilla" };
-    const { rerender } = renderPage();
+    const { rerender, qc } = renderPage();
     expect(screen.queryByTestId("detail-open-modpack-wizard-btn")).not.toBeInTheDocument();
     expect(screen.getByTestId("detail-open-safe-upgrade-wizard-btn")).toBeInTheDocument();
 
     mockData = { ...mockServer, server_type: "fabric" };
     rerender(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={qc}>
         <MemoryRouter initialEntries={["/servers/srv-1"]}>
           <Routes>
             <Route path="/servers/:serverId" element={<ServerDetailPage />} />

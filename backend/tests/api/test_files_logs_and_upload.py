@@ -387,7 +387,7 @@ async def test_logs_scope_advanced_branch_isolation_and_branch_upload(
         headers=header,
     )
     assert up_db.status_code == 403
-    assert "allow-list" in up_db.json()["detail"].lower()
+    assert "tracked configuration files" in up_db.json()["detail"].lower()
 
     up_jar = await client.post(
         f"/api/v1/servers/{server_id}/files/upload",

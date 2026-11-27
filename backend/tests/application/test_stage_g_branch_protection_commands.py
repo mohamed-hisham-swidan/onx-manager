@@ -166,11 +166,34 @@ class TestStageGBranchProtectionCommands:
         assert prot["is_protected"] is True
 
     @pytest.mark.asyncio
-    async def test_merge_commit_into_main_rejected_without_force(self, init_test_db) -> None:
+    async def test_merge_commit_into_main_allowed_without_force(self, init_test_db) -> None:
+        from app.modules.versioning.domain.entities import ServerCommit
+        from app.modules.versioning.domain.value_objects import CommitManifest
+        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
         cb, _, _ = init_test_db
         server_id = "srv-g-1"
 
         await cb.send(CreateBranchCommand(server_id=server_id, name="main"))
+        async with database.session_factory() as session:
+            repo = SQLVersioningRepository(session)
+            await repo.save_commit(
+                ServerCommit(
+                    id="c-1",
+                    server_id=server_id,
+                    message="Base",
+                    manifest=CommitManifest(server_type="purpur", minecraft_version="1.21.1"),
+                )
+            )
+            await repo.save_commit(
+                ServerCommit(
+                    id="c-2",
+                    server_id=server_id,
+                    message="Feature",
+                    manifest=CommitManifest(server_type="purpur", minecraft_version="1.21.1"),
+                )
+            )
+            await session.commit()
 
         res = await cb.send(
             MergeCommitsCommand(
@@ -180,25 +203,30 @@ class TestStageGBranchProtectionCommands:
                 message="Merge into main",
             )
         )
-        assert res.success is False
-        assert res.error_code == "CONFLICT"
-        assert "Direct merge commit into protected branch 'main' is forbidden." in res.error
+        assert res.success is True, res.error
 
     @pytest.mark.asyncio
-    async def test_merge_commit_into_main_force_requires_bypass_permission(
+    async def test_merge_commit_into_protected_custom_branch_force_requires_bypass_permission(
         self, init_test_db
     ) -> None:
         cb, _, _ = init_test_db
         server_id = "srv-g-1"
 
-        await cb.send(CreateBranchCommand(server_id=server_id, name="main"))
+        await cb.send(CreateBranchCommand(server_id=server_id, name="release-bypass"))
+        await cb.send(
+            SetBranchProtectionCommand(
+                server_id=server_id,
+                branch_name="release-bypass",
+                policy={"allow_direct_commit": False, "allow_force_bypass": True},
+            )
+        )
 
         res = await cb.send(
             MergeCommitsCommand(
                 server_id=server_id,
-                target_branch_name="main",
+                target_branch_name="release-bypass",
                 parent_commit_ids=["c-1", "c-2"],
-                message="Forced merge into main",
+                message="Forced merge into release-bypass",
                 force=True,
                 caller_permissions=["server:version:commit"],
             )

@@ -105,6 +105,49 @@ describe("Modal Primitive", () => {
     expect(dialog).toHaveClass("max-w-3xl");
   });
 
+  it("constrains dialog to viewport height with scrollable body and pinned header/footer outside the scroll area", () => {
+    render(
+      <Modal
+        open
+        onClose={() => {}}
+        title="Pinned Header"
+        description="Header subtitle"
+        footer={<button type="button">Pinned Save</button>}
+      >
+        <div>Scrollable Body Content</div>
+      </Modal>
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass(
+      "flex",
+      "flex-col",
+      "overflow-hidden",
+      "max-h-[calc(100vh-2rem)]",
+      "max-h-[calc(100dvh-2rem)]"
+    );
+
+    const overlayWrapper = dialog.parentElement!;
+    expect(overlayWrapper).toHaveClass("items-center", "justify-center", "p-3", "sm:p-4");
+
+    const header = screen.getByTestId("modal-header");
+    const body = screen.getByTestId("modal-body");
+    const footer = screen.getByTestId("modal-footer");
+
+    expect(header).toHaveClass("shrink-0");
+    expect(footer).toHaveClass("shrink-0");
+    expect(body).toHaveClass("flex-1", "min-h-0", "overflow-y-auto", "overscroll-contain");
+
+    expect(header).toContainElement(screen.getByText("Pinned Header"));
+    expect(header).toContainElement(screen.getByLabelText("Close dialog"));
+    expect(body).toContainElement(screen.getByText("Scrollable Body Content"));
+    expect(footer).toContainElement(screen.getByRole("button", { name: "Pinned Save" }));
+
+    expect(body).not.toContainElement(screen.getByText("Pinned Header"));
+    expect(body).not.toContainElement(screen.getByLabelText("Close dialog"));
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "Pinned Save" }));
+  });
+
   it("traps focus between focusable elements", () => {
     render(
       <Modal open onClose={() => {}} title="Test Title">

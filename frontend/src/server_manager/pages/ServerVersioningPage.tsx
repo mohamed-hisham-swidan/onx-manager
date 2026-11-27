@@ -1,31 +1,45 @@
-import { useState, useEffect, useCallback, useMemo, useContext } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { QueryClientContext } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useContext } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  QueryClient,
+  QueryClientContext,
+  QueryClientProvider,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
+import { useAuthPermissions } from "@/hooks/useAuthPermissions";
 import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
-import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
+import {
+  invalidateVersioningScope,
+  useBranchRuntimeQuery,
+  useGitHubStatusQuery,
+  useVersioningBranches,
+  useVersioningCommits,
+  useVersioningDataTemplates,
+  useVersioningLiveChanges,
+  useVersioningMutations,
+  useVersioningRefreshState,
+  useVersioningSettings,
+  useVersioningTags,
+} from "@/server_manager/hooks/useVersioning";
+import { BranchCockpitTab } from "@/server_manager/components/versioning/BranchCockpitTab";
+import { CommitTimeline } from "@/server_manager/components/versioning/CommitTimeline";
+import { SyncAndVaultTab } from "@/server_manager/components/versioning/SyncAndVaultTab";
+import { type GitHubSyncAlertState } from "@/server_manager/components/versioning/GitHubSyncPanel";
 import { BranchProtectionModal } from "@/server_manager/components/BranchProtectionModal";
-import { MaterializationBrowserModal } from "@/server_manager/components/MaterializationBrowserModal";
-import { ImportReviewModal } from "@/server_manager/components/ImportReviewModal";
 import { ManageBranchesModal } from "@/server_manager/components/ManageBranchesModal";
 import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
 import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
-import { BranchToolbar } from "@/server_manager/components/versioning/BranchToolbar";
-import {
-  GitHubSyncPanel,
-  type GitHubSyncAlertState,
-} from "@/server_manager/components/versioning/GitHubSyncPanel";
 import {
   ConnectGitHubModal,
   DisconnectGitHubModal,
   GitHubWebhookDeliveriesModal,
   RotateGitHubCredentialsModal,
 } from "@/server_manager/components/versioning/GitHubModals";
-import { BranchRunPanel } from "@/server_manager/components/versioning/BranchRunPanel";
-import { ModpackInstallWizardModal } from "@/server_manager/components/p55";
 import {
   BranchConsoleActivityModal,
   BranchPortSetModal,
@@ -33,26 +47,20 @@ import {
   StartBranchRunModal,
   StopBranchRunModal,
 } from "@/server_manager/components/versioning/BranchRunModals";
-import { CommitTimeline } from "@/server_manager/components/versioning/CommitTimeline";
 import {
+  ClassCVaultModal,
   CreateBranchModal,
   CreateCommitModal,
-  InspectCommitModal,
+  DeployLiveModal,
   MergeBranchModal,
-  ClassCVaultModal,
 } from "@/server_manager/components/versioning/VersioningModals";
 import type {
-  BranchRuntimeStatus,
-  DataTemplate,
-  GitHubConnectionStatusResponse,
-  PendingSettingsBranchInfo,
   PortSet,
-  RefreshStateResponse,
-  ScanLiveChangesResponse,
   ServerBranch,
   ServerCommit,
-  ServerTag,
 } from "@/server_manager/types";
+
+type VersioningTab = "branches" | "snapshots" | "sync";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,11 +86,7 @@ function classifyGitHubSyncError(
       : detailMessage ?? fallback;
 
   if (code === "GITHUB_AUTH_FAILED" || detail?.needs_reauth === true) {
-    return {
-      kind: "auth_failed",
-      code,
-      message,
-    };
+    return { kind: "auth_failed", code, message };
   }
   if (code === "GITHUB_NON_FAST_FORWARD_MAIN") {
     return {
@@ -107,71 +111,127 @@ function classifyGitHubSyncError(
       forbiddenPaths,
     };
   }
-  return {
-    kind: "generic",
-    code,
-    message,
-  };
+  return { kind: "generic", code, message };
 }
 
-export function ServerVersioningPage() {
-  const api = useMemo(() => createAuthenticatedApi(), []);
-  const { serverId } = useParams<{ serverId: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const queryClient = useContext(QueryClientContext);
-  const branchCtx = useServerBranchContext();
+function normalizeTab(raw: string | null): VersioningTab {
+  if (raw === "snapshots" || raw === "sync" || raw === "branches") {
+    return raw;
+  }
+  return "branches";
+}
 
-  const [branches, setBranches] = useState<ServerBranch[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>(
+function ServerVersioningPageInner() {
+  const api = useMemo(() => createAuthenticatedApi(), []);
+  const { serverId = "" } = useParams<{ serverId: string }>();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const branchCtx = useServerBranchContext();
+  const { canVersioning } = useAuthPermissions();
+  const canEdit = canVersioning(serverId);
+
+  const activeTab = normalizeTab(searchParams.get("tab"));
+  const setActiveTab = (tab: VersioningTab) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("tab", tab);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  // Selected branch synced with ServerBranchContext
+  const [localBranch, setLocalBranch] = useState<string>(
     branchCtx?.branch || "main",
   );
-  const [prevContextBranch, setPrevContextBranch] = useState<string | undefined>(
-    branchCtx?.branch,
-  );
-  if (branchCtx?.branch && branchCtx.branch !== prevContextBranch) {
-    setPrevContextBranch(branchCtx.branch);
-    setSelectedBranch(branchCtx.branch);
-  }
-  const [pendingSettingsBranch, setPendingSettingsBranch] =
-    useState<PendingSettingsBranchInfo | null>(null);
-  const [showDestroyContainerConfirm, setShowDestroyContainerConfirm] = useState(false);
-  const [isDestroyingContainer, setIsDestroyingContainer] = useState(false);
-  const [commits, setCommits] = useState<ServerCommit[]>([]);
-  const [tags, setTags] = useState<ServerTag[]>([]);
-  const [liveChanges, setLiveChanges] = useState<ScanLiveChangesResponse | null>(null);
+  const candidateBranch = branchCtx?.branch || localBranch;
+  const selectBranch = (name: string) => {
+    setLocalBranch(name);
+    branchCtx?.setBranch(name);
+  };
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Server detail query (shared cache key with ServerShell)
+  const serverQuery = useQuery({
+    queryKey: queryKeys.servers.detail(serverId),
+    queryFn: () =>
+      typeof api.getServer === "function"
+        ? api.getServer(serverId)
+        : Promise.resolve(null),
+    enabled: Boolean(serverId),
+  });
+  const serverDetail = serverQuery.data ?? null;
+  const resolvedMode = branchCtx?.serverMode ?? serverDetail?.mode;
+  const isSimpleMode = resolvedMode === "simple";
+  const queriesEnabled = Boolean(serverId) && !isSimpleMode;
+
+  // React Query data hooks
+  const branchesQuery = useVersioningBranches(serverId, queriesEnabled);
+  const branches = useMemo(
+    () => (Array.isArray(branchesQuery.data) ? branchesQuery.data : []),
+    [branchesQuery.data],
+  );
+  const selectedBranch =
+    branches.length > 0 && !branches.some((b) => b.name === candidateBranch)
+      ? branches[0].name
+      : candidateBranch;
+
+  const commitsQuery = useVersioningCommits(
+    serverId,
+    selectedBranch,
+    queriesEnabled,
+  );
+  const tagsQuery = useVersioningTags(serverId, queriesEnabled);
+  const refreshStateQuery = useVersioningRefreshState(serverId, queriesEnabled);
+  const settingsQuery = useVersioningSettings(serverId, queriesEnabled);
+  const liveChangesQuery = useVersioningLiveChanges(
+    serverId,
+    selectedBranch,
+    queriesEnabled,
+  );
+  const dataTemplatesQuery = useVersioningDataTemplates(
+    serverId,
+    queriesEnabled,
+  );
+  const branchRuntimeQuery = useBranchRuntimeQuery(
+    serverId,
+    selectedBranch,
+    queriesEnabled && selectedBranch !== "main",
+  );
+  const githubStatusQuery = useGitHubStatusQuery(serverId, queriesEnabled);
+
+  const commits = useMemo(
+    () => (Array.isArray(commitsQuery.data) ? commitsQuery.data : []),
+    [commitsQuery.data],
+  );
+  const tags = useMemo(
+    () => (Array.isArray(tagsQuery.data) ? tagsQuery.data : []),
+    [tagsQuery.data],
+  );
+  const refreshState = refreshStateQuery.data ?? null;
+  const settings = settingsQuery.data ?? null;
+  const liveChanges = liveChangesQuery.data ?? null;
+  const dataTemplates = useMemo(
+    () =>
+      Array.isArray(dataTemplatesQuery.data) ? dataTemplatesQuery.data : [],
+    [dataTemplatesQuery.data],
+  );
+  const branchRuntime = branchRuntimeQuery.data ?? null;
+  const githubStatus = githubStatusQuery.data ?? null;
+
+  const mutations = useVersioningMutations(serverId);
+
+  // Page feedback banners
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState<number>(0);
-  const [isWorkflowGuideOpen, setIsWorkflowGuideOpen] = useState(false);
 
-  const refresh = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
-
-  // Modals state
-  const [isNewBranchOpen, setIsNewBranchOpen] = useState(false);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [isP55ModpackWizardOpen, setIsP55ModpackWizardOpen] = useState(false);
-  const navigate = useNavigate();
-
-  const [isNewCommitOpen, setIsNewCommitOpen] = useState(false);
-  const [newCommitMessage, setNewCommitMessage] = useState("");
-  const [commitForceBypass, setCommitForceBypass] = useState(false);
-  const [commitForceReason, setCommitForceReason] = useState("");
-
-
-  const [refreshState, setRefreshState] = useState<RefreshStateResponse | null>(null);
-
-  const [isMergeBranchOpen, setIsMergeBranchOpen] = useState(false);
-  const [isVaultModalOpen, setIsVaultModalOpen] = useState(
-    () => searchParams.get("openVault") === "true",
-  );
-  const [p3ActionPending, setP3ActionPending] = useState<string | null>(null);
-  const [discardPendingBusy, setDiscardPendingBusy] = useState(false);
-
+  // Deep-link support for ?openVault=true
   const openVaultParam = searchParams.get("openVault");
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(
+    () => openVaultParam === "true",
+  );
   const [prevOpenVaultParam, setPrevOpenVaultParam] = useState(openVaultParam);
   if (openVaultParam !== prevOpenVaultParam) {
     setPrevOpenVaultParam(openVaultParam);
@@ -179,7 +239,6 @@ export function ServerVersioningPage() {
       setIsVaultModalOpen(true);
     }
   }
-
   useEffect(() => {
     if (openVaultParam !== "true") return;
     setSearchParams(
@@ -193,200 +252,220 @@ export function ServerVersioningPage() {
     );
   }, [openVaultParam, setSearchParams]);
 
-  // P4 branch runs, port sets & data templates state
-  const [dataTemplates, setDataTemplates] = useState<DataTemplate[]>([]);
-  const [branchRuntime, setBranchRuntime] = useState<BranchRuntimeStatus | null>(null);
-  const [uncommittedWarning, setUncommittedWarning] = useState<{ commitSha: string } | null>(null);
-  const [isStartBranchRunOpen, setIsStartBranchRunOpen] = useState(false);
-  const [isStopBranchRunOpen, setIsStopBranchRunOpen] = useState(false);
-  const [isPortSetModalOpen, setIsPortSetModalOpen] = useState(false);
-  const [dataTemplatesModalMode, setDataTemplatesModalMode] = useState<"closed" | "list" | "save-branch">("closed");
-  const [branchConsoleModalTab, setBranchConsoleModalTab] = useState<null | "console" | "activity">(null);
+  // Modal & action state
+  const [isNewBranchOpen, setIsNewBranchOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
 
-  // P5 GitHub sync state & modals
-  const [githubStatus, setGithubStatus] = useState<GitHubConnectionStatusResponse | null>(null);
+  const [snapshotBranch, setSnapshotBranch] = useState<string | null>(null);
+  const [newCommitMessage, setNewCommitMessage] = useState("");
+  const [commitForceBypass, setCommitForceBypass] = useState(false);
+  const [commitForceReason, setCommitForceReason] = useState("");
+
+  const [deployModalTarget, setDeployModalTarget] = useState<{
+    open: boolean;
+    commit: ServerCommit | null;
+  }>({ open: false, commit: null });
+
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
+
+  const [mergeSourceBranch, setMergeSourceBranch] = useState<string | null>(
+    null,
+  );
+  const [isMergeBranchOpen, setIsMergeBranchOpen] = useState(false);
+
+  const [protectionModalBranch, setProtectionModalBranch] =
+    useState<ServerBranch | null>(null);
+  const [isManageBranchesOpen, setIsManageBranchesOpen] = useState(false);
+  const [archiveConfirmBranch, setArchiveConfirmBranch] =
+    useState<ServerBranch | null>(null);
+  const [deleteConfirmBranch, setDeleteConfirmBranch] =
+    useState<ServerBranch | null>(null);
+
+  const [tagModalCommitId, setTagModalCommitId] = useState<string | null>(null);
+  const [diffParams, setDiffParams] = useState<{
+    from: string;
+    to: string;
+    parentIds?: string[];
+  } | null>(null);
+
+  // Branch Sandbox modal state
+  const [sandboxTargetBranch, setSandboxTargetBranch] = useState<string | null>(
+    null,
+  );
+  const [startSandboxModal, setStartSandboxModal] = useState<{
+    open: boolean;
+    branchName: string;
+    commitSha?: string | null;
+  }>({ open: false, branchName: "", commitSha: null });
+  const [stopSandboxModal, setStopSandboxModal] = useState<{
+    open: boolean;
+    branchName: string;
+    runtimeId?: string | null;
+  }>({ open: false, branchName: "", runtimeId: null });
+  const [portSetModal, setPortSetModal] = useState<{
+    open: boolean;
+    branchName: string;
+    portSet: PortSet | null;
+  }>({ open: false, branchName: "", portSet: null });
+  const [destroyConfirmBranch, setDestroyConfirmBranch] = useState<
+    string | null
+  >(null);
+  const [dataTemplatesModalMode, setDataTemplatesModalMode] = useState<
+    "closed" | "list" | "save-branch"
+  >("closed");
+  const [saveTemplateRuntimeId, setSaveTemplateRuntimeId] = useState<
+    string | null
+  >(null);
+  const [branchConsoleModal, setBranchConsoleModal] = useState<{
+    branchName: string;
+    tab: "console" | "activity";
+  } | null>(null);
+  const [uncommittedWarning, setUncommittedWarning] = useState<{
+    branchName: string;
+    commitSha: string;
+  } | null>(null);
+
+  // GitHub Sync modals & transient state
   const [isGitHubFetching, setIsGitHubFetching] = useState(false);
   const [isGitHubPushing, setIsGitHubPushing] = useState(false);
-  const [githubSyncAlert, setGithubSyncAlert] = useState<GitHubSyncAlertState | null>(null);
+  const [githubSyncAlert, setGithubSyncAlert] =
+    useState<GitHubSyncAlertState | null>(null);
   const [isConnectGitHubOpen, setIsConnectGitHubOpen] = useState(false);
   const [isRotateGitHubOpen, setIsRotateGitHubOpen] = useState(false);
   const [isDisconnectGitHubOpen, setIsDisconnectGitHubOpen] = useState(false);
   const [isWebhookDeliveriesOpen, setIsWebhookDeliveriesOpen] = useState(false);
 
-  const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
-
-  // Advanced feature modal controls
-  const [isProtectionModalOpen, setIsProtectionModalOpen] = useState(false);
-  const [protectionModalBranch, setProtectionModalBranch] = useState<ServerBranch | null>(null);
-  const [isMaterializationOpen, setIsMaterializationOpen] = useState(false);
-  const [isLiveChangesOpen, setIsLiveChangesOpen] = useState(false);
-  const [isManageBranchesOpen, setIsManageBranchesOpen] = useState(false);
-  const [tagModalCommitId, setTagModalCommitId] = useState<string | null>(null);
-  const [diffParams, setDiffParams] = useState<{ from: string; to: string } | null>(null);
-
-  // Mutation pending guards for modals
-  const [isBranchPending, setIsBranchPending] = useState(false);
-  const [isCommitPending, setIsCommitPending] = useState(false);
-  const [serverType, setServerType] = useState<string | null>(null);
-
-  const currentBranchObj = useMemo(
-    () => branches.find((b) => b.name === selectedBranch) || null,
-    [branches, selectedBranch]
-  );
-
+  const mainBranchObj = branches.find((b) => b.name === "main") ?? null;
+  const snapshotBranchObj =
+    branches.find((b) => b.name === (snapshotBranch ?? selectedBranch)) ?? null;
   const isDirectCommitBlocked = Boolean(
-    currentBranchObj?.is_protected &&
-    currentBranchObj.protection_policy &&
-    !currentBranchObj.protection_policy.allow_direct_commit
+    snapshotBranchObj?.is_protected &&
+      snapshotBranchObj.protection_policy &&
+      !snapshotBranchObj.protection_policy.allow_direct_commit,
   );
   const allowForceBypass = Boolean(
-    currentBranchObj?.protection_policy?.allow_force_bypass
+    snapshotBranchObj?.protection_policy?.allow_force_bypass,
   );
 
-  const resolvedServerType = serverType ?? commits[0]?.manifest?.server_type ?? null;
-  const supportsModpacks = resolvedServerType
-    ? isModpackSupportedLoader(resolvedServerType)
-    : false;
+  const liveCommitSha = refreshState?.latest_journal?.target_main_sha || null;
+  const latestJournal = refreshState?.latest_journal ?? null;
+  const canConfirmUpgrade = Boolean(
+    refreshState?.can_confirm_upgrade && latestJournal?.phase === "COMPLETED",
+  );
+  const canReleasePins = Boolean(
+    latestJournal &&
+      (latestJournal.phase === "ROLLED_BACK" ||
+        latestJournal.phase === "FAILED_CLEAN") &&
+      Boolean(latestJournal.class_c_snapshot_id),
+  );
 
-  const branchRuntimeStatus =
-    branchRuntime?.runtime_status ?? currentBranchObj?.runtime_status ?? "stopped";
-  const isBranchRuntimeActive =
-    branchRuntimeStatus === "running" || branchRuntimeStatus === "starting";
-  const effectivePortSet =
-    branchRuntime?.port_set ?? currentBranchObj?.port_set ?? null;
-  const selectedBranchGitHubSync = useMemo(() => {
-    if (!githubStatus?.connected) return null;
-    return githubStatus.branches.find((b) => b.branch === selectedBranch) ?? null;
-  }, [githubStatus, selectedBranch]);
+  // Surface critical query load failures honestly
+  const loadError =
+    branchesQuery.error || commitsQuery.error || refreshStateQuery.error;
+  const loadErrorMsg =
+    loadError instanceof Error ? loadError.message : null;
 
-  useEffect(() => {
-    if (!serverId) return;
-    let isMounted = true;
+  // Simple Mode Guard: zero versioning API calls fired!
+  if (isSimpleMode) {
+    return (
+      <div className="max-w-4xl mx-auto p-4 sm:p-6">
+        <div
+          data-testid="versioning-simple-mode-guard"
+          className="rounded-xl border border-border-default bg-surface-card p-6 sm:p-8 text-center space-y-4 shadow-xs"
+        >
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+            <Icon name="version-branch" size={24} />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-xl font-bold text-text-primary">
+              Versions &amp; Sandboxes Requires Advanced Mode
+            </h1>
+            <p className="text-sm text-text-muted max-w-lg mx-auto">
+              This server is currently running in Simple Mode. Switch to Git-backed Advanced Mode in Server Settings to unlock branches, isolated test sandboxes, snapshots, and instant rollback.
+            </p>
+          </div>
+          <div>
+            <Link
+              to={`/servers/${serverId}/settings?tab=lifecycle`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover shadow-xs transition-colors"
+            >
+              <Icon name="settings" size={14} />
+              Open Lifecycle Settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-    const run = async () => {
-      try {
-        const [branchesData, commitsData, tagsData, liveData, refreshStateData, templatesData, runtimeData, githubStatusData, serverDetailData] =
-          await Promise.all([
-            api.getServerBranches(serverId),
-            api.getServerCommits(serverId, undefined, undefined, selectedBranch),
-            api.getServerTags?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
-            api.getLiveChanges?.(serverId, selectedBranch || "main")?.catch(() => null) ??
-              Promise.resolve(null),
-            api.getRefreshState?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
-            api.listDataTemplates?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
-            selectedBranch && selectedBranch !== "main"
-              ? (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ?? Promise.resolve(null))
-              : Promise.resolve(null),
-            api.getGitHubStatus?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
-            api.getServer?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
-          ]);
-
-        if (!isMounted) return;
-        setBranches(branchesData);
-        setCommits(commitsData);
-        setTags(tagsData);
-        setLiveChanges(liveData);
-        setRefreshState(refreshStateData);
-        setDataTemplates(Array.isArray(templatesData) ? templatesData : []);
-        setBranchRuntime(runtimeData ?? null);
-        setGithubStatus(githubStatusData ?? null);
-        setServerType(serverDetailData?.server_type ?? null);
-        setPendingSettingsBranch(serverDetailData?.pending_settings_branch ?? null);
-
-        if (
-          branchesData.length > 0 &&
-          !branchesData.some((b: ServerBranch) => b.name === selectedBranch)
-        ) {
-          setSelectedBranch(branchesData[0].name);
-        }
-      } catch (err: unknown) {
-        if (!isMounted) return;
-        const msg = err instanceof Error ? err.message : "Failed to load versioning state.";
-        setError(msg);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    run();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [serverId, selectedBranch, api, refreshKey]);
-
-  // Poll branch runtime every 5s only while the selected branch is starting/running.
-  useEffect(() => {
-    if (!serverId || selectedBranch === "main") return;
-    const runtimeStatus = branchRuntime?.runtime_status;
-    if (runtimeStatus !== "running" && runtimeStatus !== "starting") return;
-    let isMounted = true;
-
-    const interval = setInterval(async () => {
-      try {
-        const runtime =
-          (await (api.getBranchRuntime?.(serverId, selectedBranch)?.catch(() => null) ??
-            Promise.resolve(null)));
-        if (isMounted && runtime) {
-          setBranchRuntime(runtime);
-        }
-      } catch {
-        // Silent catch on background polling error
-      }
-    }, 5000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [serverId, selectedBranch, branchRuntime?.runtime_status, api]);
+  const refreshAll = () => {
+    void invalidateVersioningScope(queryClient, serverId, selectedBranch);
+  };
 
   const handleCreateBranch = async () => {
-    if (!serverId || !newBranchName.trim()) return;
-    setIsBranchPending(true);
+    const trimmed = newBranchName.trim();
+    if (!serverId || !trimmed || !canEdit) return;
+    setError(null);
     try {
-      await api.createServerBranch(serverId, { name: newBranchName.trim() });
-      setSelectedBranch(newBranchName.trim());
-      branchCtx?.setBranch(newBranchName.trim());
+      await mutations.createBranch.mutateAsync({ name: trimmed });
+      selectBranch(trimmed);
       setNewBranchName("");
       setIsNewBranchOpen(false);
-      setActionSuccess(`Branch '${newBranchName.trim()}' created.`);
-      refresh();
+      setActionSuccess(`Branch '${trimmed}' created.`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create branch.");
-    } finally {
-      setIsBranchPending(false);
+      setError(
+        err instanceof Error ? err.message : "Failed to create branch.",
+      );
     }
   };
 
   const handleCreateCommit = async () => {
-    if (!serverId || !newCommitMessage.trim()) return;
-    setIsCommitPending(true);
+    const targetBranch = snapshotBranch ?? selectedBranch;
+    if (!serverId || !newCommitMessage.trim() || !canEdit) return;
+    setError(null);
     try {
-      await api.createServerCommit(serverId, {
+      await mutations.createCommit.mutateAsync({
         message: newCommitMessage.trim(),
-        branch_name: selectedBranch,
+        branch_name: targetBranch,
         ...(commitForceBypass
-          ? { force: true, force_reason: commitForceReason.trim() || undefined }
+          ? {
+              force: true,
+              force_reason: commitForceReason.trim() || undefined,
+            }
           : {}),
       });
       setNewCommitMessage("");
       setCommitForceBypass(false);
       setCommitForceReason("");
-      setIsNewCommitOpen(false);
-      setActionSuccess("Snapshot commit created successfully.");
-      refresh();
+      setSnapshotBranch(null);
+      setActionSuccess(`Snapshot saved on '${targetBranch}'.`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create commit.");
-    } finally {
-      setIsCommitPending(false);
+      setError(
+        err instanceof Error ? err.message : "Failed to save snapshot.",
+      );
     }
   };
 
+  const handleDeployOrRestore = async (
+    retentionPolicy: string,
+    targetCommitSha?: string | null,
+  ) => {
+    if (!serverId || !canEdit) return;
+    setError(null);
+    await mutations.refreshServer.mutateAsync({
+      retention_policy: retentionPolicy,
+      ...(targetCommitSha ? { target_main_sha: targetCommitSha } : {}),
+    });
+    setDeployModalTarget({ open: false, commit: null });
+    setActionSuccess(
+      targetCommitSha
+        ? `Restored snapshot ${targetCommitSha.slice(0, 8)} to the live server.`
+        : "Deployed main to the live server.",
+    );
+  };
+
   const handleGitHubFetch = async () => {
-    if (!serverId || !api.fetchGitHubSync) return;
+    if (!serverId || !api.fetchGitHubSync || !canEdit) return;
     setIsGitHubFetching(true);
     setGithubSyncAlert(null);
     try {
@@ -396,7 +475,7 @@ export function ServerVersioningPage() {
           ? "Fetched from GitHub and fast-forwarded 'main'."
           : "Fetched from GitHub.",
       );
-      refresh();
+      refreshAll();
     } catch (err: unknown) {
       const classified = classifyGitHubSyncError(
         err,
@@ -407,7 +486,7 @@ export function ServerVersioningPage() {
         classified.kind === "auth_failed" ||
         classified.kind === "non_fast_forward_main"
       ) {
-        refresh();
+        refreshAll();
       }
     } finally {
       setIsGitHubFetching(false);
@@ -415,7 +494,9 @@ export function ServerVersioningPage() {
   };
 
   const handleGitHubPush = async () => {
-    if (!serverId || !selectedBranch || !api.pushGitHubBranch) return;
+    if (!serverId || !selectedBranch || !api.pushGitHubBranch || !canEdit) {
+      return;
+    }
     setIsGitHubPushing(true);
     setGithubSyncAlert(null);
     try {
@@ -425,7 +506,7 @@ export function ServerVersioningPage() {
       setActionSuccess(
         `Pushed branch '${res.branch_name}' (${res.commit_sha.slice(0, 8)}) to GitHub.`,
       );
-      refresh();
+      refreshAll();
     } catch (err: unknown) {
       const classified = classifyGitHubSyncError(
         err,
@@ -436,689 +517,857 @@ export function ServerVersioningPage() {
         classified.kind === "auth_failed" ||
         classified.kind === "non_fast_forward_main"
       ) {
-        refresh();
+        refreshAll();
       }
     } finally {
       setIsGitHubPushing(false);
     }
   };
 
-  const filteredCommits = commits.filter((c) => {
-    const branchObj = branches.find((b) => b.name === selectedBranch);
-    return !branchObj || c.branch_id === branchObj.id || !c.branch_id;
-  });
+  const activeSandboxBranch =
+    sandboxTargetBranch ??
+    (startSandboxModal.open
+      ? startSandboxModal.branchName
+      : stopSandboxModal.open
+        ? stopSandboxModal.branchName
+        : portSetModal.open
+          ? portSetModal.branchName
+          : selectedBranch);
+  const activeSandboxBranchObj =
+    branches.find((b) => b.name === activeSandboxBranch) ?? null;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border-default pb-5">
-        <div>
+    <div className="space-y-5 max-w-7xl mx-auto p-4 sm:p-6">
+      {/* Compact Single-Row Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border-default pb-4">
+        <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2.5">
-            <Icon name="backup" size={24} className="text-accent-primary" />
+            <Icon name="backup" size={22} className="text-accent-primary" />
             <h1 className="text-2xl font-bold text-text-primary">
               Versions &amp; Sandboxes
             </h1>
+            {(liveCommitSha || mainBranchObj?.head_commit_id) && (
+              <span
+                data-testid="live-deployment-pill"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-surface-card px-2.5 py-0.5 font-mono text-[11px] text-text-secondary"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+                Live:{" "}
+                {(liveCommitSha || mainBranchObj?.head_commit_id || "").slice(
+                  0,
+                  8,
+                )}
+              </span>
+            )}
+            {githubStatus?.connected && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("sync")}
+                className="inline-flex items-center gap-1 rounded-full border border-status-info-border bg-status-info-bg px-2.5 py-0.5 text-[11px] font-semibold text-status-info hover:opacity-90 cursor-pointer"
+              >
+                <Icon name="version-branch" size={11} />
+                GitHub: {githubStatus.sync_status}
+              </button>
+            )}
+            {!canEdit && (
+              <span
+                data-testid="versioning-readonly-badge"
+                className="inline-flex items-center gap-1 rounded-full border border-border-default bg-surface-elevated px-2.5 py-0.5 text-[11px] font-semibold text-text-muted"
+              >
+                <Icon name="lock" size={11} />
+                Read-only access
+              </span>
+            )}
           </div>
-          <p className="mt-1 text-sm text-text-muted">
-            Git-inspired server snapshots, config commits, and isolated branch sandboxes.
+          <p className="text-xs text-text-muted">
+            Test changes safely in isolated branch sandboxes, merge to main, and deploy with instant undo.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsNewCommitOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover shadow-xs transition-colors cursor-pointer"
-          >
-            <Icon name="plus" size={14} />
-            Create Snapshot Commit
-          </button>
-        </div>
-      </div>
+        {canEdit && (
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsNewBranchOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover shadow-xs transition-colors cursor-pointer"
+            >
+              <Icon name="plus" size={13} />
+              New Branch
+            </button>
 
-      {/* P3 Live Refresh & Upgrade Bar */}
-      <div className="flex flex-wrap items-center gap-2" data-testid="p3-refresh-toolbar">
-        <button
-          type="button"
-          aria-label="Live Refresh"
-          disabled={Boolean(p3ActionPending)}
-          onClick={async () => {
-            if (!serverId || p3ActionPending) return;
-            setP3ActionPending("refresh");
-            try {
-              await api.refreshServer(serverId, { retention_policy: "until_health_gate" });
-              setActionSuccess("Live Refresh completed");
-              refresh();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Live Refresh failed");
-            } finally {
-              setP3ActionPending(null);
-            }
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <Icon name="activity" size={13} />
-          <span>{p3ActionPending === "refresh" ? "Refreshing..." : "Live Refresh"}</span>
-          {refreshState?.active_journal?.phase || refreshState?.latest_journal?.phase ? (
-            <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
-              {refreshState?.active_journal?.phase || refreshState?.latest_journal?.phase}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          aria-label="Rollback"
-          disabled={!refreshState?.can_rollback || Boolean(p3ActionPending)}
-          title={!refreshState?.can_rollback ? "No active or rollback-eligible refresh journal" : undefined}
-          onClick={async () => {
-            if (!serverId || p3ActionPending) return;
-            setP3ActionPending("rollback");
-            try {
-              await api.rollbackRefresh(serverId, {
-                journal_id: refreshState?.active_journal?.journal_id ?? refreshState?.latest_journal?.journal_id,
-                reason: "operator_requested",
-              });
-              setActionSuccess("Rollback completed");
-              refresh();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Rollback failed");
-            } finally {
-              setP3ActionPending(null);
-            }
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <Icon name="restart" size={13} />
-          <span>{p3ActionPending === "rollback" ? "Rolling back..." : "Rollback"}</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Confirm Upgrade"
-          disabled={!refreshState?.can_confirm_upgrade || Boolean(p3ActionPending)}
-          onClick={async () => {
-            if (!serverId || p3ActionPending) return;
-            setP3ActionPending("confirm");
-            try {
-              await api.confirmUpgrade(serverId, { journal_id: refreshState?.latest_journal?.journal_id });
-              setActionSuccess("Upgrade confirmed");
-              refresh();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Confirm upgrade failed");
-            } finally {
-              setP3ActionPending(null);
-            }
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <Icon name="check" size={13} />
-          <span>{p3ActionPending === "confirm" ? "Confirming..." : "Confirm Upgrade"}</span>
-        </button>
-        {(refreshState?.latest_journal?.class_c_snapshot_id || refreshState?.can_confirm_upgrade) && (
-          <button
-            type="button"
-            aria-label="Release Pins"
-            disabled={Boolean(p3ActionPending)}
-            onClick={async () => {
-              if (!serverId || p3ActionPending) return;
-              setP3ActionPending("release");
-              try {
-                await api.releaseRefreshPins(serverId, { journal_id: refreshState?.latest_journal?.journal_id });
-                setActionSuccess("Pins released");
-                refresh();
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Release pins failed");
-              } finally {
-                setP3ActionPending(null);
+            {selectedBranch !== "main" && (
+              <button
+                type="button"
+                onClick={() => setSnapshotBranch(selectedBranch)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-semibold text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+              >
+                <Icon name="check" size={13} />
+                Save Snapshot ({selectedBranch})
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() =>
+                setDeployModalTarget({ open: true, commit: null })
               }
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <Icon name="lock" size={13} />
-            <span>{p3ActionPending === "release" ? "Releasing..." : "Release Pins"}</span>
-          </button>
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs font-semibold text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+            >
+              <Icon name="upload" size={13} />
+              Deploy main to Live
+            </button>
+          </div>
         )}
-        <button
-          type="button"
-          aria-label="Live Data & Secret Vault"
-          onClick={() => setIsVaultModalOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
-        >
-          <Icon name="lock" size={13} />
-          <span>Live Data & Secret Vault</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Data Templates"
-          onClick={() => setDataTemplatesModalMode("list")}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
-        >
-          <Icon name="database" size={13} />
-          <span>Data Templates</span>
-        </button>
-        {supportsModpacks && (
-          <button
-            type="button"
-            data-testid="versioning-open-modpack-wizard-btn"
-            onClick={() => setIsP55ModpackWizardOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
-          >
-            <Icon name="download" size={13} />
-            <span>Install Modpack</span>
-          </button>
-        )}
-        <button
-          type="button"
-          data-testid="versioning-open-safe-upgrade-wizard-btn"
-          onClick={() =>
-            navigate(
-              `/servers/${serverId}/settings?tab=lifecycle&action=change-version`,
-            )
-          }
-          className="inline-flex items-center gap-1.5 rounded-lg border border-accent-primary/40 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
-        >
-          <Icon name="restart" size={13} />
-          <span>Change Version</span>
-        </button>
       </div>
 
-      {/* Interactive 3-Step Visual Workflow Guide Banner */}
-      <section
-        aria-label="Guided Versioning & Testing Workflow"
-        className="rounded-xl border border-border-default bg-surface-card p-4 sm:p-5 shadow-xs space-y-4"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-accent-primary/15 text-accent-primary shrink-0">
-              <Icon name="activity" size={18} />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-text-primary">
-                3-Step Safe Testing &amp; Promotion Workflow
-              </h2>
-              <p className="text-xs text-text-muted">
-                Snapshot, branch, test, then merge to main.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsWorkflowGuideOpen((prev) => !prev)}
-            aria-expanded={isWorkflowGuideOpen}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer shrink-0"
-          >
-            <Icon name={isWorkflowGuideOpen ? "chevron-up" : "chevron-down"} size={14} />
-            <span>{isWorkflowGuideOpen ? "Collapse Guide" : "Expand Guide"}</span>
-          </button>
+      {/* Contextual Recovery Strip (ONLY rendered when undo or recovery pin release is active) */}
+      {(refreshState?.can_rollback || canReleasePins) && (
+        <div
+          data-testid="contextual-recovery-strip"
+          className="rounded-xl border border-status-info-border bg-status-info-bg p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs"
+        >
+          {refreshState?.can_rollback ? (
+            <>
+              <div className="flex items-center gap-2 text-text-primary">
+                <Icon
+                  name="restart"
+                  size={15}
+                  className="text-status-info shrink-0"
+                />
+                <span>
+                  Live server updated to{" "}
+                  <code className="font-mono font-semibold">
+                    {(
+                      latestJournal?.target_main_sha ||
+                      refreshState.active_journal?.target_main_sha ||
+                      "latest"
+                    ).slice(0, 8)}
+                  </code>
+                  . Previous server files are retained for instant undo.
+                </span>
+              </div>
+              {canEdit && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={mutations.rollbackRefresh.isPending}
+                    onClick={() => setShowRollbackConfirm(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-status-warning-border bg-surface-card px-3 py-1.5 font-semibold text-status-warning hover:bg-status-warning-bg disabled:opacity-50 cursor-pointer"
+                  >
+                    <Icon name="restart" size={12} />
+                    {mutations.rollbackRefresh.isPending
+                      ? "Undoing..."
+                      : "Undo Last Deploy"}
+                  </button>
+                  {canConfirmUpgrade && (
+                    <button
+                      type="button"
+                      disabled={mutations.confirmUpgrade.isPending}
+                      onClick={async () => {
+                        try {
+                          await mutations.confirmUpgrade.mutateAsync({
+                            journal_id: latestJournal?.journal_id,
+                          });
+                          setActionSuccess(
+                            "Deployment confirmed and previous backup freed.",
+                          );
+                        } catch (err: unknown) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Failed to confirm deployment.",
+                          );
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+                    >
+                      <Icon name="check" size={12} />
+                      {mutations.confirmUpgrade.isPending
+                        ? "Confirming..."
+                        : "Keep & Free Disk Space"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-text-primary">
+                <Icon
+                  name="lock"
+                  size={15}
+                  className="text-status-info shrink-0"
+                />
+                <span>
+                  Recovery backup from a previous rollback is still pinned on disk.
+                </span>
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  disabled={mutations.releasePins.isPending}
+                  onClick={async () => {
+                    try {
+                      await mutations.releasePins.mutateAsync({
+                        journal_id: latestJournal?.journal_id,
+                      });
+                      setActionSuccess("Recovery backup pins released.");
+                    } catch (err: unknown) {
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to release recovery backup.",
+                      );
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-1.5 font-medium text-text-primary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
+                >
+                  <Icon name="lock" size={12} />
+                  {mutations.releasePins.isPending
+                    ? "Releasing..."
+                    : "Release Recovery Backup"}
+                </button>
+              )}
+            </>
+          )}
         </div>
+      )}
 
-        {isWorkflowGuideOpen && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
-            {/* Step 1 */}
-            <div className="flex flex-col justify-between rounded-lg bg-surface-elevated/50 p-3.5 space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
-                    1
-                  </span>
-                  <span>Step 1: Snapshot World (Commit)</span>
-                </div>
-                <p className="text-xs text-text-muted leading-relaxed" title="copy-on-write / Btrfs / ZFS">
-                  Capture an instant storage snapshot of your world &amp; configs.
-                </p>
-              </div>
-            </div>
-
-            {/* Step 2 */}
-            <div className="flex flex-col justify-between rounded-lg bg-surface-elevated/50 p-3.5 space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
-                    2
-                  </span>
-                  <span>Step 2: Isolate (Branch / Worktree)</span>
-                </div>
-                <p className="text-xs text-text-muted leading-relaxed">
-                  Create a safe branch to test new plugins or server updates without risking production.
-                </p>
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div className="flex flex-col justify-between rounded-lg bg-surface-elevated/50 p-3.5 space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
-                    3
-                  </span>
-                  <span>Step 3: Branch Sandbox &amp; Live Promotion</span>
-                </div>
-                <p className="text-xs text-text-muted leading-relaxed">
-                  Launch a branch container with isolated ports and data templates, verify it live, then merge into main.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Alerts */}
-      {error && (
-        <div role="alert" className="rounded-xl bg-surface-muted border border-border-subtle p-4 text-sm text-status-danger flex items-center justify-between">
+      {/* Honest Load / Action Alerts */}
+      {(error || loadErrorMsg) && (
+        <div
+          role="alert"
+          className="rounded-xl bg-status-danger-bg border border-status-danger-border p-3.5 text-xs text-status-danger flex items-center justify-between gap-2"
+        >
           <div className="flex items-center gap-2">
-            <Icon name="alert" size={16} className="text-status-danger shrink-0" />
-            <span>{error}</span>
+            <Icon name="alert" size={15} className="shrink-0" />
+            <span>{error ?? loadErrorMsg}</span>
           </div>
-          <button
-            type="button"
-            aria-label="Dismiss error"
-            onClick={() => setError(null)}
-            className="text-status-danger hover:opacity-75 cursor-pointer"
-          >
-            <Icon name="x" size={16} />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {loadErrorMsg && (
+              <button
+                type="button"
+                onClick={refreshAll}
+                className="rounded border border-status-danger-border bg-surface-card px-2 py-1 text-[11px] font-medium hover:bg-surface-hover cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
+            {error && (
+              <button
+                type="button"
+                aria-label="Dismiss error"
+                onClick={() => setError(null)}
+                className="hover:opacity-75 cursor-pointer"
+              >
+                <Icon name="x" size={15} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
       {actionSuccess && (
-        <div className="rounded-xl bg-status-success-bg border border-status-success/30 p-4 text-sm text-status-success flex items-center justify-between">
+        <div className="rounded-xl bg-status-success-bg border border-status-success/30 p-3.5 text-xs text-status-success flex items-center justify-between gap-2">
           <span>{actionSuccess}</span>
           <button
             type="button"
             aria-label="Dismiss message"
             onClick={() => setActionSuccess(null)}
-            className="text-status-success hover:opacity-75 cursor-pointer"
+            className="hover:opacity-75 cursor-pointer"
           >
-            <Icon name="x" size={16} />
+            <Icon name="x" size={15} />
           </button>
         </div>
       )}
 
-      {selectedBranch === "main" && pendingSettingsBranch && (
+      {uncommittedWarning && (
         <div
-          data-testid="versioning-pending-settings-banner"
-          className="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 flex flex-wrap items-center justify-between gap-3 text-xs"
+          role="alert"
+          data-testid="uncommitted-changes-warning"
+          className="flex items-start justify-between gap-3 rounded-xl border border-status-warning-border bg-status-warning-bg p-3 text-xs text-status-warning"
         >
-          <div className="space-y-0.5">
-            <p className="font-semibold text-status-warning">
-              Pending Settings Branch: <code className="font-mono">{pendingSettingsBranch.branch_name}</code> (
-              {pendingSettingsBranch.status || "pending"})
-            </p>
-            <p className="text-text-secondary">
-              {pendingSettingsBranch.error_message
-                ? `Auto-merge issue: ${pendingSettingsBranch.error_message}`
-                : "Will automatically merge into main on the next main server restart."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedBranch(pendingSettingsBranch.branch_name);
-                branchCtx?.setBranch(pendingSettingsBranch.branch_name);
-              }}
-              className="rounded-lg border border-border-default bg-surface-card px-3 py-1.5 font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
-            >
-              Inspect Branch
-            </button>
-            <button
-              type="button"
-              disabled={discardPendingBusy}
-              onClick={async () => {
-                if (!serverId || discardPendingBusy) return;
-                setDiscardPendingBusy(true);
-                try {
-                  await api.discardPendingSettings(serverId);
-                  setPendingSettingsBranch(null);
-                  setActionSuccess("Pending settings branch discarded.");
-                  refresh();
-                } catch (err: unknown) {
-                  setError(err instanceof Error ? err.message : "Failed to discard pending settings.");
-                } finally {
-                  setDiscardPendingBusy(false);
-                }
-              }}
-              className="rounded-lg border border-status-danger-border bg-surface-card px-3 py-1.5 font-medium text-status-danger hover:bg-status-danger-bg disabled:opacity-50 cursor-pointer"
-            >
-              {discardPendingBusy ? "Discarding..." : "Discard Pending"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Live Changes Callout Banner */}
-      {Boolean(liveChanges?.changes && liveChanges.changes.length > 0) && (
-        <div className="rounded-xl border border-status-warning/40 bg-status-warning-bg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-status-warning/20 rounded-lg text-status-warning shrink-0">
-              <Icon name="alert" size={20} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-text-primary">
-                Uncommitted Live Server Changes Detected
-              </h3>
-              <p className="text-xs text-text-muted">
-                {liveChanges?.changes?.length || 0} file{liveChanges?.changes?.length === 1 ? "" : "s"} modified or created on the server filesystem since HEAD.
-              </p>
-            </div>
+          <div className="flex items-start gap-2">
+            <Icon name="alert" size={14} className="mt-0.5 shrink-0" />
+            <span>
+              Uncommitted changes in{" "}
+              <code className="font-mono font-semibold">
+                {uncommittedWarning.branchName}
+              </code>{" "}
+              were not included. The sandbox is running the last committed snapshot (
+              {uncommittedWarning.commitSha.slice(0, 8)}).
+            </span>
           </div>
           <button
             type="button"
-            onClick={() => setIsLiveChangesOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text bg-status-warning hover:bg-status-warning/90 rounded-lg transition-colors shadow-xs shrink-0 cursor-pointer"
+            onClick={() => setUncommittedWarning(null)}
+            aria-label="Dismiss uncommitted changes warning"
+            className="rounded p-0.5 hover:bg-status-warning/10 cursor-pointer"
           >
-            Review &amp; Commit Changes
+            <Icon name="x" size={14} />
           </button>
         </div>
       )}
 
-      {/* Branch Navigation Toolbar */}
-      <BranchToolbar
-        branches={branches}
-        selectedBranch={selectedBranch}
-        onSelectBranch={(branch) => {
-          setSelectedBranch(branch);
-          branchCtx?.setBranch(branch);
-          setUncommittedWarning(null);
-          setBranchRuntime(null);
-        }}
-        currentBranchObj={currentBranchObj}
-        filteredCommitsCount={filteredCommits.length}
-        onNewBranch={() => setIsNewBranchOpen(true)}
-        onProtectionRules={() => {
-          setProtectionModalBranch(currentBranchObj);
-          setIsProtectionModalOpen(true);
-        }}
-        onManageBranches={() => setIsManageBranchesOpen(true)}
-        onExploreWorktree={() => setIsMaterializationOpen(true)}
-        onMergeBranch={() => setIsMergeBranchOpen(true)}
-        githubBranchSync={selectedBranchGitHubSync}
-      />
+      {/* 3-Tab Workspace Navigation */}
+      <div
+        role="tablist"
+        aria-label="Versions and Sandboxes sections"
+        className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default pb-2"
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              ["branches", "Branches & Sandboxes", "version-branch"],
+              ["snapshots", "Snapshots & Rollback", "clock"],
+              ["sync", "Sync & Vault", "lock"],
+            ] as const
+          ).map(([tabId, label, icon]) => (
+            <button
+              key={tabId}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tabId}
+              onClick={() => setActiveTab(tabId)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === tabId
+                  ? "bg-accent-primary text-accent-contrast-text shadow-xs"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              }`}
+            >
+              <Icon name={icon} size={13} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
 
-      {/* P5 GitHub Sync Panel */}
-      <GitHubSyncPanel
-        status={githubStatus}
-        selectedBranch={selectedBranch}
-        isFetching={isGitHubFetching}
-        isPushing={isGitHubPushing}
-        syncAlert={githubSyncAlert}
-        onDismissSyncAlert={() => setGithubSyncAlert(null)}
-        onFetchNow={handleGitHubFetch}
-        onPushBranch={handleGitHubPush}
-        onOpenConnectModal={() => setIsConnectGitHubOpen(true)}
-        onOpenRotateModal={() => setIsRotateGitHubOpen(true)}
-        onOpenDisconnectModal={() => setIsDisconnectGitHubOpen(true)}
-        onOpenDeliveriesModal={() => setIsWebhookDeliveriesOpen(true)}
-      />
+        <button
+          type="button"
+          onClick={() => setIsManageBranchesOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary cursor-pointer"
+        >
+          <Icon name="settings" size={12} />
+          <span>Manage All Branches ({branches.length})</span>
+        </button>
+      </div>
 
-      {/* P4 Branch Runtime Panel (non-main branches only) */}
-      {selectedBranch !== "main" && (
-        <BranchRunPanel
-          branchName={selectedBranch}
-          runtime={branchRuntime}
-          branchObj={currentBranchObj}
+      {/* TAB 1: Branches & Sandboxes */}
+      {activeTab === "branches" && (
+        <BranchCockpitTab
+          serverId={serverId}
+          branches={branches}
+          selectedBranch={selectedBranch}
+          onSelectBranch={selectBranch}
+          branchRuntime={branchRuntime}
+          liveChangesCount={liveChanges?.changes?.length ?? 0}
+          refreshState={refreshState}
+          githubStatus={githubStatus}
           dataTemplates={dataTemplates}
-          uncommittedWarning={uncommittedWarning}
-          onDismissUncommittedWarning={() => setUncommittedWarning(null)}
-          onOpenStartModal={() => setIsStartBranchRunOpen(true)}
-          onOpenStopModal={() => setIsStopBranchRunOpen(true)}
-          onOpenPortSetModal={() => setIsPortSetModalOpen(true)}
-          onOpenConsoleActivityModal={(initialTab) => setBranchConsoleModalTab(initialTab)}
-          onOpenSaveTemplateModal={() => setDataTemplatesModalMode("save-branch")}
-          onDestroyContainer={() => setShowDestroyContainerConfirm(true)}
-          isDestroyingContainer={isDestroyingContainer}
+          hasPendingSettings={Boolean(serverDetail?.pending_settings_branch)}
+          canEdit={canEdit}
+          isDestroyingBranch={
+            mutations.destroyBranch.isPending ? destroyConfirmBranch : null
+          }
+          onOpenConsole={(branchName) => {
+            selectBranch(branchName);
+            navigate(
+              `/servers/${serverId}/console?branch=${encodeURIComponent(branchName)}`,
+            );
+          }}
+          onBrowseFiles={(branchName) => {
+            selectBranch(branchName);
+            navigate(
+              branchName === "main"
+                ? `/servers/${serverId}/files`
+                : `/servers/${serverId}/files?branch=${encodeURIComponent(branchName)}`,
+            );
+          }}
+          onDeployMainToLive={() =>
+            setDeployModalTarget({ open: true, commit: null })
+          }
+          onNewBranch={() => setIsNewBranchOpen(true)}
+          onOpenSnapshotModal={(branchName) => {
+            selectBranch(branchName);
+            setSnapshotBranch(branchName);
+          }}
+          onOpenMergeModal={(sourceBranch) => {
+            setMergeSourceBranch(sourceBranch);
+            setIsMergeBranchOpen(true);
+          }}
+          onOpenDiffVsMain={(branchName) =>
+            setDiffParams({ from: "main", to: branchName })
+          }
+          onViewBranchSnapshots={(branchName) => {
+            selectBranch(branchName);
+            setActiveTab("snapshots");
+          }}
+          onOpenStartRun={(branchName) => {
+            selectBranch(branchName);
+            setSandboxTargetBranch(branchName);
+            setStartSandboxModal({
+              open: true,
+              branchName,
+              commitSha: null,
+            });
+          }}
+          onOpenStopRun={(branchName, runtimeId) => {
+            selectBranch(branchName);
+            setSandboxTargetBranch(branchName);
+            setStopSandboxModal({ open: true, branchName, runtimeId });
+          }}
+          onOpenPortSet={(branchName, portSet) => {
+            selectBranch(branchName);
+            setSandboxTargetBranch(branchName);
+            setPortSetModal({ open: true, branchName, portSet });
+          }}
+          onOpenConsoleActivity={(branchName, tab) => {
+            selectBranch(branchName);
+            setBranchConsoleModal({ branchName, tab });
+          }}
+          onOpenSaveTemplate={(branchName, runtimeId) => {
+            selectBranch(branchName);
+            setSaveTemplateRuntimeId(runtimeId ?? null);
+            setDataTemplatesModalMode("save-branch");
+          }}
+          onDestroyContainer={(branchName) =>
+            setDestroyConfirmBranch(branchName)
+          }
+          onOpenProtection={(branch) => setProtectionModalBranch(branch)}
+          onArchiveBranch={(branch) => setArchiveConfirmBranch(branch)}
+          onDeleteBranch={(branch) => setDeleteConfirmBranch(branch)}
         />
       )}
 
+      {/* TAB 2: Snapshots & Rollback */}
+      {activeTab === "snapshots" && (
+        <div className="space-y-4" data-testid="snapshots-rollback-tab">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-default bg-surface-card p-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-semibold text-text-secondary mr-1">
+                Branch:
+              </span>
+              {branches.map((b) => (
+                <button
+                  key={b.name}
+                  type="button"
+                  onClick={() => selectBranch(b.name)}
+                  className={`rounded-lg px-2.5 py-1 font-mono text-xs font-medium cursor-pointer transition-colors ${
+                    selectedBranch === b.name
+                      ? "bg-accent-primary text-accent-contrast-text"
+                      : "border border-border-default bg-surface-page text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                  }`}
+                >
+                  {b.name}
+                </button>
+              ))}
+            </div>
+
+            {canEdit && selectedBranch !== "main" && (
+              <button
+                type="button"
+                onClick={() => setSnapshotBranch(selectedBranch)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover cursor-pointer"
+              >
+                <Icon name="plus" size={12} />
+                Save Snapshot
+              </button>
+            )}
+          </div>
+
+          <CommitTimeline
+            commits={commits}
+            tags={tags}
+            selectedBranch={selectedBranch}
+            liveCommitSha={liveCommitSha}
+            canEdit={canEdit}
+            isLoading={commitsQuery.isLoading}
+            onTagCommit={(commitId) => setTagModalCommitId(commitId)}
+            onDiff={(from, to, parentIds) =>
+              setDiffParams({ from, to, parentIds })
+            }
+            onRestoreToLive={(commit) =>
+              setDeployModalTarget({ open: true, commit })
+            }
+            onTestInSandbox={(commit) =>
+              setStartSandboxModal({
+                open: true,
+                branchName: selectedBranch,
+                commitSha: commit.id,
+              })
+            }
+          />
+        </div>
+      )}
+
+      {/* TAB 3: Sync & Vault */}
+      {activeTab === "sync" && (
+        <SyncAndVaultTab
+          serverId={serverId}
+          selectedBranch={selectedBranch}
+          branches={branches}
+          canEdit={canEdit}
+          settings={settings}
+          isSavingRetention={mutations.updateSettings.isPending}
+          onSaveRetention={async (policy) => {
+            await mutations.updateSettings.mutateAsync({
+              previous_tree_retention: policy,
+            });
+          }}
+          githubStatus={githubStatus}
+          isGitHubFetching={isGitHubFetching}
+          isGitHubPushing={isGitHubPushing}
+          githubSyncAlert={githubSyncAlert}
+          onDismissSyncAlert={() => setGithubSyncAlert(null)}
+          onFetchNow={handleGitHubFetch}
+          onPushBranch={handleGitHubPush}
+          onOpenConnectGitHub={() => setIsConnectGitHubOpen(true)}
+          onOpenRotateGitHub={() => setIsRotateGitHubOpen(true)}
+          onOpenDisconnectGitHub={() => setIsDisconnectGitHubOpen(true)}
+          onOpenWebhookDeliveries={() => setIsWebhookDeliveriesOpen(true)}
+          dataTemplates={dataTemplates}
+          onOpenCreateTemplate={() => setDataTemplatesModalMode("list")}
+          onDeleteTemplate={async (templateId) => {
+            await api.deleteDataTemplate(serverId, templateId);
+            refreshAll();
+          }}
+        />
+      )}
+
+      {/* Confirmation Dialogs */}
       <ConfirmDialog
-        open={showDestroyContainerConfirm}
-        title={`Destroy container for "${selectedBranch}"?`}
+        open={showRollbackConfirm}
+        title="Undo Last Live Deployment?"
+        description="Stops the live server, restores the previous server files and live world/plugin data snapshot, and restarts the server."
+        confirmLabel="Undo Last Deploy"
+        variant="danger"
+        isPending={mutations.rollbackRefresh.isPending}
+        onConfirm={async () => {
+          try {
+            await mutations.rollbackRefresh.mutateAsync({
+              journal_id:
+                refreshState?.active_journal?.journal_id ??
+                latestJournal?.journal_id,
+              reason: "operator_requested",
+            });
+            setShowRollbackConfirm(false);
+            setActionSuccess("Reverted live server to previous deployment.");
+          } catch (err: unknown) {
+            setShowRollbackConfirm(false);
+            setError(
+              err instanceof Error ? err.message : "Undo deploy failed.",
+            );
+          }
+        }}
+        onCancel={() => setShowRollbackConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(destroyConfirmBranch)}
+        title={`Destroy container for "${destroyConfirmBranch}"?`}
         description="Removes this branch's Docker container and /data export and releases its Host Port Set while keeping Git commits."
         confirmLabel="Destroy Container"
         variant="danger"
-        isPending={isDestroyingContainer}
+        isPending={mutations.destroyBranch.isPending}
         onConfirm={async () => {
-          if (!serverId) return;
-          setIsDestroyingContainer(true);
+          const target = destroyConfirmBranch;
+          if (!target) return;
           try {
-            await api.destroyBranchRun(serverId, selectedBranch);
-            setShowDestroyContainerConfirm(false);
-            setBranchRuntime(null);
-            setActionSuccess(`Destroyed container for branch '${selectedBranch}'.`);
-            refresh();
+            await mutations.destroyBranch.mutateAsync(target);
+            setDestroyConfirmBranch(null);
+            setActionSuccess(`Destroyed container for branch '${target}'.`);
           } catch (err: unknown) {
-            setShowDestroyContainerConfirm(false);
-            setError(err instanceof Error ? err.message : "Failed to destroy branch container.");
-          } finally {
-            setIsDestroyingContainer(false);
+            setDestroyConfirmBranch(null);
+            setError(
+              err instanceof Error
+                ? err.message
+                : "Failed to destroy branch container.",
+            );
           }
         }}
-        onCancel={() => setShowDestroyContainerConfirm(false)}
+        onCancel={() => setDestroyConfirmBranch(null)}
       />
 
-      {/* Commit History Workspace */}
-      <div className="w-full">
-        <CommitTimeline
-          commits={filteredCommits}
-          tags={tags}
-          selectedBranch={selectedBranch}
-          isLoading={isLoading}
-          onTagCommit={(commitId) => setTagModalCommitId(commitId)}
-          onDiff={(from, to) => setDiffParams({ from, to })}
-          onInspect={(commit) => setInspectCommit(commit)}
-        />
-      </div>
+      <ConfirmDialog
+        open={Boolean(archiveConfirmBranch)}
+        title={`Archive branch "${archiveConfirmBranch?.name}"?`}
+        description="Archived branches become read-only and their worktree is removed while preserving Git commit history."
+        confirmLabel="Archive Branch"
+        variant="danger"
+        isPending={mutations.archiveBranch.isPending}
+        onConfirm={async () => {
+          const target = archiveConfirmBranch;
+          if (!target) return;
+          try {
+            await mutations.archiveBranch.mutateAsync(target.name);
+            setArchiveConfirmBranch(null);
+            setActionSuccess(`Branch '${target.name}' archived.`);
+          } catch (err: unknown) {
+            setArchiveConfirmBranch(null);
+            setError(
+              err instanceof Error ? err.message : "Failed to archive branch.",
+            );
+          }
+        }}
+        onCancel={() => setArchiveConfirmBranch(null)}
+      />
 
-      {/* Create Branch Modal */}
+      <ConfirmDialog
+        open={Boolean(deleteConfirmBranch)}
+        title={`Delete branch "${deleteConfirmBranch?.name}"?`}
+        description="Permanently removes this branch's worktree, Git ref, and any stopped sandbox container. Commits already merged into main remain intact."
+        confirmLabel="Delete Branch"
+        variant="danger"
+        isPending={mutations.deleteBranch.isPending}
+        onConfirm={async () => {
+          const target = deleteConfirmBranch;
+          if (!target) return;
+          try {
+            await mutations.deleteBranch.mutateAsync(target.name);
+            setDeleteConfirmBranch(null);
+            if (selectedBranch === target.name) {
+              selectBranch("main");
+            }
+            setActionSuccess(`Branch '${target.name}' deleted.`);
+          } catch (err: unknown) {
+            setDeleteConfirmBranch(null);
+            setError(
+              err instanceof Error ? err.message : "Failed to delete branch.",
+            );
+          }
+        }}
+        onCancel={() => setDeleteConfirmBranch(null)}
+      />
+
+      {/* Modals */}
       <CreateBranchModal
         isOpen={isNewBranchOpen}
         branchName={newBranchName}
         onBranchNameChange={setNewBranchName}
         onSubmit={handleCreateBranch}
         onClose={() => setIsNewBranchOpen(false)}
-        isPending={isBranchPending}
+        isPending={mutations.createBranch.isPending}
       />
 
-      {/* Create Commit Modal */}
       <CreateCommitModal
-        isOpen={isNewCommitOpen}
+        isOpen={Boolean(snapshotBranch)}
         message={newCommitMessage}
         onMessageChange={setNewCommitMessage}
         forceBypass={commitForceBypass}
         onForceBypassChange={setCommitForceBypass}
         forceReason={commitForceReason}
         onForceReasonChange={setCommitForceReason}
-        selectedBranch={selectedBranch}
-        currentBranchObj={currentBranchObj}
+        selectedBranch={snapshotBranch ?? selectedBranch}
+        currentBranchObj={snapshotBranchObj}
         isDirectCommitBlocked={isDirectCommitBlocked}
         allowForceBypass={allowForceBypass}
         onSubmit={handleCreateCommit}
-        onClose={() => setIsNewCommitOpen(false)}
-        isPending={isCommitPending}
+        onClose={() => setSnapshotBranch(null)}
+        isPending={mutations.createCommit.isPending}
       />
 
-      {/* Manifest Inspect Modal */}
-      <InspectCommitModal
-        commit={inspectCommit}
-        onClose={() => setInspectCommit(null)}
+      <DeployLiveModal
+        isOpen={deployModalTarget.open}
+        targetCommit={deployModalTarget.commit}
+        mainHeadSha={mainBranchObj?.head_commit_id}
+        defaultRetention={settings?.previous_tree_retention}
+        isPending={mutations.refreshServer.isPending}
+        onConfirm={handleDeployOrRestore}
+        onClose={() => setDeployModalTarget({ open: false, commit: null })}
       />
 
       <MergeBranchModal
         isOpen={isMergeBranchOpen}
-        serverId={serverId!}
+        serverId={serverId}
         branches={branches}
         selectedBranch={selectedBranch}
-        onMerged={() => {
-          refresh();
-          if (serverId) {
-            void queryClient?.invalidateQueries({ queryKey: queryKeys.servers.all });
-            void queryClient?.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId) });
-            void queryClient?.invalidateQueries({ queryKey: queryKeys.versioning.branches(serverId) });
-          }
+        initialSourceBranch={mergeSourceBranch}
+        onMerged={refreshAll}
+        onDeployMain={() => setDeployModalTarget({ open: true, commit: null })}
+        onClose={() => {
+          setIsMergeBranchOpen(false);
+          setMergeSourceBranch(null);
         }}
-        onClose={() => setIsMergeBranchOpen(false)}
       />
 
       <ClassCVaultModal
         isOpen={isVaultModalOpen}
-        serverId={serverId!}
+        serverId={serverId}
+        canEdit={canEdit}
         onClose={() => setIsVaultModalOpen(false)}
       />
 
-      {/* Branch Protection Modal */}
-      {isProtectionModalOpen && (
+      {protectionModalBranch && (
         <BranchProtectionModal
-          isOpen={isProtectionModalOpen}
-          onClose={() => setIsProtectionModalOpen(false)}
-          serverId={serverId!}
+          isOpen={Boolean(protectionModalBranch)}
+          onClose={() => setProtectionModalBranch(null)}
+          serverId={serverId}
           branch={protectionModalBranch}
-          onProtectionUpdated={refresh}
+          canEdit={canEdit}
+          onProtectionUpdated={refreshAll}
         />
       )}
 
-      {/* Worktree Materialization Explorer */}
-      {isMaterializationOpen && (
-        <MaterializationBrowserModal
-          isOpen={isMaterializationOpen}
-          onClose={() => setIsMaterializationOpen(false)}
-          serverId={serverId!}
-          initialRevision={{ revision_type: "branch", revision_ref: selectedBranch }}
-        />
-      )}
-
-      {/* Live Uncommitted Changes Review Modal */}
-      {isLiveChangesOpen && (
-        <ImportReviewModal
-          isOpen={isLiveChangesOpen}
-          onClose={() => setIsLiveChangesOpen(false)}
-          serverId={serverId!}
-          liveData={liveChanges}
-          onReviewResolved={refresh}
-        />
-      )}
-
-      {/* Manage Branches & Archive Modal */}
       {isManageBranchesOpen && (
         <ManageBranchesModal
           isOpen={isManageBranchesOpen}
           onClose={() => setIsManageBranchesOpen(false)}
-          serverId={serverId!}
+          serverId={serverId}
           branches={branches}
           currentBranchName={selectedBranch}
-          onBranchesChanged={refresh}
-          onOpenProtectionModal={(b) => {
-            setProtectionModalBranch(b);
-            setIsProtectionModalOpen(true);
-          }}
+          canEdit={canEdit}
+          onBranchesChanged={refreshAll}
+          onOpenProtectionModal={(b) => setProtectionModalBranch(b)}
         />
       )}
 
-      {/* Create Immutable Tag Modal */}
       {tagModalCommitId && (
         <CreateTagModal
           isOpen={Boolean(tagModalCommitId)}
           onClose={() => setTagModalCommitId(null)}
-          serverId={serverId!}
+          serverId={serverId}
           commitId={tagModalCommitId}
-          onTagCreated={refresh}
+          onTagCreated={refreshAll}
         />
       )}
 
-      {/* Commit Diff Inspector */}
       {diffParams && (
         <CommitDiffModal
           isOpen={Boolean(diffParams)}
           onClose={() => setDiffParams(null)}
-          serverId={serverId!}
+          serverId={serverId}
           fromCommitId={diffParams.from}
           toCommitId={diffParams.to}
+          parentCommitIds={diffParams.parentIds}
+          headCommitId={commits[0]?.id ?? null}
         />
       )}
 
-      {/* P4 Start Branch Run Modal */}
       {serverId && (
         <StartBranchRunModal
-          isOpen={isStartBranchRunOpen}
+          isOpen={startSandboxModal.open}
           serverId={serverId}
-          branchName={selectedBranch}
+          branchName={startSandboxModal.branchName || activeSandboxBranch}
+          commitSha={startSandboxModal.commitSha}
           dataTemplates={dataTemplates}
-          portSet={effectivePortSet}
+          portSet={
+            (startSandboxModal.branchName === selectedBranch
+              ? branchRuntime?.port_set
+              : null) ??
+            activeSandboxBranchObj?.port_set ??
+            null
+          }
           onStarted={(result) => {
             if (result.uncommitted_changes_warning) {
-              setUncommittedWarning({ commitSha: result.commit_sha });
+              setUncommittedWarning({
+                branchName: result.branch_name,
+                commitSha: result.commit_sha,
+              });
             }
-            setActionSuccess(`Branch run started for '${result.branch_name}'.`);
-            refresh();
+            setActionSuccess(
+              `Sandbox started for '${result.branch_name}' (${result.commit_sha.slice(0, 8)}).`,
+            );
+            refreshAll();
           }}
-          onClose={() => setIsStartBranchRunOpen(false)}
+          onClose={() =>
+            setStartSandboxModal({
+              open: false,
+              branchName: "",
+              commitSha: null,
+            })
+          }
         />
       )}
 
-      {/* P4 Stop Branch Run Modal */}
       {serverId && (
         <StopBranchRunModal
-          isOpen={isStopBranchRunOpen}
+          isOpen={stopSandboxModal.open}
           serverId={serverId}
-          branchName={selectedBranch}
-          runtimeId={branchRuntime?.runtime_id ?? currentBranchObj?.active_runtime_id ?? null}
+          branchName={stopSandboxModal.branchName || activeSandboxBranch}
+          runtimeId={stopSandboxModal.runtimeId}
           onStopped={(result) => {
-            setActionSuccess(`Branch run stopped for '${result.branch_name}'.`);
-            refresh();
+            setActionSuccess(
+              result.saved_template_name
+                ? `Stopped sandbox '${result.branch_name}' and saved template '${result.saved_template_name}'.`
+                : `Stopped sandbox for '${result.branch_name}'.`,
+            );
+            refreshAll();
           }}
-          onClose={() => setIsStopBranchRunOpen(false)}
+          onClose={() =>
+            setStopSandboxModal({
+              open: false,
+              branchName: "",
+              runtimeId: null,
+            })
+          }
         />
       )}
 
-      {/* P4 Branch Port Set Modal */}
       {serverId && (
         <BranchPortSetModal
-          isOpen={isPortSetModalOpen}
+          isOpen={portSetModal.open}
           serverId={serverId}
-          branchName={selectedBranch}
-          portSet={effectivePortSet}
-          onUpdated={(_portSet: PortSet) => {
-            setActionSuccess("Branch port set updated.");
-            refresh();
+          branchName={portSetModal.branchName || activeSandboxBranch}
+          portSet={portSetModal.portSet}
+          onUpdated={(portSet) => {
+            setActionSuccess(
+              `Updated ports for '${portSetModal.branchName || activeSandboxBranch}' (Game ${portSet.game_port}, RCON ${portSet.rcon_port}).`,
+            );
+            refreshAll();
           }}
-          onClose={() => setIsPortSetModalOpen(false)}
+          onClose={() =>
+            setPortSetModal({ open: false, branchName: "", portSet: null })
+          }
         />
       )}
 
-      {/* P4 Data Templates Modal */}
       {serverId && (
         <DataTemplatesModal
           isOpen={dataTemplatesModalMode !== "closed"}
           serverId={serverId}
           branches={branches}
           selectedBranch={selectedBranch}
-          initialMode={dataTemplatesModalMode === "save-branch" ? "save-branch" : "list"}
-          activeRuntimeId={branchRuntime?.runtime_id ?? null}
-          onClose={() => setDataTemplatesModalMode("closed")}
-          onTemplatesChanged={() => refresh()}
+          initialMode={
+            dataTemplatesModalMode === "save-branch" ? "save-branch" : "list"
+          }
+          activeRuntimeId={saveTemplateRuntimeId}
+          onTemplatesChanged={refreshAll}
+          onClose={() => {
+            setDataTemplatesModalMode("closed");
+            setSaveTemplateRuntimeId(null);
+          }}
         />
       )}
 
-      {/* P4 Branch Console & Activity Modal */}
-      {serverId && (
+      {serverId && branchConsoleModal && (
         <BranchConsoleActivityModal
-          isOpen={branchConsoleModalTab !== null}
+          isOpen={Boolean(branchConsoleModal)}
           serverId={serverId}
-          branchName={selectedBranch}
-          isRuntimeActive={isBranchRuntimeActive}
-          initialTab={branchConsoleModalTab ?? "console"}
-          onClose={() => setBranchConsoleModalTab(null)}
+          branchName={branchConsoleModal.branchName}
+          isRuntimeActive={Boolean(
+            (() => {
+              const targetObj = branches.find(
+                (b) => b.name === branchConsoleModal.branchName,
+              );
+              const rtStatus =
+                (branchConsoleModal.branchName === selectedBranch
+                  ? branchRuntime?.runtime_status
+                  : targetObj?.runtime_status) ?? "stopped";
+              return rtStatus === "running" || rtStatus === "starting";
+            })(),
+          )}
+          initialTab={branchConsoleModal.tab}
+          onClose={() => setBranchConsoleModal(null)}
         />
       )}
 
-      {/* P5 GitHub Sync Modals */}
       {serverId && (
         <ConnectGitHubModal
           isOpen={isConnectGitHubOpen}
           serverId={serverId}
-          onConnected={(st) => {
-            setGithubStatus(st);
+          onConnected={() => {
             setGithubSyncAlert(null);
-            setActionSuccess("Connected to GitHub repository.");
-            refresh();
+            setActionSuccess("Connected GitHub repository.");
+            refreshAll();
           }}
           onClose={() => setIsConnectGitHubOpen(false)}
         />
@@ -1129,11 +1378,10 @@ export function ServerVersioningPage() {
           isOpen={isRotateGitHubOpen}
           serverId={serverId}
           currentStatus={githubStatus}
-          onRotated={(st) => {
-            setGithubStatus(st);
+          onRotated={() => {
             setGithubSyncAlert(null);
-            setActionSuccess("GitHub credentials updated.");
-            refresh();
+            setActionSuccess("Rotated GitHub credentials.");
+            refreshAll();
           }}
           onClose={() => setIsRotateGitHubOpen(false)}
         />
@@ -1144,15 +1392,12 @@ export function ServerVersioningPage() {
           isOpen={isDisconnectGitHubOpen}
           serverId={serverId}
           remoteUrl={githubStatus?.remote_url ?? null}
-          onDisconnected={(res) => {
-            setGithubStatus(null);
+          onDisconnected={() => {
             setGithubSyncAlert(null);
             setActionSuccess(
-              res.purged_deliveries > 0
-                ? `Disconnected from GitHub (local Git history preserved; purged ${res.purged_deliveries} deliveries).`
-                : "Disconnected from GitHub (local Git history preserved).",
+              "Disconnected from GitHub (local Git history preserved).",
             );
-            refresh();
+            refreshAll();
           }}
           onClose={() => setIsDisconnectGitHubOpen(false)}
         />
@@ -1166,21 +1411,37 @@ export function ServerVersioningPage() {
           webhookPath={githubStatus?.webhook_path ?? null}
           onRedelivered={(res) => {
             setActionSuccess(
-              `Webhook delivery '${res.delivery_id}' queued for redelivery.`,
+              `Webhook delivery ${res.delivery_id} (${res.status}).`,
             );
-            refresh();
+            refreshAll();
           }}
           onClose={() => setIsWebhookDeliveriesOpen(false)}
         />
       )}
-
-      {serverId && supportsModpacks && (
-        <ModpackInstallWizardModal
-          serverId={serverId}
-          isOpen={isP55ModpackWizardOpen}
-          onClose={() => setIsP55ModpackWizardOpen(false)}
-        />
-      )}
     </div>
+  );
+}
+
+export function ServerVersioningPage() {
+  const existingClient = useContext(QueryClientContext);
+  const fallbackClient = useMemo(
+    () =>
+      existingClient ??
+      new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+        },
+      }),
+    [existingClient],
+  );
+
+  if (existingClient) {
+    return <ServerVersioningPageInner />;
+  }
+
+  return (
+    <QueryClientProvider client={fallbackClient}>
+      <ServerVersioningPageInner />
+    </QueryClientProvider>
   );
 }

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 echo "=== Bootstrap Development Environment ==="
 
 # Backend
 echo "[1/4] Creating backend virtual environment..."
-cd "$(dirname "$0")/../backend"
+cd "$REPO_ROOT/backend"
 PYTHON_EXACT_PROBE='import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'
 if [ -e .venv/bin/python ] || [ -L .venv/bin/python ]; then
     if [ -x .venv/bin/python ] && .venv/bin/python -c "$PYTHON_EXACT_PROBE" &>/dev/null; then
@@ -44,12 +46,12 @@ pip install -e .
 
 # Frontend
 echo "[3/4] Installing frontend dependencies..."
-cd "$(dirname "$0")/../frontend"
+cd "$REPO_ROOT/frontend"
 npm install
 
 # Database
 echo "[4/4] Running database migrations..."
-cd "$(dirname "$0")/../backend"
+cd "$REPO_ROOT/backend"
 alembic upgrade head
 
 echo "=== Bootstrap Complete ==="

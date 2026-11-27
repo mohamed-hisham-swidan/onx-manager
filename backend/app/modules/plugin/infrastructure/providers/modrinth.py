@@ -220,11 +220,23 @@ class ModrinthProvider(PluginCatalogProvider):
         data = await self._get_json("/search", params=params)
         hits = data.get("hits") or []
         results: list[PluginSearchResult] = []
+        plugin_loaders = {
+            "paper", "purpur", "spigot", "bukkit", "folia",
+            "velocity", "bungeecord", "waterfall", "sponge",
+        }
+        mod_loaders = {"fabric", "quilt", "forge", "neoforge"}
         for hit in hits:
-            project_types = hit.get("all_project_types") or [hit.get("project_type", "")]
+            categories = [c for c in (hit.get("categories") or []) if c]
+            cat_lower = {c.lower() for c in categories}
+            fallback_types = [hit.get("project_type", "")]
+            raw_types = [t for t in (hit.get("all_project_types") or fallback_types) if t]
+            project_types = list(raw_types)
+            if cat_lower & plugin_loaders and "plugin" not in project_types:
+                project_types.append("plugin")
+            if cat_lower & mod_loaders and "mod" not in project_types:
+                project_types.append("mod")
             if target_type not in project_types:
                 continue
-            categories = [c for c in (hit.get("categories") or []) if c]
             results.append(
                 PluginSearchResult(
                     project_id=hit.get("project_id", ""),
@@ -232,7 +244,7 @@ class ModrinthProvider(PluginCatalogProvider):
                     title=hit.get("title", ""),
                     description=hit.get("description", ""),
                     author=hit.get("author", ""),
-                    project_types=[t for t in project_types if t],
+                    project_types=project_types,
                     downloads=hit.get("downloads", 0),
                     follows=hit.get("follows", 0),
                     icon_url=hit.get("icon_url", ""),

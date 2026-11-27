@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 HEALTH_INTERVAL_SECONDS = 30.0
 STALE_AFTER_SECONDS = 90.0
+QUICK_URL_TIMEOUT_SECONDS = 30.0
 MAX_RESTARTS = 5
 BACKOFF_BASE_SECONDS = 2.0
 
@@ -102,6 +103,9 @@ class CloudflaredSupervisor:
         self._backoff_base = backoff_base
 
         self._lifecycle_lock = asyncio.Lock()
+        self._callback_lock = asyncio.Lock()
+        self._run_generation: int = 0
+        self._status_tasks: set[asyncio.Task[None]] = set()
         self._process: asyncio.subprocess.Process | None = None
         self._token_file: Path | None = None
         self._token_secret: bytes = b""
@@ -116,6 +120,7 @@ class CloudflaredSupervisor:
         self._stop_event = asyncio.Event()
         self._restart_count = 0
         self._last_health_at = 0.0
+        self._spawned_at = 0.0
         self._last_stderr_lines: deque[str] = deque(maxlen=10)
         self._status = ExposureStatus.STOPPED
         self._error_message: str | None = None
@@ -163,12 +168,15 @@ class CloudflaredSupervisor:
     ) -> None:
         """Start ``cloudflared tunnel run`` using a restricted token file + TUNNEL_TOKEN env."""
         async with self._lifecycle_lock:
+            if self.is_running:
+                if on_status is not None:
+                    self._on_status = on_status
+                logger.info("cloudflared already running — ignoring duplicate start")
+                return
+            await self._cleanup_before_transition()
             if on_status is not None:
                 self._on_status = on_status
             self._on_url = None
-            if self.is_running:
-                logger.info("cloudflared already running — ignoring duplicate start")
-                return
             self._mode = "token_file"
             self._quick_local_url = None
             self._quick_url = None
@@ -178,10 +186,11 @@ class CloudflaredSupervisor:
             self._last_stderr_lines.clear()
             self._stop_event.clear()
             self._restart_count = 0
-            spawned = await self._spawn(token)
+            gen = self._run_generation
+            spawned = await self._spawn(token, generation=gen)
             if spawned:
                 self._monitor_task = asyncio.create_task(
-                    self._monitor(),
+                    self._monitor(gen),
                     name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
                 )
 
@@ -193,11 +202,10 @@ class CloudflaredSupervisor:
     ) -> None:
         """Start Permanent Mode: ``cloudflared tunnel run`` via ``TUNNEL_TOKEN`` env."""
         async with self._lifecycle_lock:
+            await self._cleanup_before_transition()
             if on_status is not None:
                 self._on_status = on_status
             self._on_url = None
-            if self.is_running:
-                await self._terminate_process()
             self._mode = "token_env"
             self._quick_local_url = None
             self._quick_url = None
@@ -207,10 +215,11 @@ class CloudflaredSupervisor:
             self._last_stderr_lines.clear()
             self._stop_event.clear()
             self._restart_count = 0
-            spawned = await self._spawn_token_env(token)
+            gen = self._run_generation
+            spawned = await self._spawn_token_env(token, generation=gen)
             if spawned:
                 self._monitor_task = asyncio.create_task(
-                    self._monitor(),
+                    self._monitor(gen),
                     name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
                 )
 
@@ -223,11 +232,10 @@ class CloudflaredSupervisor:
     ) -> None:
         """Start Quick Preview Mode: ``cloudflared tunnel --no-autoupdate --url <local_url>``."""
         async with self._lifecycle_lock:
+            await self._cleanup_before_transition()
             if on_status is not None:
                 self._on_status = on_status
             self._on_url = on_url
-            if self.is_running:
-                await self._terminate_process()
             self._mode = "quick"
             self._quick_local_url = local_url
             self._quick_url = None
@@ -237,41 +245,56 @@ class CloudflaredSupervisor:
             self._last_stderr_lines.clear()
             self._stop_event.clear()
             self._restart_count = 0
-            spawned = await self._spawn_quick(local_url)
+            gen = self._run_generation
+            spawned = await self._spawn_quick(local_url, generation=gen)
             if spawned:
                 self._monitor_task = asyncio.create_task(
-                    self._monitor(),
+                    self._monitor(gen),
                     name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
                 )
 
     async def stop(self) -> None:
         async with self._lifecycle_lock:
-            self._stop_event.set()
-            await self._terminate_process()
-            if self._monitor_task is not None and not self._monitor_task.done():
-                self._monitor_task.cancel()
-                try:
-                    await self._monitor_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    logger.warning("cloudflared monitor task raised during stop", exc_info=True)
-                self._monitor_task = None
-            if self._drain_task is not None and not self._drain_task.done():
-                self._drain_task.cancel()
-                try:
-                    await self._drain_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    logger.warning("cloudflared drain task raised during stop", exc_info=True)
-                self._drain_task = None
+            await self._cleanup_before_transition()
             await self._delete_token_file()
             self._token_secret = b""
             self._quick_url = None
             self._error_code = None
-            self._set_status(ExposureStatus.STOPPED)
+            self._error_message = None
+            # Clear callbacks before setting STOPPED so stopping for restart/disable
+            # never fires a stale background STOPPED write into DB.
+            self._on_status = None
+            self._on_url = None
+            self._status = ExposureStatus.STOPPED
             logger.info("cloudflared supervisor stopped")
+
+    async def _cleanup_before_transition(self) -> None:
+        """Bump generation, terminate any active process, and cancel prior tasks."""
+        self._run_generation += 1
+        self._stop_event.set()
+        current_task = asyncio.current_task()
+        if (
+            self._monitor_task is not None
+            and not self._monitor_task.done()
+            and self._monitor_task is not current_task
+        ):
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.warning("cloudflared monitor task raised during stop", exc_info=True)
+        self._monitor_task = None
+        await self._terminate_process()
+        if self._status_tasks:
+            pending = [t for t in self._status_tasks if not t.done() and t is not current_task]
+            for task in pending:
+                task.cancel()
+            for task in pending:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+            self._status_tasks.clear()
 
     # -- lifecycle internals -----------------------------------------------
 
@@ -281,9 +304,13 @@ class CloudflaredSupervisor:
         *,
         extra_env: dict[str, str] | None = None,
         use_drain_on_windows: bool = True,
+        generation: int | None = None,
     ) -> bool:
         """Execute cloudflared cleanly without leaking secrets on argv."""
-        self._last_health_at = time.monotonic()
+        gen = self._run_generation if generation is None else generation
+        now = time.monotonic()
+        self._last_health_at = now
+        self._spawned_at = now
 
         kwargs: dict[str, object] = {
             "stdout": asyncio.subprocess.PIPE,
@@ -313,20 +340,20 @@ class CloudflaredSupervisor:
             logger.error("Failed to spawn cloudflared: %s", exc)
             self._error_code = "CLOUDFLARED_NOT_FOUND"
             self._stop_event.set()
-            self._set_status(ExposureStatus.ERROR, err_msg)
+            self._set_status(ExposureStatus.ERROR, err_msg, generation=gen)
             return False
 
-        self._set_status(ExposureStatus.STARTING)
+        self._set_status(ExposureStatus.STARTING, generation=gen)
         logger.info("cloudflared spawned pid=%d mode=%s", self._process.pid, self._mode)
 
         if self._process.stderr is not None:
             self._stderr_reader = asyncio.create_task(
-                self._read_stderr(self._process.stderr),
+                self._read_stderr(self._process.stderr, generation=gen),
                 name="cloudflared-stderr-reader",
             )
         if self._mode == "quick" and self._process.stdout is not None:
             self._stdout_reader = asyncio.create_task(
-                self._read_stderr(self._process.stdout),
+                self._read_stderr(self._process.stdout, generation=gen),
                 name="cloudflared-stdout-reader",
             )
 
@@ -347,7 +374,7 @@ class CloudflaredSupervisor:
 
         return True
 
-    async def _spawn(self, token: bytes) -> bool:
+    async def _spawn(self, token: bytes, *, generation: int | None = None) -> bool:
         await self._delete_token_file()
         token_file = self._write_token_file(token)
         self._token_file = token_file
@@ -356,9 +383,9 @@ class CloudflaredSupervisor:
         cmd = ["cloudflared", "tunnel", "run", "--token-file", str(token_file)]
         logger.info("spawning cloudflared (pid via subprocess), token via --token-file")
         extra_env = {"TUNNEL_TOKEN": token_str} if token_str else None
-        return await self._spawn_cmd(cmd, extra_env=extra_env)
+        return await self._spawn_cmd(cmd, extra_env=extra_env, generation=generation)
 
-    async def _spawn_token_env(self, token: bytes) -> bool:
+    async def _spawn_token_env(self, token: bytes, *, generation: int | None = None) -> bool:
         await self._delete_token_file()
         token_str = token.decode("utf-8", errors="ignore").strip()
         cmd = ["cloudflared", "tunnel", "--no-autoupdate", "run"]
@@ -367,21 +394,27 @@ class CloudflaredSupervisor:
             cmd,
             extra_env={"TUNNEL_TOKEN": token_str},
             use_drain_on_windows=False,
+            generation=generation,
         )
 
-    async def _spawn_quick(self, local_url: str) -> bool:
+    async def _spawn_quick(self, local_url: str, *, generation: int | None = None) -> bool:
         await self._delete_token_file()
         cmd = ["cloudflared", "tunnel", "--no-autoupdate", "--url", local_url]
         logger.info("spawning cloudflared quick preview tunnel -> %s", local_url)
-        return await self._spawn_cmd(cmd, use_drain_on_windows=False)
+        return await self._spawn_cmd(cmd, use_drain_on_windows=False, generation=generation)
 
-    async def _read_stderr(self, stream: asyncio.StreamReader) -> None:
+    async def _read_stderr(
+        self, stream: asyncio.StreamReader, generation: int | None = None
+    ) -> None:
         """Scan stream output for auth errors, connection readiness, or Quick Tunnel URLs."""
+        expected_gen = self._run_generation if generation is None else generation
         try:
-            while not self._stop_event.is_set():
+            while not self._stop_event.is_set() and expected_gen == self._run_generation:
                 line = await stream.readline()
                 if not line:
                     break
+                if expected_gen != self._run_generation:
+                    return
                 raw_line = line.decode("utf-8", errors="replace").strip()
                 if raw_line:
                     self._last_stderr_lines.append(raw_line)
@@ -394,9 +427,12 @@ class CloudflaredSupervisor:
                         self._quick_url = captured_url
                         logger.info("cloudflared quick tunnel URL captured: %s", captured_url)
                         if self._on_url is not None:
-                            with contextlib.suppress(Exception):
-                                await self._on_url(captured_url)
-                        self._set_status(ExposureStatus.ACTIVE)
+                            on_url_cb = self._on_url
+                            async with self._callback_lock:
+                                if expected_gen == self._run_generation:
+                                    with contextlib.suppress(Exception):
+                                        await on_url_cb(captured_url)
+                        self._set_status(ExposureStatus.ACTIVE, generation=expected_gen)
 
                 if any(marker in lower for marker in _AUTH_FAILURE_MARKERS):
                     logger.error(
@@ -406,6 +442,7 @@ class CloudflaredSupervisor:
                     self._set_status(
                         ExposureStatus.RECLAIM_REQUIRED,
                         "cloudflared reported an invalid or revoked tunnel token",
+                        generation=expected_gen,
                     )
                     await self._terminate_process()
                     self._stop_event.set()
@@ -416,56 +453,123 @@ class CloudflaredSupervisor:
                 ):
                     self._last_health_at = time.monotonic()
                     if self._status != ExposureStatus.ACTIVE:
-                        self._set_status(ExposureStatus.ACTIVE)
+                        self._set_status(ExposureStatus.ACTIVE, generation=expected_gen)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.debug("cloudflared stderr reader failed", exc_info=True)
 
-    async def _monitor(self) -> None:
+    async def _monitor(self, generation: int | None = None) -> None:
+        expected_gen = self._run_generation if generation is None else generation
         try:
-            while not self._stop_event.is_set():
+            while not self._stop_event.is_set() and expected_gen == self._run_generation:
                 if self.is_running:
                     if self._mode == "quick":
                         if self._quick_url is not None:
                             self._last_health_at = time.monotonic()
                             if self._status != ExposureStatus.ACTIVE:
-                                self._set_status(ExposureStatus.ACTIVE)
+                                self._set_status(ExposureStatus.ACTIVE, generation=expected_gen)
+                        elif (time.monotonic() - self._spawned_at) > QUICK_URL_TIMEOUT_SECONDS:
+                            self._error_code = "CLOUDFLARED_TIMEOUT"
+                            self._set_status(
+                                ExposureStatus.ERROR,
+                                "Timed out waiting for cloudflared Quick Tunnel URL "
+                                "(*.trycloudflare.com)",
+                                generation=expected_gen,
+                            )
+                            self._stop_event.set()
+                            await self._terminate_process()
+                            return
                     else:
                         healthy = await self._probe_health()
+                        if expected_gen != self._run_generation or self._stop_event.is_set():
+                            return
                         if healthy:
                             self._last_health_at = time.monotonic()
-                            self._set_status(ExposureStatus.ACTIVE)
+                            self._set_status(ExposureStatus.ACTIVE, generation=expected_gen)
                         elif (
                             self._status == ExposureStatus.ACTIVE
                             and (time.monotonic() - self._last_health_at) > self._stale_after
                         ):
-                            self._set_status(ExposureStatus.DEGRADED)
+                            self._set_status(ExposureStatus.DEGRADED, generation=expected_gen)
+
+                    proc = self._process
+                    wait_seconds = (
+                        0.25
+                        if (self._mode == "quick" and self._quick_url is None)
+                        else self._health_interval
+                    )
+                    if isinstance(proc, asyncio.subprocess.Process) and proc.returncode is None:
+                        wait_proc = asyncio.create_task(proc.wait())
+                        wait_stop = asyncio.create_task(self._stop_event.wait())
+                        try:
+                            _done, pending = await asyncio.wait(
+                                {wait_proc, wait_stop},
+                                timeout=wait_seconds,
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                            for pending_task in pending:
+                                pending_task.cancel()
+                                with contextlib.suppress(asyncio.CancelledError):
+                                    await pending_task
+                        except asyncio.CancelledError:
+                            wait_proc.cancel()
+                            wait_stop.cancel()
+                            raise
+                    else:
+                        await asyncio.sleep(wait_seconds)
                 else:
-                    await self._handle_process_exit()
-                await asyncio.sleep(self._health_interval)
+                    await self._handle_process_exit(expected_gen)
+                    if self._stop_event.is_set() or expected_gen != self._run_generation:
+                        return
+                    await asyncio.sleep(self._health_interval)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("cloudflared monitor crashed")
             self._set_status(
-                ExposureStatus.ERROR, "cloudflared health monitor encountered an error"
+                ExposureStatus.ERROR,
+                "cloudflared health monitor encountered an error",
+                generation=expected_gen,
             )
 
-    async def _handle_process_exit(self) -> None:
-        if self._stop_event.is_set():
+    async def _handle_process_exit(self, generation: int | None = None) -> None:
+        expected_gen = self._run_generation if generation is None else generation
+        if self._stop_event.is_set() or expected_gen != self._run_generation:
             return
         if self._status == ExposureStatus.RECLAIM_REQUIRED:
+            return
+
+        # Allow stderr reader to drain final lines from an exited process.
+        for reader in (self._stderr_reader, self._stdout_reader):
+            if reader is not None and not reader.done():
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
+                    await asyncio.wait_for(asyncio.shield(reader), timeout=0.2)
+
+        if self._stop_event.is_set() or expected_gen != self._run_generation:
             return
 
         stderr_hint = (
             self._last_stderr_lines[-1] if self._last_stderr_lines else None
         )
 
+        # If a Quick Tunnel exits before ever yielding a trycloudflare.com URL,
+        # surface an immediate ERROR rather than staying in STARTING or STOPPED.
+        if self._mode == "quick" and self._quick_url is None:
+            msg = (
+                f"cloudflared quick tunnel exited before producing a public URL: {stderr_hint}"
+                if stderr_hint
+                else "cloudflared quick tunnel exited before producing a public URL"
+            )
+            self._error_code = "CLOUDFLARED_EXITED"
+            self._set_status(ExposureStatus.ERROR, msg, generation=expected_gen)
+            self._stop_event.set()
+            return
+
         if is_windows():
             msg = stderr_hint or "cloudflared exited unexpectedly"
             self._error_code = "CLOUDFLARED_EXITED"
-            self._set_status(ExposureStatus.ERROR, msg)
+            self._set_status(ExposureStatus.ERROR, msg, generation=expected_gen)
             self._stop_event.set()
             return
         if self._restart_count >= self._max_restarts:
@@ -475,7 +579,7 @@ class CloudflaredSupervisor:
                 else f"cloudflared restarted too many times ({self._restart_count})"
             )
             self._error_code = "CLOUDFLARED_EXITED"
-            self._set_status(ExposureStatus.ERROR, msg)
+            self._set_status(ExposureStatus.ERROR, msg, generation=expected_gen)
             self._stop_event.set()
             return
         self._restart_count += 1
@@ -487,14 +591,16 @@ class CloudflaredSupervisor:
             delay,
         )
         await asyncio.sleep(min(delay, 60.0))
-        if not self._stop_event.is_set():
+        if not self._stop_event.is_set() and expected_gen == self._run_generation:
             if self._mode == "quick" and self._quick_local_url:
                 self._quick_url = None
-                await self._spawn_quick(self._quick_local_url)
+                await self._spawn_quick(self._quick_local_url, generation=expected_gen)
             elif self._mode == "token_env" and self._token_secret:
-                await self._spawn_token_env(self._token_secret)
+                await self._spawn_token_env(self._token_secret, generation=expected_gen)
             else:
-                await self._spawn(self._read_token() or self._token_secret)
+                await self._spawn(
+                    self._read_token() or self._token_secret, generation=expected_gen
+                )
 
     async def _probe_health(self) -> bool:
         """Try every documented metrics port; first reachable endpoint is healthy.
@@ -609,17 +715,35 @@ class CloudflaredSupervisor:
 
     # -- status ------------------------------------------------------------
 
-    def _set_status(self, status: ExposureStatus, error_message: str | None = None) -> None:
+    def _set_status(
+        self,
+        status: ExposureStatus,
+        error_message: str | None = None,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        if generation is not None and generation != self._run_generation:
+            return
         self._status = status
         if error_message is not None or status == ExposureStatus.ACTIVE:
             self._error_message = error_message
         if status == ExposureStatus.ACTIVE:
             self._error_code = None
-        if self._on_status is not None:
+        cb = self._on_status
+        expected_gen = self._run_generation
+        if cb is not None:
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    loop.create_task(self._on_status(status))
+                    async def _dispatch_status() -> None:
+                        async with self._callback_lock:
+                            if expected_gen != self._run_generation or self._status != status:
+                                return
+                            await cb(status)
+
+                    task = loop.create_task(_dispatch_status())
+                    self._status_tasks.add(task)
+                    task.add_done_callback(self._status_tasks.discard)
             except RuntimeError:
                 pass
 

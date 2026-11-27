@@ -51,11 +51,20 @@ class LoginHandler(CommandHandler[LoginCommand]):
             for event in user.collect_events():
                 uow.add_event(event)
 
-            user_perms = await self._perm_evaluator.get_effective_permissions(user)
-            scope = ",".join(str(p) for p in user_perms)
+            from app.core.authorization import (
+                compute_effective_global_permissions,
+                resolve_primary_role,
+            )
+
+            primary_role = resolve_primary_role([r.name for r in user.roles])
+            user_perms = compute_effective_global_permissions(
+                primary_role,
+                denied_permissions=user.denied_permissions,
+            )
+            scope = ",".join(user_perms)
             access_token = create_access_token(
                 user_id=str(user.user_id),
-                roles=[r.name for r in user.roles],
+                roles=[primary_role],
                 permissions=user_perms,
                 scope=scope,
             )
@@ -94,7 +103,7 @@ class LoginHandler(CommandHandler[LoginCommand]):
                 "user_id": str(user.user_id),
                 "username": user.username,
                 "display_name": user.display_name,
-                "roles": [r.name for r in user.roles],
+                "roles": [primary_role],
                 "permissions": user_perms,
             },
         )

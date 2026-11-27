@@ -7,14 +7,12 @@ import { ApiError } from "@/services/api";
 import type {
   CompatibilityMatrixPayload,
   InstallPlanPayload,
-  LecEntryResponse,
   MatrixEntryItem,
   ModpackInspectResponse,
   ServerP55SettingsResponse,
   ServerUpgradeListResponse,
   ServerUpgradeResponse,
 } from "@/server_manager/types";
-import { PanelP55IntegrationsSection } from "./PanelP55IntegrationsSection";
 import { ServerP55SettingsCard } from "./ServerP55SettingsCard";
 import { ModpackInstallWizardModal } from "./ModpackInstallWizardModal";
 import { SafeUpgradeWizardModal } from "./SafeUpgradeWizardModal";
@@ -76,29 +74,6 @@ function renderWithProviders(ui: React.ReactElement) {
 function resetApi() {
   for (const fn of Object.values(mockApi)) fn.mockReset();
 }
-
-const NOT_CONFIGURED = { configured: false, source: "none" as const, hint: null };
-const CONFIGURED_PANEL = {
-  configured: true,
-  source: "panel" as const,
-  hint: "***...9f2a",
-};
-
-const LEC_ENTRY: LecEntryResponse = {
-  lec_key: "fabric/1.21.1/0.16.9/1.0.1",
-  loader_id: "fabric",
-  mc_version: "1.21.1",
-  loader_version: "0.16.9",
-  installer_version: "1.0.1",
-  java_major: 21,
-  status: "ready",
-  size_bytes: 52_428_800,
-  file_count: 37,
-  complete_manifest_sha256: "abc123",
-  ready_on_disk: true,
-  last_used_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-};
 
 const P55_SETTINGS: ServerP55SettingsResponse = {
   server_id: "srv-p55",
@@ -302,117 +277,6 @@ const CLEAN_MATRIX: CompatibilityMatrixPayload = {
   has_blockers: false,
   blockers_count: 0,
 };
-
-describe("PanelP55IntegrationsSection — CurseForge & Host LEC", () => {
-  beforeEach(resetApi);
-
-  it("stores a panel CurseForge key, clears plaintext, and shows masked status", async () => {
-    const user = userEvent.setup();
-    mockApi.getCurseForgeIntegrationStatus
-      .mockResolvedValueOnce(NOT_CONFIGURED)
-      .mockResolvedValue(CONFIGURED_PANEL);
-    mockApi.setCurseForgeIntegrationKey.mockResolvedValue(CONFIGURED_PANEL);
-    mockApi.listLecEntries.mockResolvedValue([]);
-
-    const { container } = renderWithProviders(<PanelP55IntegrationsSection />);
-
-    expect(await screen.findByText("Not Set")).toBeInTheDocument();
-    const key = "$2a$10$secret-key-9f2a";
-    const input = screen.getByTestId("curseforge-api-key-input");
-    await user.type(input, key);
-    await user.click(screen.getByTestId("save-curseforge-key-btn"));
-
-    await waitFor(() =>
-      expect(mockApi.setCurseForgeIntegrationKey).toHaveBeenCalledWith({
-        api_key: key,
-      }),
-    );
-    await waitFor(() => expect(input).toHaveValue(""));
-    expect(container.textContent ?? "").not.toContain("secret-key-9f2a");
-    expect(await screen.findByText("Configured")).toBeInTheDocument();
-    expect(screen.getByText("***...9f2a")).toBeInTheDocument();
-  });
-
-  it("deletes a stored panel key", async () => {
-    const user = userEvent.setup();
-    mockApi.getCurseForgeIntegrationStatus
-      .mockResolvedValueOnce(CONFIGURED_PANEL)
-      .mockResolvedValue(NOT_CONFIGURED);
-    mockApi.deleteCurseForgeIntegrationKey.mockResolvedValue(NOT_CONFIGURED);
-    mockApi.listLecEntries.mockResolvedValue([]);
-
-    renderWithProviders(<PanelP55IntegrationsSection />);
-
-    expect(await screen.findByText("Configured")).toBeInTheDocument();
-    await user.click(screen.getByTestId("delete-curseforge-key-btn"));
-    await waitFor(() =>
-      expect(mockApi.deleteCurseForgeIntegrationKey).toHaveBeenCalledTimes(1),
-    );
-    expect(await screen.findByText("Not Set")).toBeInTheDocument();
-  });
-
-  it("lists loader cache entries, opens pre-warm & clean modals, and handles API errors", async () => {
-    const user = userEvent.setup();
-    mockApi.getCurseForgeIntegrationStatus.mockResolvedValue(NOT_CONFIGURED);
-    mockApi.listLecEntries.mockResolvedValue([LEC_ENTRY]);
-    mockApi.prewarmLecEntry.mockResolvedValue({
-      lec_key: "fabric/1.21.1/0.16.9/1.0.1",
-      status: "ready",
-      file_count: 37,
-      total_bytes: 52_428_800,
-      java_major: 21,
-      unix_args_relpath: "args/unix.args",
-      operation_id: "op-lec-1",
-    });
-    mockApi.gcLecEntries.mockResolvedValue({
-      pruned_lec_keys: ["fabric/old/1.0/0.1"],
-      pruned_cas_digests: ["digest1", "digest2"],
-      freed_bytes: 1_572_864,
-    });
-
-    renderWithProviders(<PanelP55IntegrationsSection />);
-
-    expect(await screen.findByText("1.21.1")).toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Java 21")).toBeInTheDocument();
-
-    // Pre-Warm via modal
-    await user.click(screen.getByTestId("open-prewarm-modal-btn"));
-    await user.type(screen.getByLabelText("Minecraft Version"), "1.21.1");
-    await user.type(screen.getByLabelText("Loader / Build Version"), "0.16.9");
-    await user.click(screen.getByTestId("lec-prewarm-btn"));
-    await waitFor(() =>
-      expect(mockApi.prewarmLecEntry).toHaveBeenCalledWith(
-        expect.objectContaining({
-          loader_id: "fabric",
-          mc_version: "1.21.1",
-          loader_version: "0.16.9",
-          installer_version: "1.0.1",
-        }),
-      ),
-    );
-    expect(await screen.findByText("Open Operation Drawer")).toBeInTheDocument();
-
-    // Clean Cache via modal
-    await user.click(screen.getByTestId("open-clean-cache-modal-btn"));
-    await user.click(screen.getByTestId("lec-gc-btn"));
-    await waitFor(() =>
-      expect(mockApi.gcLecEntries).toHaveBeenCalledWith({ min_age_days: 7 }),
-    );
-    expect(await screen.findByText(/2 unused files freed · 1\.50 MB freed/i)).toBeInTheDocument();
-  });
-
-  it("renders ErrorState when loader cache list fails to load", async () => {
-    mockApi.getCurseForgeIntegrationStatus.mockResolvedValue(NOT_CONFIGURED);
-    mockApi.listLecEntries.mockRejectedValue(new Error("Cache index unreachable"));
-
-    renderWithProviders(<PanelP55IntegrationsSection />);
-
-    expect(await screen.findByText("Could not load loader cache")).toBeInTheDocument();
-    expect(screen.getByText("Cache index unreachable")).toBeInTheDocument();
-    expect(screen.queryByText(/No cached loaders yet/i)).not.toBeInTheDocument();
-  });
-});
 
 describe("ServerP55SettingsCard", () => {
   beforeEach(resetApi);

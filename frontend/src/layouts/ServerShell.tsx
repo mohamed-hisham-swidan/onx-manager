@@ -386,7 +386,7 @@ export function ServerShell() {
       ? [{ id: "versioning", label: "Versions", path: withBranch(`/servers/${effectiveServerId}/versioning`), icon: "backup" as const }]
       : []),
     { id: "network", label: "Network & Exposure", path: withBranch(`/servers/${effectiveServerId}/network`), icon: "activity" as const },
-    { id: "backups", label: "Backups", path: `/servers/${effectiveServerId}/backups`, icon: "backup" as const },
+    { id: "backups", label: "Backups", path: withBranch(`/servers/${effectiveServerId}/backups`), icon: "backup" as const },
     { id: "activity", label: "Change History", path: withBranch(`/servers/${effectiveServerId}/activity`), icon: "clock" as const },
     { id: "settings", label: "Settings", path: withBranch(`/servers/${effectiveServerId}/settings`), icon: "settings" as const },
   ];
@@ -419,7 +419,23 @@ export function ServerShell() {
           serverType: server?.server_type,
           supportsMods,
           supportsPlugins,
-          canFiles: canAccessFiles,
+          canConsoleView: permissions.canConsoleView
+            ? permissions.canConsoleView(serverId!)
+            : permissions.canConsole(serverId!),
+          canFiles: canAccessFiles || Boolean(permissions.canViewLogs?.(serverId!)),
+          canSettings: permissions.canSettings
+            ? permissions.canSettings(serverId!)
+            : permissions.canWrite(serverId!),
+          canPluginsView: permissions.canViewPlugins
+            ? permissions.canViewPlugins(serverId!)
+            : permissions.canManagePlugins(serverId!),
+          canExposureView: permissions.canViewExposure(serverId!),
+          canBackupsView: permissions.canViewBackups
+            ? permissions.canViewBackups(serverId!)
+            : true,
+          canVersioningView: permissions.canViewVersioning
+            ? permissions.canViewVersioning(serverId!)
+            : Boolean(permissions.canManageVersioning),
           mode: serverMode,
           branch: isNonMainBranch ? selectedBranch : undefined,
         }}

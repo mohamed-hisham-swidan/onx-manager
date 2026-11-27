@@ -150,12 +150,15 @@ def _find_all_tmux_sessions() -> list[tuple[str, int | None]]:
 
 def _get_tmux_pane_pid(session_name: str) -> int | None:
     try:
-        proc = os.popen(
-            f"tmux list-panes -t {session_name} -F '#{{pane_pid}}' 2>/dev/null",
+        res = subprocess.run(
+            ["tmux", "list-panes", "-t", session_name, "-F", "#{pane_pid}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
-        output = proc.read()
-        proc.close()
-        if output and output.strip().splitlines():
+        output = res.stdout or ""
+        if output.strip().splitlines():
             line = output.strip().splitlines()[0]
             if line.isdigit():
                 return int(line)
@@ -345,14 +348,12 @@ class RuntimeOwnershipManager:
         for sid, server in server_map.items():
             ext_id = server.runtime.external_id if server.runtime else ""
             session_name = ext_id or f"{IDENTITY.temp_prefix_new}{sid}"
+            raw_port = getattr(server.properties, "port", None) if server.properties else None
             port = (
-                (
-                    server.properties.port.value
-                    if hasattr(server.properties, "port")
-                    and isinstance(server.properties.port, int)
-                    else 25565
-                )
-                if server.properties
+                int(raw_port.value)
+                if hasattr(raw_port, "value")
+                else int(raw_port)
+                if isinstance(raw_port, int)
                 else 25565
             )
 

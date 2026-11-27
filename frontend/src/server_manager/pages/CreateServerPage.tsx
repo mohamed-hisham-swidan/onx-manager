@@ -540,7 +540,6 @@ export function CreateServerPage() {
           statusMessage={addonInstallStatus}
           onCreate={handleCreate}
           onBack={() => setStep(hasAddonsStep ? "addons" : "properties")}
-          onEditStep={(targetStep) => setStep(targetStep)}
         />
       )}
 

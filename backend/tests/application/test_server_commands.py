@@ -396,7 +396,9 @@ class TestDeleteServerHandler:
         assert sid not in collector._known_servers
         assert "other-srv" in collector._known_servers
 
-        dash = await get_health_dashboard(_current_user={"user_id": "admin"})
+        dash = await get_health_dashboard(
+            current_user={"user_id": "admin", "roles": ["admin"], "permissions": ["admin:full"]}
+        )
         assert dash.total_servers == 0
         assert dash.critical == 0
 

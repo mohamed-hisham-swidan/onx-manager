@@ -3,7 +3,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends
 
-from app.api.deps import require_permission
+from app.api.deps import require_admin_or_owner
 from app.api.v1.schemas.modpacks_upgrades import (
     CurseForgeIntegrationKeySetRequest,
     CurseForgeIntegrationStatusResponse,
@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 @router.get("", response_model=dict)
 async def get_settings_endpoint(
-    _current_user: dict = Depends(require_permission("settings:read")),
+    _current_user: dict = Depends(require_admin_or_owner("settings:read")),
 ) -> dict:
     live = get_live_settings()
     return {
@@ -66,7 +66,7 @@ async def get_settings_endpoint(
 @router.patch("", response_model=dict)
 async def update_settings(
     body: dict[str, Any] = Body(...),
-    _current_user: dict = Depends(require_permission("settings:write")),
+    _current_user: dict = Depends(require_admin_or_owner("settings:write")),
 ) -> dict:
     if "panel_bind_host" in body:
         new_host = str(body["panel_bind_host"]).strip()
@@ -136,7 +136,7 @@ async def update_settings(
     response_model=CurseForgeIntegrationStatusResponse,
 )
 async def get_curseforge_integration_status(
-    _current_user: Annotated[dict, Depends(require_permission("settings:read"))],
+    _current_user: Annotated[dict, Depends(require_admin_or_owner("settings:read"))],
 ) -> CurseForgeIntegrationStatusResponse:
     async with database.session_factory() as session:
         status = await get_panel_secret_status(
@@ -157,7 +157,7 @@ async def get_curseforge_integration_status(
 )
 async def set_curseforge_integration_key(
     body: CurseForgeIntegrationKeySetRequest,
-    _current_user: Annotated[dict, Depends(require_permission("settings:write"))],
+    _current_user: Annotated[dict, Depends(require_admin_or_owner("settings:write"))],
 ) -> CurseForgeIntegrationStatusResponse:
     async with database.session_factory() as session:
         status = await set_panel_secret(
@@ -178,7 +178,7 @@ async def set_curseforge_integration_key(
     response_model=CurseForgeIntegrationStatusResponse,
 )
 async def delete_curseforge_integration_key(
-    _current_user: Annotated[dict, Depends(require_permission("settings:write"))],
+    _current_user: Annotated[dict, Depends(require_admin_or_owner("settings:write"))],
 ) -> CurseForgeIntegrationStatusResponse:
     async with database.session_factory() as session:
         await delete_panel_secret(session, CURSEFORGE_API_KEY_NAME)

@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.core.persistence.base import Base, TimestampMixin
@@ -27,6 +37,8 @@ class UserModel(Base, TimestampMixin):
     display_name = Column(String(128), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    denied_permissions = Column(JSON, nullable=False, default=list)
+    all_servers_access = Column(Boolean, nullable=False, default=False)
     roles = relationship(
         "RoleModel", secondary="user_roles", back_populates="users", lazy="selectin"
     )
@@ -102,9 +114,12 @@ class InvitationModel(Base, TimestampMixin):
     token_prefix = Column(String(16), nullable=False)
     creator_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     email = Column(String(255), nullable=True, index=True)
-    global_role = Column(String(32), nullable=False, default="member")
+    global_role = Column(String(32), nullable=False, default="viewer")
     server_id = Column(String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=True)
     server_role = Column(String(32), nullable=True)
+    server_ids_json = Column(JSON, nullable=False, default=list)
+    denied_permissions_json = Column(JSON, nullable=False, default=list)
+    all_servers_access = Column(Boolean, nullable=False, default=False)
     status = Column(String(32), nullable=False, default="ACTIVE")
     max_uses = Column(Integer, nullable=False, default=1)
     use_count = Column(Integer, nullable=False, default=0)

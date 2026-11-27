@@ -5,8 +5,15 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect, status
 
+from app.core.authorization import (
+    authorize_server_action,
+    database_has_users,
+    is_admin_or_owner_context,
+    load_user_auth_context,
+    load_user_model_with_roles,
+)
 from app.modules.auth.infrastructure.jwt import verify_access_token
 from app.websocket.authentication import WSAuthenticator
 from app.websocket.authorization import MAX_CHANNELS_PER_CONNECTION, ChannelAuthorizer
@@ -38,7 +45,17 @@ class WSConnectionHandler:
 
         await self._registry.register(connection_id, ws)
         await self._registry.link_user(user_id, connection_id)
-        self._authenticator.register_connection(connection_id, user_id, token, time.time() + 3600)
+        initial_expires_at = time.time() + 3600
+        if token == "local_zero_login" or not token:
+            initial_expires_at = time.time() + 86400 * 365
+        else:
+            try:
+                claims = verify_access_token(token)
+                if "exp" in claims:
+                    initial_expires_at = float(claims["exp"])
+            except Exception:
+                pass
+        self._authenticator.register_connection(connection_id, user_id, token, initial_expires_at)
         self._authorizer.set_permissions(user_id, permissions)
 
         try:
@@ -48,10 +65,6 @@ class WSConnectionHandler:
                 raw = await ws.receive_text()
 
                 self._authenticator.update_activity(connection_id)
-
-                if self._authenticator.is_token_expired(connection_id):
-                    await self._send_json(ws, MessageSerializer.auth_expired_message().to_dict())
-                    continue
 
                 if not self._rate_limiter.check(connection_id):
                     await self._send_json(
@@ -64,11 +77,25 @@ class WSConnectionHandler:
 
                 try:
                     data = MessageSerializer.deserialize(raw)
-                except (ValueError, Exception) as e:
+                except (ValueError, Exception):
+                    err_msg = MessageSerializer.error_message("PARSE_ERROR", "Invalid JSON message")
+                    await self._send_json(ws, err_msg.to_dict())
+                    continue
+
+                if not isinstance(data, dict):
                     await self._send_json(
                         ws,
-                        MessageSerializer.error_message("PARSE_ERROR", str(e)).to_dict(),
+                        MessageSerializer.error_message(
+                            "INVALID_PAYLOAD", "Message payload must be a JSON object"
+                        ).to_dict(),
                     )
+                    continue
+
+                if (
+                    self._authenticator.is_token_expired(connection_id)
+                    and data.get("type") != "refresh_token"
+                ):
+                    await self._send_json(ws, MessageSerializer.auth_expired_message().to_dict())
                     continue
 
                 await self._handle_message(ws, connection_id, user_id, data)
@@ -117,6 +144,27 @@ class WSConnectionHandler:
                 )
                 return
 
+            live_ctx = self._authorizer.get_user_context(user_id)
+            if live_ctx is not None and live_ctx.get("db_resolved"):
+                live_ctx = await self._refresh_user_context_from_db(user_id)
+            if live_ctx is not None and (
+                live_ctx.get("db_error") or not live_ctx.get("is_active", True)
+            ):
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message(
+                        "PERMISSION_DENIED",
+                        "Authorization check failed"
+                        if live_ctx.get("db_error")
+                        else "User account is inactive or deleted",
+                    ).to_dict(),
+                )
+                if not live_ctx.get("db_error"):
+                    await ws.close(
+                        code=status.WS_1008_POLICY_VIOLATION, reason="Account disabled"
+                    )
+                return
+
             current_subs = await self._registry.get_subscriptions(connection_id)
             if len(current_subs) + len(channels) > MAX_CHANNELS_PER_CONNECTION:
                 await self._send_json(
@@ -128,7 +176,7 @@ class WSConnectionHandler:
                 return
 
             for channel in channels:
-                if not self._authorizer.validate_channel(channel):
+                if not isinstance(channel, str) or not self._authorizer.validate_channel(channel):
                     await self._send_json(
                         ws,
                         MessageSerializer.error_message(
@@ -136,7 +184,11 @@ class WSConnectionHandler:
                         ).to_dict(),
                     )
                     continue
-                if not self._authorizer.can_subscribe(user_id, channel):
+                if not self._authorizer.can_subscribe(
+                    user_id, channel
+                ) or not await self._can_subscribe_resource_from_db(
+                    user_id, channel, live_ctx
+                ):
                     await self._send_json(
                         ws,
                         MessageSerializer.error_message(
@@ -196,6 +248,26 @@ class WSConnectionHandler:
 
             new_permissions = set(claims.get("permissions", []))
             self._authorizer.set_permissions(user_id, new_permissions)
+            live_ctx = await self._refresh_user_context_from_db(
+                user_id, fallback_permissions=new_permissions
+            )
+            if live_ctx is not None and (
+                live_ctx.get("db_error") or not live_ctx.get("is_active", True)
+            ):
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message(
+                        "PERMISSION_DENIED",
+                        "Authorization check failed"
+                        if live_ctx.get("db_error")
+                        else "User account is inactive or deleted",
+                    ).to_dict(),
+                )
+                if not live_ctx.get("db_error"):
+                    await ws.close(
+                        code=status.WS_1008_POLICY_VIOLATION, reason="Account disabled"
+                    )
+                return
             expires_at = float(claims.get("exp", time.time() + 3600))
             self._authenticator.refresh_token(connection_id, new_token, expires_at)
 
@@ -212,8 +284,28 @@ class WSConnectionHandler:
                 )
                 return
 
+            live_ctx = self._authorizer.get_user_context(user_id)
+            if live_ctx is not None and live_ctx.get("db_resolved"):
+                live_ctx = await self._refresh_user_context_from_db(user_id)
+            if live_ctx is not None and (
+                live_ctx.get("db_error") or not live_ctx.get("is_active", True)
+            ):
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message(
+                        "PERMISSION_DENIED",
+                        "Authorization check failed"
+                        if live_ctx.get("db_error")
+                        else "User account is inactive or deleted",
+                    ).to_dict(),
+                )
+                return
             permissions = self._authorizer.get_permissions(user_id)
-            is_admin = "admin:full" in permissions
+            is_admin = (
+                is_admin_or_owner_context(live_ctx)
+                if live_ctx is not None
+                else ("admin:full" in permissions)
+            )
 
             if target_type == "test":
                 from sqlalchemy import select
@@ -225,10 +317,25 @@ class WSConnectionHandler:
                 )
                 from app.modules.versioning.infrastructure.models import ServerTestRunModel
 
-                async with database.session_factory() as session:
-                    stmt = select(ServerTestRunModel).where(ServerTestRunModel.id == target_id)
-                    res = await session.execute(stmt)
-                    test_run = res.scalar_one_or_none()
+                try:
+                    async with database.session_factory() as session:
+                        stmt = select(ServerTestRunModel).where(
+                            ServerTestRunModel.id == target_id
+                        )
+                        res = await session.execute(stmt)
+                        test_run = res.scalar_one_or_none()
+                except Exception as exc:
+                    logger.warning(
+                        "WS exec_input test lookup failed for %s: %s", target_id, exc
+                    )
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "PERMISSION_DENIED",
+                            f"Authorization check failed for test run: {target_id}",
+                        ).to_dict(),
+                    )
+                    return
 
                 if not test_run:
                     await self._send_json(
@@ -240,12 +347,19 @@ class WSConnectionHandler:
                     return
 
                 server_id = test_run.server_id
-                has_perm = (
-                    is_admin
-                    or f"server.{server_id}.console" in permissions
-                    or "server:test:execute" in permissions
-                    or f"server.{server_id}.test:execute" in permissions
-                )
+                if live_ctx is not None and live_ctx.get("db_resolved"):
+                    has_perm = authorize_server_action(
+                        live_ctx, str(server_id), "console"
+                    ) and authorize_server_action(
+                        live_ctx, str(server_id), "versioning"
+                    )
+                else:
+                    has_perm = (
+                        is_admin
+                        or f"server.{server_id}.console" in permissions
+                        or "server:test:execute" in permissions
+                        or f"server.{server_id}.test:execute" in permissions
+                    )
                 if not has_perm:
                     await self._send_json(
                         ws,
@@ -300,7 +414,21 @@ class WSConnectionHandler:
                     async with database.session_factory() as session:
                         repo = SQLServerRepository(session)
                         server = await repo.get(ServerId(server_id))
-                except Exception:
+                except Exception as exc:
+                    from app.core.exceptions import ServerNotFoundError
+
+                    if not isinstance(exc, ServerNotFoundError):
+                        logger.warning(
+                            "WS exec_input server lookup failed for %s: %s", server_id, exc
+                        )
+                        await self._send_json(
+                            ws,
+                            MessageSerializer.error_message(
+                                "PERMISSION_DENIED",
+                                f"Authorization check failed for server: {server_id}",
+                            ).to_dict(),
+                        )
+                        return
                     server = None
 
                 if not server:
@@ -312,12 +440,20 @@ class WSConnectionHandler:
                     )
                     return
 
-                has_perm = (
-                    is_admin
-                    or f"server.{server_id}.console" in permissions
-                    or "server:write" in permissions
-                    or f"server.{server_id}.write" in permissions
-                )
+                if live_ctx is not None and live_ctx.get("db_resolved"):
+                    has_perm = authorize_server_action(
+                        live_ctx,
+                        str(server_id),
+                        "console",
+                        server_owner_id=server.owner_id,
+                    )
+                else:
+                    has_perm = (
+                        is_admin
+                        or f"server.{server_id}.console" in permissions
+                        or "server:write" in permissions
+                        or f"server.{server_id}.write" in permissions
+                    )
                 if not has_perm:
                     await self._send_json(
                         ws,
@@ -391,6 +527,129 @@ class WSConnectionHandler:
                     "UNKNOWN_TYPE", f"Unknown message type: {msg_type}"
                 ).to_dict(),
             )
+
+    async def _refresh_user_context_from_db(
+        self, user_id: str, *, fallback_permissions: set[str] | None = None
+    ) -> dict[str, Any] | None:
+        from app.core.persistence.db import database
+
+        if database._session_factory is None:
+            return None
+        try:
+            async with database.session_factory() as db:
+                user_model = await load_user_model_with_roles(db, user_id)
+                if user_model is None:
+                    if await database_has_users(db):
+                        self._authorizer.clear_user(user_id)
+                        return {"user_id": user_id, "is_active": False, "permissions": []}
+                    if fallback_permissions is not None:
+                        self._authorizer.set_permissions(user_id, fallback_permissions)
+                    return None
+                if not user_model.is_active:
+                    self._authorizer.clear_user(user_id)
+                    return {"user_id": user_id, "is_active": False, "permissions": []}
+                live_ctx = await load_user_auth_context(db, user_model)
+                self._authorizer.set_user_context(user_id, live_ctx)
+                return live_ctx
+        except Exception as exc:
+            logger.warning(
+                "WS DB context refresh failed for user %s: %s", user_id, exc
+            )
+            err_ctx: dict[str, Any] = {
+                "user_id": user_id,
+                "is_active": False,
+                "db_error": True,
+                "permissions": [],
+            }
+            self._authorizer.set_user_context(user_id, err_ctx)
+            return err_ctx
+
+    async def _can_subscribe_resource_from_db(
+        self, user_id: str, channel: str, live_ctx: dict[str, Any] | None
+    ) -> bool:
+        """Verify resource-level server ownership/membership for backup/test/operation channels."""
+        if live_ctx is not None and live_ctx.get("db_error"):
+            return False
+        if live_ctx is None or not live_ctx.get("db_resolved"):
+            from app.core.persistence.db import database
+
+            if database._session_factory is not None:
+                try:
+                    async with database.session_factory() as db:
+                        if await database_has_users(db):
+                            return False
+                except Exception as exc:
+                    logger.warning(
+                        "WS resource subscribe DB check failed for user %s: %s",
+                        user_id,
+                        exc,
+                    )
+                    return False
+            return True
+        if is_admin_or_owner_context(live_ctx):
+            return True
+        parts = channel.split(":")
+        prefix = parts[0]
+        if prefix not in {"backup", "plugin", "test", "operation"}:
+            return True
+
+        from sqlalchemy import select
+
+        from app.core.persistence.db import database
+
+        if database._session_factory is None:
+            return False
+
+        target_id = parts[1] if len(parts) > 1 else ""
+        try:
+            async with database.session_factory() as db:
+                if prefix == "backup":
+                    from app.modules.backup.infrastructure.models import BackupJobModel
+
+                    row = (
+                        await db.execute(
+                            select(BackupJobModel.server_id).where(BackupJobModel.id == target_id)
+                        )
+                    ).scalar_one_or_none()
+                    if not row:
+                        return False
+                    return authorize_server_action(live_ctx, str(row), "backups.view")
+                if prefix == "plugin":
+                    from app.modules.plugin.infrastructure.models import PluginModel
+
+                    row = (
+                        await db.execute(
+                            select(PluginModel.server_id).where(PluginModel.id == target_id)
+                        )
+                    ).scalar_one_or_none()
+                    if not row:
+                        return False
+                    return authorize_server_action(live_ctx, str(row), "plugins.view")
+                if prefix == "test":
+                    from app.modules.versioning.infrastructure.models import ServerTestRunModel
+
+                    row = (
+                        await db.execute(
+                            select(ServerTestRunModel.server_id).where(
+                                ServerTestRunModel.id == target_id
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if not row:
+                        return False
+                    return authorize_server_action(
+                        live_ctx, str(row), "versioning.view"
+                    ) and authorize_server_action(live_ctx, str(row), "console.view")
+                if prefix == "operation":
+                    from app.modules.operations.infrastructure.models import OperationModel
+
+                    row = await db.get(OperationModel, target_id)
+                    if row is None or str(row.target_type) != "server" or not row.target_id:
+                        return False
+                    return authorize_server_action(live_ctx, str(row.target_id), "view")
+        except Exception:
+            return False
+        return True
 
     async def _send_json(self, ws: WebSocket, data: dict[str, Any]) -> None:
         try:

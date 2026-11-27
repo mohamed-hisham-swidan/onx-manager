@@ -156,10 +156,11 @@ export function PluginDetailPage({ lockedProjectType }: PluginDetailPageProps = 
     const params = new URLSearchParams(location.search);
     const targetType = platformProjectType(loader, projectType);
     params.delete("page");
-    if (isInServerShell && routeServerId && targetType === effectiveSection) {
+    if (isInServerShell && routeServerId) {
       params.delete("type");
       params.set("loader", loader.toLowerCase());
-      return `/servers/${encodeURIComponent(routeServerId)}/${targetType === "mod" ? "mods" : "plugins"}/marketplace?${params.toString()}`;
+      const sectionSegment = targetType === "mod" ? "mods" : "plugins";
+      return `/servers/${encodeURIComponent(routeServerId)}/${sectionSegment}/marketplace?${params.toString()}`;
     }
     params.set("type", targetType);
     params.set("loader", loader.toLowerCase());

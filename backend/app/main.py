@@ -3,6 +3,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.encoders import ENCODERS_BY_TYPE
@@ -79,6 +80,46 @@ logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.main")
 _start_time: float = 0.0
 
 
+DEFAULT_CLEANUP_CRON_EXPRESSION = "interval:86400s"
+DEFAULT_CLEANUP_PARAMS: dict[str, object] = {
+    "metrics_retention_days": 7,
+    "log_retention_days": 30,
+    "event_retention_days": 30,
+    "task_retention_days": 7,
+    "cleanup_refresh_tokens": True,
+    "cleanup_idempotency": True,
+}
+
+
+async def ensure_cleanup_cron_job(scheduler: Any, session_factory: Any) -> bool:
+    """Ensure a periodic ``run_cleanup_task`` cron job is scheduled (idempotent)."""
+    from sqlalchemy import or_, select
+
+    from app.tasks.scheduler import CronJobModel
+
+    async with await session_factory() as sess:
+        existing = (
+            await sess.execute(
+                select(CronJobModel).where(
+                    or_(
+                        CronJobModel.task_name == "run_cleanup_task",
+                        CronJobModel.name == "system_cleanup_daily",
+                    )
+                )
+            )
+        ).scalars().first()
+        if existing is not None:
+            return False
+
+    await scheduler.add_job(
+        name="system_cleanup_daily",
+        cron_expression=DEFAULT_CLEANUP_CRON_EXPRESSION,
+        task_name="run_cleanup_task",
+        params=dict(DEFAULT_CLEANUP_PARAMS),
+    )
+    return True
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _start_time
@@ -119,6 +160,7 @@ async def lifespan(_app: FastAPI):
                 await session.commit()
                 logger.info("Local zero-login admin account provisioned for loopback local mode")
         except Exception:
+            await session.rollback()
             logger.exception("Local zero-login startup provisioning failed")
 
         try:
@@ -141,6 +183,7 @@ async def lifespan(_app: FastAPI):
                     migration_report.errors,
                 )
         except Exception:
+            await session.rollback()
             logger.exception("Local-to-Docker migration failed")
 
         try:
@@ -186,6 +229,7 @@ async def lifespan(_app: FastAPI):
                 layout, db_session=session
             )
         except Exception:
+            await session.rollback()
             logger.exception("Data template startup reconciliation failed")
 
         repo = SQLServerRepository(session)
@@ -208,6 +252,7 @@ async def lifespan(_app: FastAPI):
             if results:
                 logger.info("Startup DB reconciliation results: %s", results)
         except Exception:
+            await session.rollback()
             logger.exception("Startup DB reconciliation failed")
 
         try:
@@ -222,6 +267,7 @@ async def lifespan(_app: FastAPI):
                         "; ".join(r.actions),
                     )
         except Exception:
+            await session.rollback()
             logger.exception("Startup runtime reconciliation failed")
 
         try:
@@ -239,6 +285,7 @@ async def lifespan(_app: FastAPI):
                 await session.commit()
                 logger.info("Pruned %d orphaned health status record(s) on startup", pruned_health)
         except Exception:
+            await session.rollback()
             logger.exception("Startup orphaned health cleanup failed")
 
         try:
@@ -254,6 +301,7 @@ async def lifespan(_app: FastAPI):
                     reclaimed_ports,
                 )
         except Exception:
+            await session.rollback()
             logger.exception("Startup dead-port reclamation failed")
 
         try:
@@ -319,6 +367,7 @@ async def lifespan(_app: FastAPI):
                     except Exception as e:
                         logger.warning("Failed to spawn playit daemon on startup: %s", e)
         except Exception:
+            await session.rollback()
             logger.exception("Playit startup reconciliation failed")
 
         try:
@@ -356,6 +405,7 @@ async def lifespan(_app: FastAPI):
             if fs_result.errors:
                 logger.warning("FS reconciliation encountered %d error(s)", fs_result.total_errors)
         except Exception:
+            await session.rollback()
             logger.exception("Filesystem reconciliation failed")
 
     # Reconcile operations interrupted by previous process termination
@@ -476,6 +526,15 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("Failed to register metrics collection cron job")
 
+    try:
+        if await ensure_cleanup_cron_job(scheduler, _session_factory):
+            logger.info(
+                "Scheduler: system_cleanup_daily registered (%s)",
+                DEFAULT_CLEANUP_CRON_EXPRESSION,
+            )
+    except Exception:
+        logger.exception("Failed to register system cleanup cron job")
+
     # Log the cron jobs now loaded from DB (including integrity_scan_hourly)
     async with await _session_factory() as sess:
         from sqlalchemy import select
@@ -519,28 +578,83 @@ async def lifespan(_app: FastAPI):
     try:
         import asyncio
 
-        from app.modules.exposure.domain.value_objects import DesiredState, PanelExposureMethod
+        from sqlalchemy import select
+
+        from app.modules.exposure.application.commands import _extract_target_external_port
+        from app.modules.exposure.domain.value_objects import (
+            DesiredState,
+            ExposureMethod,
+            PanelExposureMethod,
+        )
+        from app.modules.exposure.infrastructure.models import (
+            ServerExposureModel,
+            ServerExposureTargetModel,
+        )
         from app.modules.exposure.infrastructure.repository import SQLPanelExposureRepository
         from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
 
         async with database.session_factory() as sess:
             panel = await SQLPanelExposureRepository(sess).get()
+            server_upnp_rows = (
+                (
+                    await sess.execute(
+                        select(ServerExposureModel).where(
+                            ServerExposureModel.method == ExposureMethod.PORT_FORWARD.value,
+                            ServerExposureModel.desired_state == DesiredState.ENABLED.value,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            upnp_exp_ids = [str(e.id) for e in server_upnp_rows if getattr(e, "id", None)]
+            server_upnp_targets: list[ServerExposureTargetModel] = []
+            if upnp_exp_ids:
+                server_upnp_targets = (
+                    (
+                        await sess.execute(
+                            select(ServerExposureTargetModel).where(
+                                ServerExposureTargetModel.exposure_id.in_(upnp_exp_ids)
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+        upnp = AsyncUPnPService(timeout=1, rpc_timeout=2.0)
         if (
             panel.method == PanelExposureMethod.PORT_FORWARD
             and panel.desired_state == DesiredState.ENABLED
             and panel.external_port
         ):
             await asyncio.wait_for(
-                AsyncUPnPService(timeout=1, rpc_timeout=2.0).delete_mapping(panel.external_port),
+                upnp.delete_mapping(panel.external_port),
                 timeout=3.0,
             )
+        for target in server_upnp_targets:
+            ext_port = _extract_target_external_port(target)
+            proto = str(getattr(target, "protocol", "tcp") or "tcp").upper()
+            if ext_port:
+                try:
+                    await asyncio.wait_for(
+                        upnp.delete_mapping(int(ext_port), protocol=proto),
+                        timeout=3.0,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Server UPnP cleanup (%s/%s) skipped/failed on shutdown",
+                        ext_port,
+                        proto,
+                        exc_info=True,
+                    )
     except Exception:
-        logger.debug("Panel UPnP cleanup on shutdown skipped/failed", exc_info=True)
+        logger.debug("UPnP cleanup on shutdown skipped/failed", exc_info=True)
 
     await stop_websocket_services()
     await scheduler.stop()
     await metrics_collector.close()
     await close_http_client()
+    await database.close()
 
 
 def create_app(static_dir: str | Path | None = None) -> FastAPI:

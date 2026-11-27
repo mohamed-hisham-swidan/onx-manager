@@ -17,6 +17,37 @@ from app.tasks.base import TaskQueue
 logger = logging.getLogger("onx.tasks.scheduler")
 
 
+ALLOWED_SERVER_TASKS: frozenset[str] = frozenset({"run_backup_task"})
+ALLOWED_GLOBAL_TASKS: frozenset[str] = frozenset(
+    {"run_backup_task", "run_cleanup_task", "run_metrics_collection"}
+)
+MIN_USER_SCHEDULE_INTERVAL_SECONDS: float = 60.0
+
+_CLEANUP_RETENTION_KEYS: tuple[str, ...] = (
+    "retention_days",
+    "log_retention_days",
+    "event_retention_days",
+    "metrics_retention_days",
+    "task_retention_days",
+    "idempotency_ttl_hours",
+)
+
+
+def validate_cleanup_params(params: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate cleanup task parameters, enforcing retention >= 1."""
+    if params is None:
+        return {}
+    if not isinstance(params, dict):
+        raise ValueError("Cleanup parameters must be a JSON object")
+    for key in _CLEANUP_RETENTION_KEYS:
+        if key not in params or params[key] is None:
+            continue
+        val = params[key]
+        if isinstance(val, bool) or not isinstance(val, int) or val < 1:
+            raise ValueError(f"{key} must be an integer >= 1")
+    return params
+
+
 class CronJobModel(Base):
     __tablename__ = "cron_jobs"
 
@@ -59,7 +90,15 @@ class Scheduler:
 
         jobs = await self._load_jobs()
         for job in jobs:
-            self._schedule_job(job)
+            try:
+                self._schedule_job(job)
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid persisted schedule '%s' (%s): %s",
+                    getattr(job, "name", "?"),
+                    getattr(job, "cron_expression", "?"),
+                    exc,
+                )
 
         self._aps.start()
 
@@ -69,12 +108,58 @@ class Scheduler:
         if self._aps:
             self._aps.shutdown(wait=False)
 
-    def _validate_cron_expression(self, expression: str) -> None:
+    @classmethod
+    def _validate_expression(
+        cls,
+        expression: str,
+        *,
+        min_interval_seconds: float = MIN_USER_SCHEDULE_INTERVAL_SECONDS,
+    ) -> None:
+        import math
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        if not isinstance(expression, str) or not expression.strip():
+            raise ValueError(f"Invalid schedule expression: {expression!r}")
+
         if expression.startswith("interval:"):
-            secs_str = expression.split(":")[1].rstrip("s")
-            float(secs_str)
+            parts = expression.split(":")
+            if len(parts) != 2 or not parts[1]:
+                raise ValueError(f"Invalid interval expression: {expression!r}")
+            secs_str = parts[1].rstrip("s")
+            try:
+                secs = float(secs_str)
+            except ValueError as exc:
+                raise ValueError(f"Invalid interval expression: {expression!r}") from exc
+            if not math.isfinite(secs) or secs <= 0:
+                raise ValueError(
+                    f"Interval duration must be a positive finite number: {expression!r}"
+                )
+            if secs < min_interval_seconds:
+                min_s = int(min_interval_seconds)
+                raise ValueError(
+                    f"Interval duration must be at least {min_s}s: {expression!r}"
+                )
         else:
-            self._parse_cron(expression)
+            parsed = cls._parse_cron(expression)
+            if min_interval_seconds >= 60.0 and "second" in parsed:
+                sec_field = parsed["second"].strip()
+                if not sec_field.isdigit() or not (0 <= int(sec_field) <= 59):
+                    raise ValueError(
+                        f"Sub-minute cron second schedules are not allowed: {expression!r}"
+                    )
+            try:
+                CronTrigger(**parsed)
+            except Exception as exc:
+                raise ValueError(f"Invalid cron expression {expression!r}: {exc}") from exc
+
+    def _validate_cron_expression(
+        self,
+        expression: str,
+        *,
+        min_interval_seconds: float = MIN_USER_SCHEDULE_INTERVAL_SECONDS,
+    ) -> None:
+        self._validate_expression(expression, min_interval_seconds=min_interval_seconds)
 
     async def add_job(
         self,
@@ -83,7 +168,10 @@ class Scheduler:
         task_name: str,
         params: dict[str, Any] | None = None,
     ) -> None:
-        self._validate_cron_expression(cron_expression)
+        min_interval = (
+            0.0 if task_name == "run_metrics_collection" else MIN_USER_SCHEDULE_INTERVAL_SECONDS
+        )
+        self._validate_cron_expression(cron_expression, min_interval_seconds=min_interval)
         job_id = uuid.uuid4().hex
         now = datetime.now(UTC)
 
@@ -116,7 +204,12 @@ class Scheduler:
         return True
 
     async def update_job_expression(self, job_name: str, new_expression: str) -> bool:
-        self._validate_cron_expression(new_expression)
+        min_interval = (
+            0.0
+            if job_name == "metrics_collect"
+            else MIN_USER_SCHEDULE_INTERVAL_SECONDS
+        )
+        self._validate_cron_expression(new_expression, min_interval_seconds=min_interval)
         async with await self._session_factory() as session:
             stmt = select(CronJobModel).where(CronJobModel.name == job_name)
             result = await session.execute(stmt)

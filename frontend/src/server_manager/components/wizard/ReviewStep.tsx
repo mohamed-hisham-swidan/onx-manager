@@ -5,7 +5,7 @@ import { FORGE_EDITION_LABELS, forgeEditionForVersion } from "@/server_manager/u
 import { resolveJavaMajorForMcVersion } from "@/server_manager/utils/javaRuntime";
 import { serverModeLabel } from "@/server_manager/utils/serverMode";
 import { isModpackSupportedLoader } from "@/server_manager/utils/loaderCapabilities";
-import type { Step, WizardData } from "./types";
+import type { WizardData } from "./types";
 
 interface ReviewStepProps {
   data: WizardData;
@@ -14,7 +14,6 @@ interface ReviewStepProps {
   statusMessage?: string | null;
   onCreate: () => void;
   onBack: () => void;
-  onEditStep?: (step: Step) => void;
 }
 
 function CreatingStopwatch() {
@@ -85,29 +84,6 @@ function buildCreationSummaryNote(
   return `${coreAction}, ${extras.join(", ")}`;
 }
 
-function SectionEditButton({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick?: () => void;
-}) {
-  if (!onClick) return null;
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-primary hover:underline disabled:opacity-40 cursor-pointer"
-    >
-      <Icon name="edit" size={11} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
 export function ReviewStep({
   data,
   creating,
@@ -115,7 +91,6 @@ export function ReviewStep({
   statusMessage = null,
   onCreate,
   onBack,
-  onEditStep,
 }: ReviewStepProps) {
   const modded = isModpackSupportedLoader(data.serverType);
   const addonLabel = modded ? "Selected Mods" : "Selected Plugins";
@@ -150,16 +125,9 @@ export function ReviewStep({
       >
         {/* 1. Identity & Mode */}
         <section className="space-y-2.5">
-          <div className="flex items-center justify-between border-b border-border-subtle pb-1.5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-              Identity &amp; Mode
-            </h4>
-            <SectionEditButton
-              label="Edit"
-              disabled={creating}
-              onClick={onEditStep ? () => onEditStep("config") : undefined}
-            />
-          </div>
+          <h4 className="border-b border-border-subtle pb-1.5 text-xs font-bold uppercase tracking-wider text-text-muted">
+            Identity &amp; Mode
+          </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-text-muted">Name</span>
@@ -189,16 +157,9 @@ export function ReviewStep({
 
         {/* 2. Software & Runtime */}
         <section className="space-y-2.5">
-          <div className="flex items-center justify-between border-b border-border-subtle pb-1.5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-              Software &amp; Runtime
-            </h4>
-            <SectionEditButton
-              label="Edit"
-              disabled={creating}
-              onClick={onEditStep ? () => onEditStep("software") : undefined}
-            />
-          </div>
+          <h4 className="border-b border-border-subtle pb-1.5 text-xs font-bold uppercase tracking-wider text-text-muted">
+            Software &amp; Runtime
+          </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-text-muted">Software</span>
@@ -227,16 +188,9 @@ export function ReviewStep({
 
         {/* 3. Resources */}
         <section className="space-y-2.5">
-          <div className="flex items-center justify-between border-b border-border-subtle pb-1.5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-              Resources
-            </h4>
-            <SectionEditButton
-              label="Edit"
-              disabled={creating}
-              onClick={onEditStep ? () => onEditStep("config") : undefined}
-            />
-          </div>
+          <h4 className="border-b border-border-subtle pb-1.5 text-xs font-bold uppercase tracking-wider text-text-muted">
+            Resources
+          </h4>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div className="rounded-lg border border-border-subtle bg-surface-muted px-3 py-2">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
@@ -267,16 +221,9 @@ export function ReviewStep({
 
         {/* 4. Gameplay & Properties Summary */}
         <section className="space-y-2.5">
-          <div className="flex items-center justify-between border-b border-border-subtle pb-1.5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-              Gameplay &amp; Properties
-            </h4>
-            <SectionEditButton
-              label="Edit"
-              disabled={creating}
-              onClick={onEditStep ? () => onEditStep("properties") : undefined}
-            />
-          </div>
+          <h4 className="border-b border-border-subtle pb-1.5 text-xs font-bold uppercase tracking-wider text-text-muted">
+            Gameplay &amp; Properties
+          </h4>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-xs">
             <div>
               <div className="text-text-muted">Gamemode</div>
@@ -340,16 +287,9 @@ export function ReviewStep({
         {/* 5. Add-ons / Modpack */}
         {((modded && installModpack) || data.selectedAddons.length > 0) && (
           <section className="space-y-2">
-            <div className="flex items-center justify-between border-b border-border-subtle pb-1.5">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-                {modded ? "Mods & Modpack" : "Plugins"}
-              </h4>
-              <SectionEditButton
-                label="Edit"
-                disabled={creating}
-                onClick={onEditStep ? () => onEditStep("addons") : undefined}
-              />
-            </div>
+            <h4 className="border-b border-border-subtle pb-1.5 text-xs font-bold uppercase tracking-wider text-text-muted">
+              {modded ? "Mods & Modpack" : "Plugins"}
+            </h4>
             {modded && installModpack && (
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-text-muted">Modpack</span>

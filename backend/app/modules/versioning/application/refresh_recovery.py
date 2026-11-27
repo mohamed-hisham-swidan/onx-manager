@@ -431,7 +431,7 @@ class RefreshStartupReconciler:
                             "swap journal server_id does not match its directory",
                             field="journal_path",
                         )
-                    if journal_filename == "swap.json":
+                    if journal_filename in ("swap.json", "swap-rollback.json"):
                         for field in ("live_path", "staging_path", "previous_path"):
                             self.validate_swap_path(
                                 server_id,

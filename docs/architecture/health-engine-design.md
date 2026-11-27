@@ -1,6 +1,5 @@
 # Server Health & Integrity Engine — Architecture Design
 
-> Principal Architect: This document extends the existing project architecture.
 > No code, no APIs, no schemas. Responsibilities only.
 
 ---

@@ -21,7 +21,7 @@ vi.mock("@/stores/toastStore", () => ({
   toast: (...args: unknown[]) => mockToast(...args),
 }));
 
-const mockBranch: ServerBranch = {
+const mockMainBranch: ServerBranch = {
   id: "branch-1",
   server_id: "srv-1",
   name: "main",
@@ -30,7 +30,23 @@ const mockBranch: ServerBranch = {
   status: "active",
   is_protected: true,
   protection_policy: {
-    require_test_pass: true,
+    require_test_pass: false,
+    allow_direct_commit: false,
+    allow_force_bypass: true,
+    prevent_deletion: true,
+  },
+};
+
+const mockBranch: ServerBranch = {
+  id: "branch-2",
+  server_id: "srv-1",
+  name: "release",
+  head_commit_id: "c2",
+  created_at: "2026-09-18T10:00:00Z",
+  status: "active",
+  is_protected: true,
+  protection_policy: {
+    require_test_pass: false,
     allow_direct_commit: false,
     allow_force_bypass: true,
     prevent_deletion: true,
@@ -55,7 +71,7 @@ describe("BranchProtectionModal Component", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("fetches and renders branch protection policy when open", async () => {
+  it("fetches and renders branch protection policy without fake require_test_pass and locks main toggle", async () => {
     mockGetBranchProtection.mockResolvedValueOnce({
       branch_name: "main",
       is_protected: true,
@@ -72,44 +88,44 @@ describe("BranchProtectionModal Component", () => {
         isOpen={true}
         onClose={vi.fn()}
         serverId="srv-1"
-        branch={mockBranch}
+        branch={mockMainBranch}
         onProtectionUpdated={vi.fn()}
       />
     );
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Branch Protection Policy")).toBeInTheDocument();
-    expect(screen.getByText("main")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(mockGetBranchProtection).toHaveBeenCalledWith("srv-1", "main");
     });
 
     expect(screen.getByText("Enable Branch Protection")).toBeInTheDocument();
-    expect(screen.getByLabelText("Require passing test run")).toBeChecked();
-    expect(screen.getByLabelText("Allow direct commits")).not.toBeChecked();
+    expect(screen.queryByLabelText("Require passing test run")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Enable branch protection")).toBeDisabled();
+    expect(screen.getByLabelText("Allow direct commits")).toBeDisabled();
     expect(screen.getByLabelText("Allow administrative force bypass")).toBeChecked();
-    expect(screen.getByLabelText("Prevent branch deletion and archival")).toBeChecked();
+    expect(screen.getByLabelText("Prevent branch deletion and archival")).toBeDisabled();
   });
 
-  it("calls setBranchProtection when saving updated policy", async () => {
+  it("calls setBranchProtection when saving updated policy on non-main branch", async () => {
     const user = userEvent.setup();
     mockGetBranchProtection.mockResolvedValueOnce({
-      branch_name: "main",
+      branch_name: "release",
       is_protected: true,
       policy: {
-        require_test_pass: true,
+        require_test_pass: false,
         allow_direct_commit: false,
         allow_force_bypass: true,
         prevent_deletion: true,
       },
     });
     mockSetBranchProtection.mockResolvedValueOnce({
-      branch_name: "main",
+      branch_name: "release",
       is_protected: true,
       policy: {
         require_test_pass: false,
-        allow_direct_commit: false,
+        allow_direct_commit: true,
         allow_force_bypass: true,
         prevent_deletion: true,
       },
@@ -129,22 +145,20 @@ describe("BranchProtectionModal Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Require passing test run")).toBeInTheDocument();
+      expect(screen.getByLabelText("Allow direct commits")).toBeInTheDocument();
     });
 
-    // Toggle require_test_pass checkbox
-    const requireTestCheckbox = screen.getByLabelText("Require passing test run");
-    await user.click(requireTestCheckbox);
+    const allowDirectCheckbox = screen.getByLabelText("Allow direct commits");
+    await user.click(allowDirectCheckbox);
 
-    // Save changes
     const saveBtn = screen.getByRole("button", { name: /Apply Protection/i });
     await user.click(saveBtn);
 
     await waitFor(() => {
-      expect(mockSetBranchProtection).toHaveBeenCalledWith("srv-1", "main", {
+      expect(mockSetBranchProtection).toHaveBeenCalledWith("srv-1", "release", {
         policy: {
           require_test_pass: false,
-          allow_direct_commit: false,
+          allow_direct_commit: true,
           allow_force_bypass: true,
           prevent_deletion: true,
         },
@@ -154,20 +168,20 @@ describe("BranchProtectionModal Component", () => {
     });
   });
 
-  it("calls removeBranchProtection when protection toggle is unchecked and saved", async () => {
+  it("calls removeBranchProtection when protection toggle is unchecked and saved on non-main branch", async () => {
     const user = userEvent.setup();
     mockGetBranchProtection.mockResolvedValueOnce({
-      branch_name: "main",
+      branch_name: "release",
       is_protected: true,
       policy: {
-        require_test_pass: true,
+        require_test_pass: false,
         allow_direct_commit: false,
         allow_force_bypass: true,
         prevent_deletion: true,
       },
     });
     mockRemoveBranchProtection.mockResolvedValueOnce({
-      branch_name: "main",
+      branch_name: "release",
       is_protected: false,
       policy: null,
     });
@@ -198,7 +212,7 @@ describe("BranchProtectionModal Component", () => {
     await user.click(saveBtn);
 
     await waitFor(() => {
-      expect(mockRemoveBranchProtection).toHaveBeenCalledWith("srv-1", "main");
+      expect(mockRemoveBranchProtection).toHaveBeenCalledWith("srv-1", "release");
       expect(onUpdated).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
     });

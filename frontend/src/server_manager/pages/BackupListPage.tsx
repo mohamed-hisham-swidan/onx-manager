@@ -50,10 +50,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
 }
 
-function restoreDescription(backup: BackupResponse): string {
-  if (backup.tier === "tier_2") {
-    return "Replaces current server files with this verified backup.";
-  }
+function restoreDescription(): string {
   return "Replaces current server files with this verified backup.";
 }
 
@@ -96,7 +93,7 @@ export function BackupListPage() {
   const restoreBackup = useRestoreBackup();
   const verifyBackup = useVerifyBackup();
   const deleteBackup = useDeleteBackup();
-  const { canCreate, canRestore, canDelete, canManageSchedules } = useBackupPermissions();
+  const { canCreate, canRestore, canDelete, canManageSchedules } = useBackupPermissions(routeServerId);
 
   const [showCreate, setShowCreate] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
@@ -947,7 +944,7 @@ export function BackupListPage() {
       <ConfirmDialog
         open={restoreTarget !== null}
         title="Restore backup?"
-        description={restoreTarget ? restoreDescription(restoreTarget) : undefined}
+        description={restoreTarget ? restoreDescription() : undefined}
         confirmLabel="Restore"
         cancelLabel="Cancel"
         variant="danger"

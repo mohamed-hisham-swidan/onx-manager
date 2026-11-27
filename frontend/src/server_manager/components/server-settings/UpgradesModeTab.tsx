@@ -30,9 +30,13 @@ export function UpgradesModeTab({
   onChangeVersionConsumed,
 }: UpgradesModeTabProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(initialChangeVersionOpen);
-  const [prevTrigger, setPrevTrigger] = useState(initialChangeVersionOpen);
-  if (initialChangeVersionOpen && !prevTrigger) {
+  const [isDrawerOpen, setIsDrawerOpen] = useState(
+    Boolean(initialChangeVersionOpen && canWrite),
+  );
+  const [prevTrigger, setPrevTrigger] = useState(
+    Boolean(initialChangeVersionOpen && canWrite),
+  );
+  if (initialChangeVersionOpen && canWrite && !prevTrigger) {
     setPrevTrigger(true);
     setIsDrawerOpen(true);
   } else if (!initialChangeVersionOpen && prevTrigger) {
@@ -40,9 +44,9 @@ export function UpgradesModeTab({
   }
 
   useEffect(() => {
-    if (!initialChangeVersionOpen) return;
+    if (!initialChangeVersionOpen || !canWrite) return;
     onChangeVersionConsumed?.();
-  }, [initialChangeVersionOpen, onChangeVersionConsumed]);
+  }, [initialChangeVersionOpen, canWrite, onChangeVersionConsumed]);
 
   const upgradesQuery = useQuery({
     queryKey: queryKeys.p55.upgrades(serverId),
@@ -129,6 +133,7 @@ export function UpgradesModeTab({
       </section>
 
       <ServerP55SettingsCard
+        key={serverId}
         serverId={serverId}
         serverType={server.server_type}
         readOnly={!canWrite}
@@ -142,6 +147,7 @@ export function UpgradesModeTab({
       />
 
       <SafeUpgradeWizardModal
+        key={serverId}
         serverId={serverId}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}

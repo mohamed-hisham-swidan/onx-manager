@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/services/queryClient";
 import { AuthGuard } from "@/components/guards/AuthGuard";
+import { RequirePermission } from "@/components/guards/RequirePermission";
 import { SystemStatusGuard } from "@/components/guards/SystemStatusGuard";
 import { AppShell } from "@/layouts/AppShell";
 import { ServerShell } from "@/layouts/ServerShell";
@@ -77,44 +78,180 @@ export default function App() {
                 <Route element={<AppShell />}>
                   <Route index element={<DashboardPage />} />
                   <Route path="servers" element={<ServersPage />} />
-                  <Route path="servers/create" element={<CreateServerPage />} />
-                  <Route path="servers/import" element={<ImportServerPage />} />
+                  <Route
+                    path="servers/create"
+                    element={
+                      <RequirePermission check={(p) => p.canCreateServer} redirectTo="/servers">
+                        <CreateServerPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="servers/import"
+                    element={
+                      <RequirePermission check={(p) => p.canImportServer} redirectTo="/servers">
+                        <ImportServerPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route path="backups" element={<BackupListPage />} />
-                  <Route path="plugins" element={<PluginListPage />} />
-                  <Route path="plugins/marketplace" element={<PluginMarketplacePage />} />
-                  <Route path="plugins/marketplace/:projectId" element={<PluginDetailPage />} />
-                  <Route path="marketplace" element={<PluginMarketplacePage />} />
-                  <Route path="marketplace/:projectId" element={<PluginDetailPage />} />
+                  <Route
+                    path="plugins"
+                    element={
+                      <RequirePermission
+                        check={(p) => p.isAdmin || (!p.isViewer && p.canViewPlugins())}
+                        redirectTo="/"
+                      >
+                        <PluginListPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="plugins/marketplace"
+                    element={
+                      <RequirePermission
+                        check={(p) => p.isAdmin || (!p.isViewer && p.canViewPlugins())}
+                        redirectTo="/"
+                      >
+                        <PluginMarketplacePage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="plugins/marketplace/:projectId"
+                    element={
+                      <RequirePermission
+                        check={(p) => p.isAdmin || (!p.isViewer && p.canViewPlugins())}
+                        redirectTo="/"
+                      >
+                        <PluginDetailPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="marketplace"
+                    element={
+                      <RequirePermission
+                        check={(p) => p.isAdmin || (!p.isViewer && p.canViewPlugins())}
+                        redirectTo="/"
+                      >
+                        <PluginMarketplacePage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="marketplace/:projectId"
+                    element={
+                      <RequirePermission
+                        check={(p) => p.isAdmin || (!p.isViewer && p.canViewPlugins())}
+                        redirectTo="/"
+                      >
+                        <PluginDetailPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route path="settings" element={<SettingsPage />} />
                   <Route path="settings/api-keys" element={<ApiKeysPage />} />
                 </Route>
                 <Route path="servers/:serverId" element={<ServerShell />}>
                   <Route index element={<ServerDetailPage />} />
-                  <Route path="console" element={<ServerDetailPage />} />
-                  <Route path="files" element={<ServerFilesPage />} />
-                  <Route path="network" element={<ServerExposurePage />} />
-                  <Route path="backups" element={<BackupListPage />} />
-                  <Route path="mods" element={<ServerModsPage />} />
+                  <Route
+                    path="console"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canConsoleView(sid)}>
+                        <ServerDetailPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="files"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canFiles(sid) || p.canViewLogs(sid)}>
+                        <ServerFilesPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="network"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewExposure(sid)}>
+                        <ServerExposurePage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="backups"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewBackups(sid)}>
+                        <BackupListPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="mods"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewPlugins(sid)}>
+                        <ServerModsPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route
                     path="mods/marketplace"
-                    element={<PluginMarketplacePage lockedProjectType="mod" />}
+                    element={
+                      <RequirePermission check={(p, sid) => p.canManagePlugins(sid)}>
+                        <PluginMarketplacePage lockedProjectType="mod" />
+                      </RequirePermission>
+                    }
                   />
                   <Route
                     path="mods/marketplace/:projectId"
-                    element={<PluginDetailPage lockedProjectType="mod" />}
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewPlugins(sid)}>
+                        <PluginDetailPage lockedProjectType="mod" />
+                      </RequirePermission>
+                    }
                   />
-                  <Route path="plugins" element={<PluginListPage />} />
+                  <Route
+                    path="plugins"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewPlugins(sid)}>
+                        <PluginListPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route
                     path="plugins/marketplace"
-                    element={<PluginMarketplacePage lockedProjectType="plugin" />}
+                    element={
+                      <RequirePermission check={(p, sid) => p.canManagePlugins(sid)}>
+                        <PluginMarketplacePage lockedProjectType="plugin" />
+                      </RequirePermission>
+                    }
                   />
                   <Route
                     path="plugins/marketplace/:projectId"
-                    element={<PluginDetailPage lockedProjectType="plugin" />}
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewPlugins(sid)}>
+                        <PluginDetailPage lockedProjectType="plugin" />
+                      </RequirePermission>
+                    }
                   />
-                  <Route path="versioning" element={<ServerVersioningPage />} />
+                  <Route
+                    path="versioning"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canViewVersioning(sid)}>
+                        <ServerVersioningPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route path="activity" element={<ServerActivityPage />} />
-                  <Route path="settings" element={<ServerSettingsPage />} />
+                  <Route
+                    path="settings"
+                    element={
+                      <RequirePermission check={(p, sid) => p.canSettings(sid)}>
+                        <ServerSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
                 </Route>
                 <Route element={<AppShell />}>
                   <Route path="*" element={<NotFoundPage />} />

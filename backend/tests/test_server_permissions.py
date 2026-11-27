@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import require_server_permission
+from app.core.exceptions import PermissionDenied
 from app.core.persistence.base import Base
 from app.modules.auth.infrastructure.models import UserModel
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
@@ -147,10 +148,10 @@ async def test_require_server_permission_membership_role_non_matching_403(
     req = MockRequest(path_params={"server_id": "s1"})
     current_user = {"user_id": "u_viewer", "permissions": []}
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(PermissionDenied) as exc_info:
         await check_fn(request=req, db=db_session, current_user=current_user)
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "Permission denied"
+    assert exc_info.value.http_status == 403
+    assert exc_info.value.message == "Permission denied"
 
 
 @pytest.mark.asyncio
@@ -166,10 +167,10 @@ async def test_require_server_permission_no_membership_403(db_session: AsyncSess
     req = MockRequest(path_params={"server_id": "s1"})
     current_user = {"user_id": "u_outsider", "permissions": []}
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(PermissionDenied) as exc_info:
         await check_fn(request=req, db=db_session, current_user=current_user)
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "Permission denied"
+    assert exc_info.value.http_status == 403
+    assert exc_info.value.message == "Permission denied"
 
 
 @pytest.mark.asyncio
@@ -192,6 +193,6 @@ async def test_require_server_permission_multiple_permissions_any_of(
 
     # Calling with only ("server.{id}.files", "server.{id}.console") should fail (403)
     check_fn_strict = require_server_permission("server.{id}.files", "server.{id}.console")
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(PermissionDenied) as exc_info:
         await check_fn_strict(request=req, db=db_session, current_user=current_user)
-    assert exc_info.value.status_code == 403
+    assert exc_info.value.http_status == 403

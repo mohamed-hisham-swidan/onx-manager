@@ -3,7 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field, model_validator
 
-from app.api.deps import get_command_bus, get_query_bus, require_permission
+from app.api.deps import (
+    get_command_bus,
+    get_query_bus,
+    require_admin_or_owner,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.common import BaseResponse
 from app.core.command_bus import CommandBus
@@ -21,9 +25,13 @@ router = APIRouter(prefix="/api/v1/invites", tags=["invites"])
 
 class CreateInviteRequest(BaseModel):
     email: str | None = None
-    global_role: str = "member"
+    role: str | None = None
+    global_role: str | None = None
     server_id: str | None = None
+    server_ids: list[str] = Field(default_factory=list)
     server_role: str | None = None
+    all_servers_access: bool = False
+    denied_permissions: list[str] = Field(default_factory=list)
     max_uses: int = 1
     expires_in_hours: int | None = 48
 
@@ -33,9 +41,13 @@ class CreateInviteResponse(BaseResponse):
     token: str
     token_prefix: str
     email: str | None = None
+    role: str = "viewer"
     global_role: str
     server_id: str | None = None
+    server_ids: list[str] = []
     server_role: str | None = None
+    all_servers_access: bool = False
+    denied_permissions: list[str] = []
     status: str
     max_uses: int
     expires_at: str | None = None
@@ -78,9 +90,13 @@ class InviteListItemResponse(BaseResponse):
     token_prefix: str
     creator_id: str
     email: str | None = None
+    role: str = "viewer"
     global_role: str
     server_id: str | None = None
+    server_ids: list[str] = []
     server_role: str | None = None
+    all_servers_access: bool = False
+    denied_permissions: list[str] = []
     status: str
     max_uses: int
     use_count: int
@@ -92,7 +108,7 @@ class InviteListItemResponse(BaseResponse):
 @router.post("", response_model=CreateInviteResponse, status_code=201)
 async def create_invite(
     body: CreateInviteRequest,
-    current_user: dict = Depends(require_permission("user:write")),
+    current_user: dict = Depends(require_admin_or_owner("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> CreateInviteResponse:
     creator_id = current_user.get("sub") or current_user.get("user_id") or ""
@@ -100,9 +116,13 @@ async def create_invite(
         CreateInviteCommand(
             creator_id=creator_id,
             email=body.email,
+            role=body.role,
             global_role=body.global_role,
             server_id=body.server_id,
+            server_ids=body.server_ids,
             server_role=body.server_role,
+            all_servers_access=body.all_servers_access,
+            denied_permissions=body.denied_permissions,
             max_uses=body.max_uses,
             expires_in_hours=body.expires_in_hours,
         )
@@ -113,7 +133,7 @@ async def create_invite(
 
 @router.get("", response_model=list[InviteListItemResponse])
 async def list_invites(
-    _current_user: dict = Depends(require_permission("user:write")),
+    _current_user: dict = Depends(require_admin_or_owner("user:write")),
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> list[InviteListItemResponse]:
     items = await query_bus.ask(ListInvitesQuery())
@@ -123,7 +143,7 @@ async def list_invites(
 @router.delete("/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invite(
     invite_id: str,
-    _current_user: dict = Depends(require_permission("user:write")),
+    _current_user: dict = Depends(require_admin_or_owner("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> None:
     result = await command_bus.send(RevokeInviteCommand(invitation_id=invite_id))

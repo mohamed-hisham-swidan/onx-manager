@@ -13,7 +13,6 @@ from app.main import app
 from app.modules.auth.infrastructure.jwt import create_access_token
 from app.modules.monitoring.domain.aggregate import AlertCondition, AlertRule, AlertSeverity
 from app.modules.monitoring.infrastructure.repository import SQLAlertRuleRepository
-from app.modules.plugin.infrastructure.dependency_resolver import DependencyResolver
 from app.modules.plugin.infrastructure.providers.modrinth import ModrinthProvider
 from app.modules.shared.value_objects import ServerId
 
@@ -32,36 +31,6 @@ async def init_test_db():
     database._engine = old_engine
     database._session_factory = old_factory
     await engine.dispose()
-
-
-class TestBatch4CDependencyResolver:
-    """F040: DependencyResolver supports diamond dependencies without false cycle detection."""
-
-    def test_diamond_dependency_resolves(self) -> None:
-        resolver = DependencyResolver()
-        # D has no dependencies
-        resolver.register_plugin("D", "1.0.0", [])
-        # B and C both depend on D
-        resolver.register_plugin("B", "1.0.0", [{"name": "D", "min_version": "1.0.0"}])
-        resolver.register_plugin("C", "1.0.0", [{"name": "D", "min_version": "1.0.0"}])
-        # A depends on both B and C
-        resolver.register_plugin("A", "1.0.0", ["B", "C"])
-
-        result = resolver.resolve("A")
-        assert result.success is True
-        assert len(result.conflicts) == 0
-        assert result.resolved[0].name == "A"
-        assert len(result.resolved[0].dependencies) == 2
-
-    def test_true_circular_dependency_detected(self) -> None:
-        resolver = DependencyResolver()
-        resolver.register_plugin("A", "1.0.0", ["B"])
-        resolver.register_plugin("B", "1.0.0", ["A"])
-
-        result = resolver.resolve("A")
-        assert result.success is False
-        assert len(result.conflicts) == 1
-        assert "Circular dependency detected" in result.conflicts[0].message
 
 
 class TestBatch4CModrinthNo404Retry:
@@ -98,13 +67,7 @@ class TestBatch4CModrinthNo404Retry:
         )
         auth_headers = {"Authorization": f"Bearer {token}"}
 
-        with (
-            patch.object(ModrinthProvider, "get_project", mock_get_project),
-            patch(
-                "app.api.v1.routers.marketplace.require_permission",
-                return_value=lambda: {"user_id": "test"},
-            ),
-        ):
+        with patch.object(ModrinthProvider, "get_project", mock_get_project):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 resp = await ac.get(
@@ -158,22 +121,18 @@ class TestBatch4CMonitoringAlertsWiring:
                 assert any(a["id"] == rule_id and a["server_id"] == "srv-1" for a in alerts)
 
             # 2. Delete alert
-            with patch(
-                "app.api.v1.routers.monitoring.require_permission",
-                return_value=lambda: {"user_id": "test"},
-            ):
-                del_resp = await ac.delete(
-                    f"/api/v1/monitoring/alerts/{rule_id}",
-                    headers=auth_headers,
-                )
-                assert del_resp.status_code == 204
+            del_resp = await ac.delete(
+                f"/api/v1/monitoring/alerts/{rule_id}",
+                headers=auth_headers,
+            )
+            assert del_resp.status_code == 204
 
-                # Idempotent delete of nonexistent rule
-                del_resp2 = await ac.delete(
-                    f"/api/v1/monitoring/alerts/{rule_id}",
-                    headers=auth_headers,
-                )
-                assert del_resp2.status_code == 204
+            # Idempotent delete of nonexistent rule
+            del_resp2 = await ac.delete(
+                f"/api/v1/monitoring/alerts/{rule_id}",
+                headers=auth_headers,
+            )
+            assert del_resp2.status_code == 204
 
             # 3. Verify gone
             with patch(

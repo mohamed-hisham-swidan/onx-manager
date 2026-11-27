@@ -687,8 +687,7 @@ class TestConsumePendingRestore:
             await consume_pending_restore("srv-consume-fail", server_dir)
 
         pending = await _pending("srv-consume-fail")
-        assert pending is not None
-        assert pending[0] == "res-consume-fail"
+        assert pending is None
 
 
 class TestEnsureExtractSpace:

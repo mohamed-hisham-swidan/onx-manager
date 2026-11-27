@@ -722,15 +722,31 @@ def install_stub_service():
     installed.clear()
 
 
-def _headers(*permissions: str) -> dict[str, str]:
+def _headers(*permissions: str, user_id: str = "usr-p72-api") -> dict[str, str]:
     from app.modules.auth.infrastructure.jwt import create_access_token
 
     token = create_access_token(
-        user_id="usr-p72-api",
+        user_id=user_id,
         roles=["admin"] if "admin:full" in permissions else [],
         permissions=list(permissions),
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _seed_stub_api_server(root: Path) -> None:
+    from app.modules.server.infrastructure.models import ServerMembershipModel
+
+    await _seed_server(ADVANCED_ID, root, mode="simple", status="stopped", port=25569)
+    async with database.session_factory() as session:
+        session.add(
+            ServerMembershipModel(
+                id="mem-p72-api",
+                server_id=ADVANCED_ID,
+                user_id="usr-p72-api",
+                role="server_admin",
+            )
+        )
+        await session.commit()
 
 
 async def _post(path: str, *, headers: dict[str, str] | None = None, body: Any = None):
@@ -771,14 +787,19 @@ def _simple_result() -> ConversionResult:
     )
 
 
-async def test_rbac_requires_authentication_and_permission(install_stub_service) -> None:
+async def test_rbac_requires_authentication_and_permission(
+    install_stub_service, tmp_path: Path
+) -> None:
+    await _seed_stub_api_server(tmp_path / "stub-rbac")
     stub = _StubConversionService(result=_advanced_result())
     install_stub_service(stub)
 
     unauthenticated = await _post(ADVANCED_PATH)
     assert unauthenticated.status_code == 401
 
-    forbidden = await _post(ADVANCED_PATH, headers=_headers("server.read"))
+    forbidden = await _post(
+        ADVANCED_PATH, headers=_headers("server.read", user_id="usr-p72-outsider")
+    )
     assert forbidden.status_code == 403
 
     allowed = await _post(ADVANCED_PATH, headers=_headers("server.versioning.manage"))
@@ -793,7 +814,10 @@ async def test_rbac_requires_authentication_and_permission(install_stub_service)
     assert stub.calls[0][1]["actor_type"] == "user"
 
 
-async def test_api_returns_typed_advanced_response(install_stub_service) -> None:
+async def test_api_returns_typed_advanced_response(
+    install_stub_service, tmp_path: Path
+) -> None:
+    await _seed_stub_api_server(tmp_path / "stub-adv")
     install_stub_service(_StubConversionService(result=_advanced_result()))
 
     response = await _post(
@@ -812,7 +836,10 @@ async def test_api_returns_typed_advanced_response(install_stub_service) -> None
     assert payload["worktree_path"].endswith(".onx/worktrees/main")
 
 
-async def test_api_returns_typed_simple_response(install_stub_service) -> None:
+async def test_api_returns_typed_simple_response(
+    install_stub_service, tmp_path: Path
+) -> None:
+    await _seed_stub_api_server(tmp_path / "stub-simple")
     install_stub_service(_StubConversionService(result=_simple_result()))
 
     response = await _post(

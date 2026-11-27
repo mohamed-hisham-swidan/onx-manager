@@ -4,15 +4,24 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db, require_permission
+from app.api.deps import get_current_user, get_db, require_schedule_permission
+from app.core.authorization import authorize_server_action, is_admin_or_owner_context
 from app.core.identity import IDENTITY
 from app.core.timeutil import format_datetime_utc
-from app.tasks.scheduler import CronJobModel, Scheduler, get_scheduler
+from app.tasks.scheduler import (
+    ALLOWED_GLOBAL_TASKS,
+    ALLOWED_SERVER_TASKS,
+    MIN_USER_SCHEDULE_INTERVAL_SECONDS,
+    CronJobModel,
+    Scheduler,
+    get_scheduler,
+    validate_cleanup_params,
+)
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.schedules")
 
@@ -38,9 +47,17 @@ class CreateScheduleRequest(BaseModel):
 
 @router.get("", response_model=list[dict[str, Any]])
 async def list_schedules(
+    server_id: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    is_admin = is_admin_or_owner_context(current_user)
+    if (
+        server_id
+        and not is_admin
+        and not authorize_server_action(current_user, server_id, "backups.view")
+    ):
+        raise HTTPException(status_code=403, detail="Permission denied")
     stmt = select(CronJobModel).order_by(CronJobModel.created_at.desc())
     result = await db.execute(stmt)
     jobs = result.scalars().all()
@@ -52,6 +69,14 @@ async def list_schedules(
                 params = json.loads(j.params_json)
             except Exception:
                 params = {}
+        job_sid = params.get("server_id") if isinstance(params, dict) else None
+        if server_id and job_sid != server_id:
+            continue
+        if not is_admin and (
+            not job_sid
+            or not authorize_server_action(current_user, str(job_sid), "backups.view")
+        ):
+            continue
         out.append({
             "id": j.id,
             "name": j.name,
@@ -69,14 +94,44 @@ async def list_schedules(
 async def create_schedule(
     body: CreateScheduleRequest = Body(default_factory=CreateScheduleRequest),
     db: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(require_permission("settings:write")),
+    current_user: dict = Depends(require_schedule_permission("settings:write")),
 ) -> dict[str, Any]:
     normalized_task_name = _normalize_task_name(body.task_name)
-    if not body.cron_expression.startswith("interval:"):
+    is_admin = is_admin_or_owner_context(current_user)
+    params = dict(body.params or {})
+
+    if is_admin:
+        if normalized_task_name not in ALLOWED_GLOBAL_TASKS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Task '{normalized_task_name}' is not an allowed schedulable task",
+            )
+    else:
+        if normalized_task_name not in ALLOWED_SERVER_TASKS:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Only owner or admin may schedule task '{normalized_task_name}'",
+            )
+        target_sid = params.get("server_id")
+        if not target_sid or not authorize_server_action(current_user, str(target_sid), "backups"):
+            raise HTTPException(
+                status_code=403,
+                detail="Server-scoped schedules must target an authorized server_id",
+            )
+
+    if normalized_task_name == "run_cleanup_task":
         try:
-            Scheduler._parse_cron(body.cron_expression)
+            validate_cleanup_params(params)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        Scheduler._validate_expression(
+            body.cron_expression,
+            min_interval_seconds=MIN_USER_SCHEDULE_INTERVAL_SECONDS,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     job_id = uuid.uuid4().hex
     sched_name = body.name or f"schedule-{job_id[:8]}"
@@ -123,7 +178,7 @@ async def create_schedule(
 async def delete_schedule(
     schedule_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(require_permission("settings:write")),
+    _current_user: dict = Depends(require_schedule_permission("settings:write")),
 ) -> None:
     model = await db.get(CronJobModel, schedule_id)
     if model is not None:

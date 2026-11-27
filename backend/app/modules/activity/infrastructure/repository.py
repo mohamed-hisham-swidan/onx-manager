@@ -43,7 +43,7 @@ class SQLActivityRepository(ActivityRepository):
                 yield s
 
     async def save(self, log: ServerActivityLog, max_retries: int = 3) -> None:
-        details_str = json.dumps(log.details) if log.details else None
+        details_str = json.dumps(log.details, default=str) if log.details else None
         model = ServerActivityLogModel(
             id=log.id,
             server_id=log.server_id,

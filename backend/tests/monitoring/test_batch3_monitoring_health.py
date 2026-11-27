@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,15 +12,9 @@ from app.core.persistence.db import database
 from app.modules.health.application.event_handlers.server_crashed_handler import (
     HandleServerCrashHandler,
 )
-from app.modules.health.application.queries.generate_health_report import (
-    GenerateHealthReportHandler,
-    GenerateHealthReportQuery,
-)
-from app.modules.health.domain.aggregate import HealthStatus
 from app.modules.health.domain.value_objects import (
     CrashClassification,
     HealthStatusEnum,
-    HealthTimelineEntry,
 )
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
 from app.modules.health.infrastructure.integrity import _check_modern_forge_layout
@@ -67,7 +60,10 @@ async def test_f024_parse_tick_query_lagging_server():
     assert _parse_tick_query(healthy_log) == 20.0
 
     minimal_log = "Target tick rate: 20.0 per second."
-    assert _parse_tick_query(minimal_log) == 20.0
+    assert _parse_tick_query(minimal_log) is None
+
+    mspt_only_log = "Average time per tick: 80.0ms"
+    assert _parse_tick_query(mspt_only_log) == 12.5
 
 
 @pytest.mark.asyncio
@@ -174,59 +170,12 @@ async def test_f035_server_crashed_handler_collects_evidence(tmp_path: Path, mon
 
 
 @pytest.mark.asyncio
-async def test_f036_generate_health_report_worst_status():
-    """F036: generate_health_report accurately captures BROKEN as worst status on timeline."""
-    now = datetime.now(UTC)
-    timeline = [
-        HealthTimelineEntry(
-            server_id="srv-report-1",
-            previous_status=HealthStatusEnum.HEALTHY,
-            new_status=HealthStatusEnum.WARNING,
-            contributing_factors=["high cpu"],
-            timestamp=now - timedelta(minutes=10),
-        ),
-        HealthTimelineEntry(
-            server_id="srv-report-1",
-            previous_status=HealthStatusEnum.WARNING,
-            new_status=HealthStatusEnum.BROKEN,
-            contributing_factors=["oom killed"],
-            timestamp=now - timedelta(minutes=5),
-        ),
-        HealthTimelineEntry(
-            server_id="srv-report-1",
-            previous_status=HealthStatusEnum.BROKEN,
-            new_status=HealthStatusEnum.HEALTHY,
-            contributing_factors=["recovered"],
-            timestamp=now - timedelta(minutes=1),
-        ),
-    ]
-
-    mock_repo = AsyncMock()
-    mock_repo.get.return_value = HealthStatus(
-        server_id="srv-report-1",
-        classification=HealthStatusEnum.HEALTHY,
-    )
-    mock_repo.get_timeline.return_value = timeline
-
-    query = GenerateHealthReportQuery(server_id="srv-report-1", hours=24)
-    handler = GenerateHealthReportHandler()
-
-    target_repo = (
-        "app.modules.health.application.queries.generate_health_report.SQLHealthRepository"
-    )
-    with patch(target_repo, return_value=mock_repo):
-        report = await handler.handle(query)
-
-    assert report is not None
-    assert report.worst_status == "broken"
-    assert report.current_status == "healthy"
-
-
-@pytest.mark.asyncio
 async def test_get_health_dashboard_endpoint() -> None:
     from app.api.v1.routers.health import get_health_dashboard
 
-    res = await get_health_dashboard(_current_user={"user_id": "admin"})
+    res = await get_health_dashboard(
+        current_user={"user_id": "admin", "roles": ["admin"], "permissions": ["admin:full"]}
+    )
     assert res.total_servers >= 0
     assert res.healthy >= 0
     assert isinstance(res.servers, list)
@@ -274,7 +223,9 @@ async def test_get_health_dashboard_ignores_orphaned_health_records() -> None:
         )
         await session.commit()
 
-    res = await get_health_dashboard(_current_user={"user_id": "admin"})
+    res = await get_health_dashboard(
+        current_user={"user_id": "admin", "roles": ["admin"], "permissions": ["admin:full"]}
+    )
     assert res.total_servers == 1
     assert res.healthy == 1
     assert res.critical == 0

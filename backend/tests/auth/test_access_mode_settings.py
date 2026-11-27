@@ -181,19 +181,14 @@ async def test_non_owner_cannot_change_access_mode(client: AsyncClient, auth_tok
 async def test_require_owner_semantics_boundary(client: AsyncClient):
     """Explicit regression test for require_owner() boundary semantics.
 
-    The access-mode operation is Owner-only: satisfied by the `owner` role
-    OR a `global.*` permission claim. `admin:full` alone is NOT sufficient.
+    The access-mode operation is Owner-only: satisfied only by a live DB `owner` role.
+    `admin:full` and forged JWT `global.*` claims on non-owner DB accounts are rejected.
     """
     cases = {
         "owner role only (no admin:full, no global.*)": create_access_token(
             user_id="u_owner",
             roles=["owner"],
             permissions=[],
-        ),
-        "global.* only (no owner role)": create_access_token(
-            user_id="u_admin",
-            roles=["admin"],
-            permissions=["global.*"],
         ),
         "owner with admin:full": create_access_token(
             user_id="u_owner",
@@ -210,6 +205,11 @@ async def test_require_owner_semantics_boundary(client: AsyncClient):
         assert res.status_code == 200, f"{label} should be allowed: {res.status_code} {res.text}"
 
     denied_cases = {
+        "forged global.* claim on admin account": create_access_token(
+            user_id="u_admin",
+            roles=["admin"],
+            permissions=["global.*"],
+        ),
         "admin:full only (no owner, no global.*)": create_access_token(
             user_id="u_admin",
             roles=["admin"],

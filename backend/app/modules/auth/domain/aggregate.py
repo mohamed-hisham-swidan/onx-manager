@@ -116,7 +116,12 @@ class ApiKey(AggregateRoot):
     def is_expired(self) -> bool:
         if self._expires_at is None:
             return False
-        return datetime.now(UTC) > self._expires_at
+        expires_at = (
+            self._expires_at.replace(tzinfo=UTC)
+            if self._expires_at.tzinfo is None
+            else self._expires_at.astimezone(UTC)
+        )
+        return datetime.now(UTC) > expires_at
 
     def revoke(self, user_id: str = "") -> None:
         self._is_revoked = True
@@ -139,6 +144,8 @@ class User(AggregateRoot):
         created_at: datetime | None = None,
         last_login_at: datetime | None = None,
         username: str | None = None,
+        denied_permissions: list[str] | None = None,
+        all_servers_access: bool = False,
     ) -> None:
         super().__init__()
         resolved_username = (
@@ -161,6 +168,8 @@ class User(AggregateRoot):
         self._is_active = is_active
         self._created_at = created_at or datetime.now(UTC)
         self._last_login_at = last_login_at
+        self._denied_permissions = list(dict.fromkeys(denied_permissions or []))
+        self._all_servers_access = bool(all_servers_access)
 
     @property
     def user_id(self) -> UserId:
@@ -202,6 +211,14 @@ class User(AggregateRoot):
     def last_login_at(self) -> datetime | None:
         return self._last_login_at
 
+    @property
+    def denied_permissions(self) -> list[str]:
+        return list(self._denied_permissions)
+
+    @property
+    def all_servers_access(self) -> bool:
+        return self._all_servers_access
+
     @classmethod
     def create(
         cls,
@@ -211,6 +228,8 @@ class User(AggregateRoot):
         display_name: str = "",
         *,
         username: str | None = None,
+        denied_permissions: list[str] | None = None,
+        all_servers_access: bool = False,
     ) -> User:
         user = cls(
             user_id=user_id,
@@ -218,6 +237,8 @@ class User(AggregateRoot):
             password_hash=password_hash,
             display_name=display_name,
             username=username,
+            denied_permissions=denied_permissions,
+            all_servers_access=all_servers_access,
         )
         user._add_event(
             UserCreatedEvent(
@@ -234,6 +255,15 @@ class User(AggregateRoot):
 
     def remove_role(self, role: Role) -> None:
         self._roles = [r for r in self._roles if r.role_id != role.role_id]
+
+    def set_roles(self, roles: list[Role]) -> None:
+        self._roles = list(roles)
+
+    def set_denied_permissions(self, denied_permissions: list[str]) -> None:
+        self._denied_permissions = list(dict.fromkeys(denied_permissions))
+
+    def set_all_servers_access(self, all_servers_access: bool) -> None:
+        self._all_servers_access = bool(all_servers_access)
 
     def has_permission(self, resource: str, action: str) -> bool:
         return any(role.has_permission(resource, action) for role in self._roles)
@@ -372,9 +402,12 @@ class Invitation(AggregateRoot):
         token_prefix: str,
         creator_id: str | None = None,
         email: str | None = None,
-        global_role: str = "member",
+        global_role: str = "viewer",
         server_id: str | None = None,
         server_role: str | None = None,
+        server_ids: list[str] | None = None,
+        denied_permissions: list[str] | None = None,
+        all_servers_access: bool = False,
         status: InviteStatus | str = InviteStatus.ACTIVE,
         max_uses: int = 1,
         use_count: int = 0,
@@ -390,8 +423,12 @@ class Invitation(AggregateRoot):
         self._creator_id = creator_id
         self._email = email
         self._global_role = global_role
-        self._server_id = server_id
+        raw_server_ids = list(server_ids or ([] if server_id is None else [server_id]))
+        self._server_ids = list(dict.fromkeys([str(s) for s in raw_server_ids if s]))
+        self._server_id = server_id or (self._server_ids[0] if self._server_ids else None)
         self._server_role = server_role
+        self._denied_permissions = list(dict.fromkeys([str(p) for p in (denied_permissions or []) if p]))
+        self._all_servers_access = bool(all_servers_access)
         self._status = status if isinstance(status, InviteStatus) else InviteStatus(status)
         self._max_uses = max_uses
         self._use_count = use_count
@@ -431,6 +468,20 @@ class Invitation(AggregateRoot):
     @property
     def server_role(self) -> str | None:
         return self._server_role
+
+    @property
+    def server_ids(self) -> list[str]:
+        if self._server_ids:
+            return list(self._server_ids)
+        return [self._server_id] if self._server_id else []
+
+    @property
+    def denied_permissions(self) -> list[str]:
+        return list(self._denied_permissions)
+
+    @property
+    def all_servers_access(self) -> bool:
+        return self._all_servers_access
 
     @property
     def status(self) -> InviteStatus:
@@ -475,9 +526,7 @@ class Invitation(AggregateRoot):
             return False
         if self.is_expired:
             return False
-        if self._use_count >= self._max_uses:
-            return False
-        return True
+        return self._use_count < self._max_uses
 
     def consume(self) -> None:
         if not self.is_valid:

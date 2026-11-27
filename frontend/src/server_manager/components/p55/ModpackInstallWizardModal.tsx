@@ -389,10 +389,11 @@ function ModpackInstallWizardModalInner({
       size="2xl"
       title="Install Modpack (.mrpack / CurseForge)"
       description="Inspect the archive and resolve manual downloads before anything is written to this server."
+      bodyClassName="flex flex-col overflow-hidden"
       closeOnBackdrop={!blockModalDismiss}
       closeOnEscape={!blockModalDismiss}
     >
-      <div className="flex flex-col max-h-[76vh] min-w-0 overflow-x-hidden">
+      <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-x-hidden">
         {installResult ? (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden pr-1 space-y-4">
             <Banner

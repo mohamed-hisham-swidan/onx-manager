@@ -147,7 +147,7 @@ class ListExposureTargetsHandler(QueryHandler[ListExposureTargetsQuery]):
                 raise NotFoundError(
                     f"Exposure not found for server {query.server_id}",
                 )
-            return [_target_payload(t) for t in exposure.targets]
+            return [_target_payload(t, method=exposure.method) for t in exposure.targets]
 
 
 class ListServerPortsQuery(Query):

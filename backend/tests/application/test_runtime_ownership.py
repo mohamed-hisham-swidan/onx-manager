@@ -252,18 +252,15 @@ class TestIsPidAlive:
 
 
 class TestGetTmuxPanePid:
-    @patch("app.modules.server.application.runtime_ownership.os.popen")
-    def test_found(self, mock_popen):
-        mock_proc = MagicMock()
-        mock_proc.read.return_value = "12345\n"
-        mock_popen.return_value = mock_proc
+    @patch("app.modules.server.application.runtime_ownership.subprocess.run")
+    def test_found(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="12345\n")
         assert _get_tmux_pane_pid("onx-s1") == 12345
+        assert mock_run.call_args.args[0][0] == "tmux"
 
-    @patch("app.modules.server.application.runtime_ownership.os.popen")
-    def test_not_found(self, mock_popen):
-        mock_proc = MagicMock()
-        mock_proc.read.return_value = ""
-        mock_popen.return_value = mock_proc
+    @patch("app.modules.server.application.runtime_ownership.subprocess.run")
+    def test_not_found(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
         assert _get_tmux_pane_pid("onx-s1") is None
 
 

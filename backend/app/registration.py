@@ -19,6 +19,8 @@ from app.modules.activity.infrastructure import SQLActivityRepository
 from app.modules.auth.application import (
     AcceptInviteCommand,
     AcceptInviteHandler,
+    AdminCreateUserCommand,
+    AdminCreateUserHandler,
     BootstrapInstanceCommand,
     BootstrapInstanceHandler,
     ConfigureCredentialsCommand,
@@ -51,6 +53,8 @@ from app.modules.auth.application import (
     RevokeInviteHandler,
     UpdateAccessModeCommand,
     UpdateAccessModeHandler,
+    UpdateUserAccessCommand,
+    UpdateUserAccessHandler,
     UpdateUserCommand,
     UpdateUserHandler,
     VerifyInviteHandler,
@@ -534,7 +538,9 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(CreateApiKeyCommand, CreateApiKeyHandler(event_bus))
     command_bus.register(RevokeApiKeyCommand, RevokeApiKeyHandler(event_bus))
     command_bus.register(CreateUserCommand, CreateUserHandler(event_bus))
+    command_bus.register(AdminCreateUserCommand, AdminCreateUserHandler(event_bus))
     command_bus.register(UpdateUserCommand, UpdateUserHandler(event_bus))
+    command_bus.register(UpdateUserAccessCommand, UpdateUserAccessHandler(event_bus))
     command_bus.register(DeleteUserCommand, DeleteUserHandler(event_bus))
     command_bus.register(BootstrapInstanceCommand, BootstrapInstanceHandler(event_bus))
     command_bus.register(ConfigureCredentialsCommand, ConfigureCredentialsHandler(event_bus))

@@ -82,9 +82,43 @@ export function BackupDetailsDrawer({
           <span className="text-xs text-text-muted">{tierMeta.label}</span>
         </span>
       }
+      footer={
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] text-text-muted">
+            {backup.pinned ? "Pinned for upgrade rollback. Confirm the upgrade or release pins to unlock deletion." : null}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isCompleted && canRestore && (
+              <button
+                type="button"
+                onClick={() => onRestore(backup)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-1.5 text-xs font-semibold text-status-warning hover:opacity-90 cursor-pointer"
+              >
+                <Icon name="restart" size={13} />
+                <span>Restore Backup</span>
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(backup)}
+                disabled={backup.pinned}
+                title={
+                  backup.pinned
+                    ? "Pinned for upgrade rollback. Confirm the upgrade or release pins to unlock deletion."
+                    : "Delete backup"
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 py-1.5 text-xs font-semibold text-status-danger hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Icon name="trash" size={13} />
+                <span>Delete</span>
+              </button>
+            )}
+          </div>
+        </div>
+      }
     >
-      <div className="flex flex-1 flex-col min-h-0">
-        <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+      <div className="space-y-4">
           {backup.error_message && (
             <div
               role="alert"
@@ -243,42 +277,6 @@ export function BackupDetailsDrawer({
               {backup.checksum || "No checksum recorded"}
             </div>
           </div>
-        </div>
-
-        {/* Sticky Footer */}
-        <div className="mt-4 pt-3 border-t border-border-subtle flex items-center justify-between gap-2">
-          <div className="text-[11px] text-text-muted">
-            {backup.pinned ? "Pinned for upgrade rollback. Confirm the upgrade or release pins to unlock deletion." : null}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {isCompleted && canRestore && (
-              <button
-                type="button"
-                onClick={() => onRestore(backup)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-1.5 text-xs font-semibold text-status-warning hover:opacity-90 cursor-pointer"
-              >
-                <Icon name="restart" size={13} />
-                <span>Restore Backup</span>
-              </button>
-            )}
-            {canDelete && (
-              <button
-                type="button"
-                onClick={() => onDelete(backup)}
-                disabled={backup.pinned}
-                title={
-                  backup.pinned
-                    ? "Pinned for upgrade rollback. Confirm the upgrade or release pins to unlock deletion."
-                    : "Delete backup"
-                }
-                className="inline-flex items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 py-1.5 text-xs font-semibold text-status-danger hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <Icon name="trash" size={13} />
-                <span>Delete</span>
-              </button>
-            )}
-          </div>
-        </div>
       </div>
     </Modal>
   );

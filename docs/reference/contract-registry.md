@@ -9,7 +9,7 @@
 
 | Contract ID | Name | File Path | Scope & Purpose |
 |---|---|---|---|
-| **C-001** | `permissions.yaml` | `contracts/permissions.yaml` | Comprehensive RBAC/ABAC route contract mapping 215 live routes to roles & scopes across 19 router files. |
+| **C-001** | `permissions.yaml` | `contracts/permissions.yaml` | Comprehensive RBAC/ABAC route contract mapping 217 live routes to roles & scopes across 19 router files. |
 | **C-002** | `api.yaml` | `contracts/api.yaml` | OpenAPI contract specification outline for API v1. |
 | **C-003** | `events.yaml` | `contracts/events.yaml` | Domain event schema definitions and payload versioning. |
 | **C-004** | `plugin.yaml` | `contracts/plugin.yaml` | Plugin manifest contract and JSON-RPC subprocess bridge interface. |
@@ -25,4 +25,4 @@ The permissions registry enforces zero-trust route security across all **215 liv
 - **Server-scoped routes:** Server start/stop/restart, console access, file editing, plugin installation, versioning, branch runtimes, GitHub sync, modpacks & safe upgrades (governed by user server access lists).
 - **Public routes:** Login, register (with invite), setup status check, health probes, GitHub webhook ingress (HMAC-verified).
 
-Verified by CI gate: `./scripts/check-route-contract` (215/215 PASS).
+Verified by CI gate: `./scripts/check-route-contract` (217/215 PASS).

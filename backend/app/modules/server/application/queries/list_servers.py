@@ -14,6 +14,7 @@ class ListServersQuery(Query):
     group_id: str | None = None
     name_search: str | None = None
     minecraft_version: str | None = None
+    allowed_server_ids: list[str] | None = None
 
 
 class ListServersHandler(QueryHandler[ListServersQuery]):
@@ -27,6 +28,9 @@ class ListServersHandler(QueryHandler[ListServersQuery]):
         async with database.session_factory() as session:
             repo: ServerRepository = SQLServerRepository(session)
             servers = await repo.list(filters)
+            if query.allowed_server_ids is not None:
+                allowed = set(query.allowed_server_ids)
+                servers = [s for s in servers if str(s.id) in allowed]
             models = [ServerReadModel.from_domain(s) for s in servers]
             if not models:
                 return models

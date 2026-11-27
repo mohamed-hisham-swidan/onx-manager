@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 
@@ -49,7 +50,7 @@ class HandleServerCrashHandler(EventHandler):
 
         bundle = await self._collector.collect(server_id, server_dir=str(server_dir))
         if not bundle.latest_log_tail and event.last_log_lines:
-            bundle.latest_log_tail = list(event.last_log_lines)
+            bundle = dataclasses.replace(bundle, latest_log_tail=list(event.last_log_lines))
         classification = await self._classifier.classify(bundle)
 
         async with UnitOfWork(self._event_bus) as uow:

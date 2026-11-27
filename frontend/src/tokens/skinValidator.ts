@@ -1,11 +1,9 @@
 /**
- * Custom Skin Contract & Token JSON Validator (Phase 6)
+ * Custom Skin Contract & Token JSON Validator
  *
  * Provides a pure, zero-dependency validator for custom skin JSON specifications.
  * Enforces strict key allowlists, rigid color grammar (hex/rgb/rgba/hsl), forbidden
  * CSS injection patterns (url, braces, semicolons, script), and strict payload size limits.
- *
- * NOTE: This is the CONTRACT ONLY. No import/editor UI is exposed per ADR-0021.
  */
 
 export const ALLOWED_TOKEN_KEYS = new Set([

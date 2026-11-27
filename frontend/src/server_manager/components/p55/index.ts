@@ -1,4 +1,3 @@
-export { PanelP55IntegrationsSection } from "./PanelP55IntegrationsSection";
 export { ServerP55SettingsCard } from "./ServerP55SettingsCard";
 export {
   ModpackInstallWizardModal,

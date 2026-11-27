@@ -11,9 +11,9 @@ Authoritative developer utilities and CI quality gates for ONX Manager.
 | Script | Purpose |
 |---|---|
 | `scripts/check-version-propagation` | Verifies `backend/pyproject.toml`, `frontend/package.json`, and runtime version match (`0.1.0`) |
-| `scripts/check-db-revision` | Verifies Alembic migration head matches release compatibility floor (`b1e2100000032`) |
+| `scripts/check-db-revision` | Verifies Alembic migration head matches release compatibility floor (`b1e2100000034`) |
 | `scripts/check-ruff-baseline` | Enforces zero-regression Ruff lint gate against `backend/ruff-baseline.json` |
-| `scripts/check-route-contract` | Validates all 213 live FastAPI routes against `contracts/permissions.yaml` |
+| `scripts/check-route-contract` | Validates all 217 live FastAPI routes against `contracts/permissions.yaml` |
 | `scripts/check-ps1-bom` | Verifies all tracked `.ps1` files contain a UTF-8 BOM (`EF BB BF`) |
 | `scripts/check-stray-db` | Verifies no stray SQLite files (`*.db`, `*.db-wal`, `*.db-shm`) exist at repo or backend root |
 | `scripts/reverify` / `reverify.ps1` | Runs the full local CI verification cadence (Linux / Windows) |
@@ -24,7 +24,7 @@ Authoritative developer utilities and CI quality gates for ONX Manager.
 | Script | Platform | Purpose |
 |---|---|---|
 | `scripts/preflight.sh` | Linux / macOS | Smart preflight process reconciliation, zombie cleanup, and lock validation |
-| `scripts/preflight.py` | Cross-Platform / Windows | Python preflight runner with protected PID scanning and ASCII fallback |
+| `scripts/preflight.py` | Windows | Windows Python preflight runner with protected PID scanning and ASCII fallback |
 | `scripts/bootstrap` | Linux / macOS | Developer virtualenv creation (`.venv`, Python 3.12), dependency install, and migration runner |
 | `scripts/start.ps1` | Windows | Developer PowerShell bootstrap helper (`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1`) |
 | `scripts/check` / `check.ps1` | Linux / Windows | Runs lint → typecheck → test |

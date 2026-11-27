@@ -257,6 +257,9 @@ class ServerExposureTarget(AggregateRoot):
         self._updated_at = datetime.now(UTC)
 
     def _transition_to(self, new_status: ExposureStatus) -> None:
+        if new_status == self._status:
+            self._updated_at = datetime.now(UTC)
+            return
         allowed = _TARGET_TRANSITIONS.get(self._status, set())
         if new_status not in allowed:
             raise InvalidValueError(
@@ -332,6 +335,7 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.ERROR,
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.DEGRADED,
+        ExposureStatus.STOPPED,
         ExposureStatus.DISABLED,
     },
     ExposureStatus.ACTIVE: {
@@ -348,10 +352,15 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.ERROR,
         ExposureStatus.DISABLED,
     },
-    ExposureStatus.STOPPED: {ExposureStatus.STARTING, ExposureStatus.DISABLED},
+    ExposureStatus.STOPPED: {
+        ExposureStatus.STARTING,
+        ExposureStatus.CLAIM_REQUIRED,
+        ExposureStatus.DISABLED,
+    },
     ExposureStatus.DEGRADED: {
         ExposureStatus.ACTIVE,
         ExposureStatus.ERROR,
+        ExposureStatus.CLAIM_REQUIRED,
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.STARTING,
         ExposureStatus.DISABLED,
@@ -359,12 +368,14 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
     ExposureStatus.ERROR: {
         ExposureStatus.STARTING,
         ExposureStatus.ACTIVE,
+        ExposureStatus.CLAIM_REQUIRED,
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.DISABLED,
     },
     ExposureStatus.RECLAIM_REQUIRED: {
         ExposureStatus.STARTING,
         ExposureStatus.ACTIVE,
+        ExposureStatus.CLAIM_REQUIRED,
         ExposureStatus.DISABLED,
     },
 }

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -11,6 +13,7 @@ import tarfile
 import tempfile
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +42,36 @@ from app.modules.versioning.infrastructure.directory_swap import (
 from app.modules.versioning.infrastructure.vault_crypto import MasterKek
 
 _TRIAD_BUCKETS = ("class_e", "class_c", "class_b", "lockfile")
+_PRE_RESTORE_PREFIX = ".onx-pre-restore-"
+logger = logging.getLogger(__name__)
+
+
+def _prune_old_pre_restore_copies(parent_dir: Path, segment: str, *, keep_latest: int = 0) -> None:
+    prefix = f"{_PRE_RESTORE_PREFIX}{segment}-"
+    if not parent_dir.is_dir():
+        return
+    candidates = sorted(
+        (p for p in parent_dir.iterdir() if p.is_dir() and p.name.startswith(prefix)),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for stale in candidates[keep_latest:]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def cleanup_pre_restore_backups(server_id: str, server_dir: Path) -> int:
+    """Remove retained pre-restore rollback copies after a server starts cleanly."""
+    segment = validate_server_segment(server_id)
+    prefix = f"{_PRE_RESTORE_PREFIX}{segment}-"
+    parent_dir = server_dir.parent
+    if not parent_dir.is_dir():
+        return 0
+    removed = 0
+    for entry in list(parent_dir.iterdir()):
+        if entry.is_dir() and entry.name.startswith(prefix):
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+    return removed
 
 
 class TwoTierRestoreError(Exception):
@@ -199,29 +232,39 @@ def _execute_triad_swap(
         journal,
         server_id=server_id,
         pre_upgrade_backup_id=backup_id,
-        keep_previous=False,
+        keep_previous=True,
         exchange_supported=exchange_supported,
     )
-    # Clean up old tree left behind at previous_tree_path
+    # Preserve the previous server tree as a bounded sibling rollback copy instead of
+    # immediately deleting it; keep at most 1 pre-restore copy per server.
     old_tree = result.previous_tree_path
     if old_tree.exists():
-        shutil.rmtree(old_tree, ignore_errors=True)
+        _prune_old_pre_restore_copies(server_dir.parent, server_id, keep_latest=0)
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        retained = (
+            server_dir.parent
+            / f"{_PRE_RESTORE_PREFIX}{server_id}-{ts}-{uuid.uuid4().hex[:6]}"
+        )
+        try:
+            os.replace(old_tree, retained)
+        except OSError:
+            logger.warning(
+                "Could not rename pre-restore tree %s to %s; keeping in place",
+                old_tree,
+                retained,
+            )
     return result.used_exchange
 
 
-async def restore_tier1_snapshot(
+def _restore_tier1_sync(
     *,
-    server_id: str,
+    segment: str,
     server_dir: Path,
     snapshot_dir: Path,
     backup_id: str,
-    journal_dir: Path | None = None,
-    exchange_supported: bool | None = None,
+    journal_dir: Path | None,
+    exchange_supported: bool | None,
 ) -> TwoTierRestoreResult:
-    """Validate Tier-1 snapshot marker/paths, stage on target FS, and triad-swap."""
-    segment = validate_server_segment(server_id)
-    if not server_dir.is_dir():
-        raise TwoTierRestoreError(f"Target server directory does not exist: {server_dir}")
     try:
         validate_tier1_complete_marker(snapshot_dir)
     except Exception as exc:
@@ -260,31 +303,49 @@ async def restore_tier1_snapshot(
         raise TwoTierRestoreError(f"Tier-1 restore failed: {exc}") from exc
 
 
-async def restore_tier2_archive(
+async def restore_tier1_snapshot(
     *,
     server_id: str,
     server_dir: Path,
-    storage_path: str,
+    snapshot_dir: Path,
     backup_id: str,
-    storage: StorageBackend | None = None,
-    expected_checksum: str | None = None,
-    kek: MasterKek | None = None,
-    kek_file_path: Path | None = None,
-    cas: ArtifactCas | None = None,
     journal_dir: Path | None = None,
     exchange_supported: bool | None = None,
 ) -> TwoTierRestoreResult:
-    """Verify, decrypt, safely extract, populate CAS blobs, and atomically swap Tier-2 archive."""
+    """Validate Tier-1 snapshot marker/paths, stage on target FS, and triad-swap."""
     segment = validate_server_segment(server_id)
     if not server_dir.is_dir():
         raise TwoTierRestoreError(f"Target server directory does not exist: {server_dir}")
+    return await asyncio.to_thread(
+        _restore_tier1_sync,
+        segment=segment,
+        server_dir=server_dir,
+        snapshot_dir=snapshot_dir,
+        backup_id=backup_id,
+        journal_dir=journal_dir,
+        exchange_supported=exchange_supported,
+    )
 
+
+def _restore_tier2_sync(
+    *,
+    segment: str,
+    server_dir: Path,
+    storage_path: str,
+    backup_id: str,
+    storage_bytes: bytes | None,
+    expected_checksum: str | None,
+    kek: MasterKek | None,
+    kek_file_path: Path | None,
+    cas: ArtifactCas | None,
+    journal_dir: Path | None,
+    exchange_supported: bool | None,
+) -> TwoTierRestoreResult:
     with tempfile.TemporaryDirectory(prefix="onx-tier2-restore-") as tmp_str:
         tmp_dir = Path(tmp_str)
         raw_download = tmp_dir / "artifact.bin"
-        if storage is not None:
-            data = await storage.read(storage_path)
-            raw_download.write_bytes(data)
+        if storage_bytes is not None:
+            raw_download.write_bytes(storage_bytes)
         else:
             src_local = Path(storage_path)
             if not src_local.is_file():
@@ -319,7 +380,8 @@ async def restore_tier2_archive(
 
         extract_dir = tmp_dir / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
-        magic_hdr = archive_path.read_bytes()[:6]
+        with open(archive_path, "rb") as _magic_fh:
+            magic_hdr = _magic_fh.read(6)
         is_gzip = magic_hdr[:2] == b"\x1f\x8b" or storage_path.endswith(
             (".tar.gz", ".tar.gz.enc")
         )
@@ -397,3 +459,42 @@ async def restore_tier2_archive(
             if staging_tree.exists():
                 shutil.rmtree(staging_tree, ignore_errors=True)
             raise TwoTierRestoreError(f"Tier-2 restore failed: {exc}") from exc
+
+
+async def restore_tier2_archive(
+    *,
+    server_id: str,
+    server_dir: Path,
+    storage_path: str,
+    backup_id: str,
+    storage: StorageBackend | None = None,
+    expected_checksum: str | None = None,
+    kek: MasterKek | None = None,
+    kek_file_path: Path | None = None,
+    cas: ArtifactCas | None = None,
+    journal_dir: Path | None = None,
+    exchange_supported: bool | None = None,
+) -> TwoTierRestoreResult:
+    """Verify, decrypt, safely extract, populate CAS blobs, and atomically swap Tier-2 archive."""
+    segment = validate_server_segment(server_id)
+    if not server_dir.is_dir():
+        raise TwoTierRestoreError(f"Target server directory does not exist: {server_dir}")
+
+    storage_bytes: bytes | None = None
+    if storage is not None:
+        storage_bytes = await storage.read(storage_path)
+
+    return await asyncio.to_thread(
+        _restore_tier2_sync,
+        segment=segment,
+        server_dir=server_dir,
+        storage_path=storage_path,
+        backup_id=backup_id,
+        storage_bytes=storage_bytes,
+        expected_checksum=expected_checksum,
+        kek=kek,
+        kek_file_path=kek_file_path,
+        cas=cas,
+        journal_dir=journal_dir,
+        exchange_supported=exchange_supported,
+    )

@@ -215,10 +215,11 @@ class LocalBackendManager {
   }
 
   getSnapshot() {
+    const host = this.probeHost || "127.0.0.1";
     return {
       status: this.status,
       port: this.port,
-      url: this.port ? `http://127.0.0.1:${this.port}` : null,
+      url: this.port ? `http://${host}:${this.port}` : null,
       installDir: this.installDir,
       error: this.lastError,
     };
@@ -235,12 +236,17 @@ class LocalBackendManager {
     };
 
     const { code, stdout, stderr } = await new Promise((resolve, reject) => {
+      if (this._aborted) {
+        reject(new Error("Backend startup was cancelled."));
+        return;
+      }
       const child = spawn(pyBin, ["-m", "app.core.persistence.reconciler", "--json"], {
         cwd: backendDir,
         env: reconcilerEnv,
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
+      this._reconcilerChild = child;
 
       const outChunks = [];
       const errChunks = [];
@@ -259,10 +265,12 @@ class LocalBackendManager {
       child.stdout.on("data", (chunk) => outChunks.push(chunk));
       child.stderr.on("data", (chunk) => errChunks.push(chunk));
       child.once("error", (err) => {
+        if (this._reconcilerChild === child) this._reconcilerChild = null;
         clearTimeout(timer);
         reject(err);
       });
       child.once("exit", (exitCode) => {
+        if (this._reconcilerChild === child) this._reconcilerChild = null;
         clearTimeout(timer);
         const stdoutText = Buffer.concat(outChunks).toString("utf8");
         const stderrText = Buffer.concat(errChunks).toString("utf8");
@@ -360,17 +368,23 @@ class LocalBackendManager {
       throw new Error(msg);
     }
 
+    this._aborted = false;
     this._setStatus("starting", null);
     this.logs = [];
-
-    const port = await findAvailablePort(this.preferredPort, 50);
-    this.port = port;
 
     const backendDir = path.join(this.installDir, "backend");
     const staticDir = path.join(this.installDir, "frontend", "dist");
     const envBindHost = process.env.ONX_PANEL_BIND_HOST || process.env.MCS_PANEL_BIND_HOST;
     const configuredBindHost = _readConfiguredBindHost(backendDir);
     const bindHost = envBindHost || configuredBindHost || "127.0.0.1";
+    this.probeHost =
+      bindHost === "0.0.0.0" || bindHost === "::" || !bindHost ? "127.0.0.1" : bindHost;
+
+    const port = await findAvailablePort(this.preferredPort, 50);
+    if (this._aborted) {
+      throw new Error("Backend startup was cancelled.");
+    }
+    this.port = port;
     const env = {
       ...process.env,
       PYTHONUNBUFFERED: "1",
@@ -392,15 +406,26 @@ class LocalBackendManager {
       }
     }
 
+    if (this._aborted) {
+      this.port = null;
+      throw new Error("Backend startup was cancelled.");
+    }
+
+    const spawnOpts = {
+      cwd: backendDir,
+      env,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    };
+    if (process.platform !== "win32") {
+      // Run backend as its own process group leader so stop() can clean up child tunnels cleanly.
+      spawnOpts.detached = true;
+    }
+
     const child = spawn(
       pyBin,
       ["-m", "uvicorn", "app.main:app", "--host", bindHost, "--port", String(port), "--workers", "1"],
-      {
-        cwd: backendDir,
-        env,
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
+      spawnOpts,
     );
     this.child = child;
 
@@ -428,6 +453,15 @@ class LocalBackendManager {
   }
 
   async stop() {
+    this._aborted = true;
+    if (this._reconcilerChild && this._reconcilerChild.exitCode === null) {
+      try {
+        this._reconcilerChild.kill("SIGTERM");
+      } catch {
+        // Ignore
+      }
+      this._reconcilerChild = null;
+    }
     const proc = this.child;
     this.child = null;
     this.port = null;
@@ -438,12 +472,31 @@ class LocalBackendManager {
 
     await new Promise((resolve) => {
       let settled = false;
+      let timer = null;
       const finish = () => {
         if (settled) return;
         settled = true;
+        if (timer) clearTimeout(timer);
         resolve();
       };
       proc.once("exit", finish);
+
+      const signalUnixTree = (sig) => {
+        if (proc.pid) {
+          try {
+            process.kill(-proc.pid, sig);
+            return true;
+          } catch {
+            // Fall through to direct child signal if not group leader
+          }
+        }
+        try {
+          proc.kill(sig);
+          return true;
+        } catch {
+          return false;
+        }
+      };
 
       if (process.platform === "win32") {
         try {
@@ -458,25 +511,26 @@ class LocalBackendManager {
             // Already exited
           }
         }
-      } else {
-        try {
-          proc.kill("SIGTERM");
-        } catch {
-          finish();
-          return;
-        }
+      } else if (!signalUnixTree("SIGTERM")) {
+        finish();
+        return;
       }
 
-      const timer = setTimeout(() => {
+      // Exceed backend's 10s graceful shutdown window before escalating to SIGKILL
+      timer = setTimeout(() => {
         if (proc.exitCode === null) {
-          try {
-            proc.kill("SIGKILL");
-          } catch {
-            // Ignore
+          if (process.platform === "win32") {
+            try {
+              proc.kill("SIGKILL");
+            } catch {
+              // Ignore
+            }
+          } else {
+            signalUnixTree("SIGKILL");
           }
         }
         finish();
-      }, 4000);
+      }, 12000);
       timer.unref();
     });
 

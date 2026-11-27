@@ -1007,9 +1007,10 @@ def sync_main_lockfile_addons_to_server_root(
     force_prune: bool = False,
 ) -> None:
     """Sync ``main``'s lockfile and materialize CAS addon JARs to the live server root."""
-    if server.deployment is None or not server.deployment.root_path:
+    deployment = getattr(server, "deployment", None)
+    if deployment is None or not deployment.root_path:
         return
-    server_root = Path(server.deployment.root_path)
+    server_root = Path(deployment.root_path)
     if not server_root.is_dir():
         return
     check_not_symlink_or_reparse(server_root)

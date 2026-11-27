@@ -7,6 +7,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import config as config_mod
@@ -123,6 +125,15 @@ def is_local_profile_and_loopback_bound(settings: AppSettings | None = None) -> 
     return active_host is None or is_loopback_bind_host(active_host)
 
 
+def default_bootstrap_access_mode(settings: AppSettings | None = None) -> AccessMode:
+    """Default to GLOBAL (invite-only) on VPS or non-loopback binds, LOCAL on local loopback."""
+    cfg = settings or ConfigFactory.global_settings()
+    configured_host, _ = get_panel_bind()
+    if cfg.deployment_profile == "vps" or not is_loopback_bind_host(configured_host):
+        return AccessMode.GLOBAL
+    return AccessMode.LOCAL
+
+
 def compute_auth_mode(
     password_configured: bool,
     settings: AppSettings | None = None,
@@ -215,6 +226,28 @@ async def resolve_local_auto_auth(
     state = await sys_repo.get("default")
     if state.password_configured:
         return None
+    access_mode_val = (
+        state.access_mode.value
+        if isinstance(state.access_mode, AccessMode)
+        else str(state.access_mode)
+    )
+    if state.initialized and access_mode_val != AccessMode.LOCAL.value:
+        return None
+
+    try:
+        from app.modules.exposure.infrastructure.models import PanelExposureModel
+
+        panel_row = (
+            await session.execute(select(PanelExposureModel).limit(1))
+        ).scalar_one_or_none()
+        if (
+            panel_row is not None
+            and str(panel_row.desired_state).upper() == "ENABLED"
+            and str(panel_row.method).lower() != "none"
+        ):
+            return None
+    except OperationalError:
+        pass
 
     if not state.initialized:
         provisioned = await ensure_local_admin_provisioned(session, settings)
@@ -222,6 +255,13 @@ async def resolve_local_auto_auth(
             await session.commit()
         state = await sys_repo.get("default")
         if not state.initialized or state.password_configured:
+            return None
+        access_mode_after = (
+            state.access_mode.value
+            if isinstance(state.access_mode, AccessMode)
+            else str(state.access_mode)
+        )
+        if access_mode_after != AccessMode.LOCAL.value:
             return None
 
     user_repo = SQLUserRepository(session)

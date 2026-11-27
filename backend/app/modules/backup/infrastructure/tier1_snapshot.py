@@ -394,11 +394,15 @@ async def create_tier1_snapshot(
                     ):
                         used_reflink = True
             finally:
+                save_on_ok = True
                 if save_off_sent:
-                    with contextlib.suppress(Exception):
+                    try:
                         await rcon_send("save-on")
-                with contextlib.suppress(OSError):
-                    save_off_marker.unlink()
+                    except Exception:
+                        save_on_ok = False
+                if save_on_ok:
+                    with contextlib.suppress(OSError):
+                        save_off_marker.unlink()
 
         if final_dir.exists():
             shutil.rmtree(final_dir)

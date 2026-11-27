@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
+import { formatServerTypeLabel } from "@/server_manager/utils/versioningFormat";
 import type { DiffResponse } from "@/server_manager/types";
 
 function getModName(m: string | { filename: string }): string {
@@ -14,6 +15,8 @@ interface CommitDiffModalProps {
   serverId: string;
   fromCommitId: string;
   toCommitId: string;
+  parentCommitIds?: string[];
+  headCommitId?: string | null;
 }
 
 export function CommitDiffModal({
@@ -22,18 +25,30 @@ export function CommitDiffModal({
   serverId,
   fromCommitId,
   toCommitId,
+  parentCommitIds,
+  headCommitId,
 }: CommitDiffModalProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const [activeFrom, setActiveFrom] = useState(fromCommitId);
+  const [activeTo, setActiveTo] = useState(toCommitId);
   const [diff, setDiff] = useState<DiffResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "configs" | "mods" | "env">("summary");
+  const resetKey = `${isOpen}:${fromCommitId}:${toCommitId}`;
+  const [prevResetKey, setPrevResetKey] = useState(resetKey);
+  if (isOpen && resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
+    setActiveFrom(fromCommitId);
+    setActiveTo(toCommitId);
+    setActiveTab("summary");
+  }
 
   const loadDiff = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.diffCommits(serverId, fromCommitId, toCommitId);
+      const data = await api.diffCommits(serverId, activeFrom, activeTo);
       setDiff(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load commit diff.";
@@ -42,11 +57,11 @@ export function CommitDiffModal({
     } finally {
       setIsLoading(false);
     }
-  }, [serverId, fromCommitId, toCommitId, api]);
+  }, [serverId, activeFrom, activeTo, api]);
 
   useEffect(() => {
     let alive = true;
-    if (isOpen && fromCommitId && toCommitId) {
+    if (isOpen && activeFrom && activeTo) {
       void Promise.resolve().then(() => {
         if (alive) {
           loadDiff();
@@ -56,7 +71,7 @@ export function CommitDiffModal({
     return () => {
       alive = false;
     };
-  }, [isOpen, fromCommitId, toCommitId, loadDiff]);
+  }, [isOpen, activeFrom, activeTo, loadDiff]);
 
   if (!isOpen) return null;
 
@@ -83,6 +98,9 @@ export function CommitDiffModal({
   const envDeleted: string[] = diff?.env_vars?.removed ? Object.keys(diff.env_vars.removed) : [];
   const totalEnvChanges = envAdded.length + envModified.length + envDeleted.length;
 
+  const isComparingToHead = Boolean(headCommitId && activeTo === headCommitId && activeFrom === toCommitId);
+  const hasMultipleParents = Boolean(parentCommitIds && parentCommitIds.length > 1);
+
   return (
     <Modal
       open={isOpen}
@@ -90,17 +108,76 @@ export function CommitDiffModal({
       title="Commit Diff Inspector"
       description={
         <span className="font-mono">
-          <span className="text-accent-primary font-bold">{fromCommitId.slice(0, 7)}</span>
+          <span className="text-accent-primary font-bold">{activeFrom.slice(0, 8)}</span>
           {" → "}
-          <span className="text-status-success font-bold">{toCommitId.slice(0, 7)}</span>
+          <span className="text-status-success font-bold">{activeTo.slice(0, 8)}</span>
         </span>
       }
       size="2xl"
+      bodyClassName="flex flex-col overflow-hidden"
       closeOnBackdrop={true}
       closeOnEscape={true}
       closeButtonAriaLabel="Close modal"
+      footer={
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      }
     >
-      <div className="space-y-4 flex flex-col">
+      <div className="space-y-4 flex flex-1 flex-col min-h-0">
+        {(hasMultipleParents || (headCommitId && headCommitId !== toCommitId)) && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border-subtle bg-surface-page p-2 text-xs">
+            {hasMultipleParents && parentCommitIds && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-muted">Base parent:</span>
+                {parentCommitIds.map((pid, idx) => (
+                  <button
+                    key={pid}
+                    type="button"
+                    onClick={() => {
+                      setActiveFrom(pid);
+                      setActiveTo(toCommitId);
+                    }}
+                    className={`rounded px-2 py-0.5 font-mono cursor-pointer ${
+                      activeFrom === pid && activeTo === toCommitId
+                        ? "bg-accent-primary text-accent-contrast-text"
+                        : "border border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover"
+                    }`}
+                  >
+                    Parent {idx + 1} ({pid.slice(0, 7)})
+                  </button>
+                ))}
+              </div>
+            )}
+            {headCommitId && headCommitId !== toCommitId && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isComparingToHead) {
+                    setActiveFrom(fromCommitId);
+                    setActiveTo(toCommitId);
+                  } else {
+                    setActiveFrom(toCommitId);
+                    setActiveTo(headCommitId);
+                  }
+                }}
+                className={`ml-auto rounded px-2.5 py-0.5 font-medium cursor-pointer ${
+                  isComparingToHead
+                    ? "bg-accent-primary text-accent-contrast-text"
+                    : "border border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover"
+                }`}
+              >
+                {isComparingToHead ? "Showing: vs HEAD" : "Compare vs HEAD"}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (
@@ -188,10 +265,10 @@ export function CommitDiffModal({
                         {diff.server_type ? (
                           <div className="mt-0.5">
                             <span className="text-status-danger line-through mr-2">
-                              {diff.server_type.from || "none"}
+                              {formatServerTypeLabel(diff.server_type.from) || "none"}
                             </span>
                             <span className="text-status-success font-bold">
-                              {diff.server_type.to || "none"}
+                              {formatServerTypeLabel(diff.server_type.to) || "none"}
                             </span>
                           </div>
                         ) : (
@@ -435,16 +512,6 @@ export function CommitDiffModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end border-t border-border-default pt-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors"
-          >
-            Close
-          </button>
-        </div>
       </div>
     </Modal>
   );

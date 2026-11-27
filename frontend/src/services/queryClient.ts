@@ -125,7 +125,15 @@ export const queryKeys = {
   versioning: {
     branches: (serverId: string) => ["versioning", "branches", serverId] as const,
     commits: (serverId: string) => ["versioning", "commits", serverId] as const,
+    commitsByBranch: (serverId: string, branchName: string) =>
+      ["versioning", "commits", serverId, branchName] as const,
+    tags: (serverId: string) => ["versioning", "tags", serverId] as const,
     refresh: (serverId: string) => ["versioning", "refresh", serverId] as const,
+    settings: (serverId: string) => ["versioning", "settings", serverId] as const,
+    liveChanges: (serverId: string, branchName: string) =>
+      ["versioning", "live-changes", serverId, branchName] as const,
+    diff: (serverId: string, fromRef: string, toRef: string) =>
+      ["versioning", "diff", serverId, fromRef, toRef] as const,
     classCSnapshots: (serverId: string) => ["versioning", "class-c", "snapshots", serverId] as const,
     dynamicClassC: (serverId: string) => ["versioning", "class-c", "dynamic", serverId] as const,
     secrets: (serverId: string) => ["versioning", "secrets", serverId] as const,

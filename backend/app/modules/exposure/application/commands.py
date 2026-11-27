@@ -1432,7 +1432,7 @@ class DeleteServerPortHandler(CommandHandler[DeleteServerPortCommand]):
                         "Cannot delete the primary Java game target.",
                         field="target_id",
                     )
-                all_ports = await ports_repo.list_by_server(command.server_id)
+                all_ports = await ports_repo.list_for_server(command.server_id)
                 for p in all_ports:
                     if p.service_type == target_to_remove.service_type.value:
                         await ports_repo.delete(p.id)
@@ -1757,8 +1757,18 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
             state_repo = SQLSystemStateRepository(uow.session)
             panel = await repo.get()
-            system_state = await state_repo.get()
+            system_state = await state_repo.get_with_lock("default")
             access_mode = system_state.access_mode
+            access_mode_changed = False
+            if (
+                desired == DesiredState.ENABLED
+                and method != PanelExposureMethod.NONE
+                and access_mode != AccessMode.GLOBAL
+            ):
+                system_state.set_access_mode(AccessMode.GLOBAL)
+                await state_repo.save(system_state)
+                access_mode = AccessMode.GLOBAL
+                access_mode_changed = True
 
             # Evaluate idempotency while allowing retries from ERROR/STOPPED,
             # RECLAIM_REQUIRED credential rotation, port changes, and Cloudflare mode switches.
@@ -1803,7 +1813,21 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                     or is_error_retry
                     or is_port_change
                     or is_cf_mode_switch
+                    or access_mode_changed
                 ):
+                    return CommandResult(
+                        success=True, data=_panel_payload(panel, access_mode=access_mode)
+                    )
+                if (
+                    access_mode_changed
+                    and not (
+                        is_reclaim_rotation
+                        or is_error_retry
+                        or is_port_change
+                        or is_cf_mode_switch
+                    )
+                ):
+                    await uow.commit()
                     return CommandResult(
                         success=True, data=_panel_payload(panel, access_mode=access_mode)
                     )
@@ -1948,7 +1972,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                 else:
                     return
 
-                # Wait briefly for immediate URL capture or missing-binary error.
+                # Wait briefly for immediate URL capture or early exit / error.
                 for _ in range(60):
                     if (
                         getattr(sup, "quick_url", None)
@@ -1958,9 +1982,20 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                         break
                     await asyncio.sleep(0.05)
 
+                # If the child exited before _monitor processed its exit, give _monitor a moment.
+                if (
+                    not getattr(sup, "quick_url", None)
+                    and not sup.is_running
+                    and sup.status != ExposureStatus.ERROR
+                ):
+                    for _ in range(10):
+                        if sup.status == ExposureStatus.ERROR or getattr(sup, "quick_url", None):
+                            break
+                        await asyncio.sleep(0.05)
+
                 if getattr(sup, "quick_url", None):
                     await _persist_panel_quick_url(sup.quick_url)
-                elif sup.status == ExposureStatus.ERROR:
+                elif sup.status == ExposureStatus.ERROR or not sup.is_running:
                     await _persist_panel_status(ExposureStatus.ERROR)
 
             post_commit.append(_run_quick_cf)
@@ -2533,6 +2568,18 @@ async def _persist_panel_status(status: ExposureStatus) -> None:
             panel = await repo.get()
             if panel.desired_state == DesiredState.DISABLED:
                 return
+            # An enabled exposure must never silently revert to STOPPED from an old stop callback.
+            if status == ExposureStatus.STOPPED:
+                return
+            # Never downgrade an already-ACTIVE Quick Tunnel (with URL) back to STARTING.
+            if (
+                status == ExposureStatus.STARTING
+                and panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
+                and panel.cloudflare_tunnel_id == "quick"
+                and panel.status == ExposureStatus.ACTIVE
+                and panel.public_address
+            ):
+                return
             panel.set_status(status)
             if status == ExposureStatus.RECLAIM_REQUIRED:
                 panel.set_error(
@@ -2541,6 +2588,11 @@ async def _persist_panel_status(status: ExposureStatus) -> None:
                     or "cloudflared reported an invalid/revoked tunnel token",
                 )
             elif status == ExposureStatus.ERROR:
+                if (
+                    panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
+                    and panel.cloudflare_tunnel_id == "quick"
+                ):
+                    panel.set_public_address(None)
                 panel.set_error(
                     getattr(sup, "error_code", None) or "CLOUDFLARED_ERROR",
                     getattr(sup, "error_message", None)
@@ -2755,24 +2807,28 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                     and exposure.method == ExposureMethod.CLOUDFLARE_TCP
                     and exposure.has_cloudflare_credentials
                 ):
-                    srv_supervisor = get_server_cloudflared_supervisor(exposure.server_id)
+                    sup_key = _exposure_supervisor_key(exposure.server_id, exposure.branch_name)
+                    srv_supervisor = get_server_cloudflared_supervisor(sup_key)
                     should_start = (
                         exposure.aggregate_status != ExposureStatus.RECLAIM_REQUIRED
                         and not srv_supervisor.is_running
                     )
                     if should_start:
-                        # ISS-069: move decryption out of the transaction into post_commit
                         def _make_reconcile_cf(
                             sid=exposure.server_id,
+                            bname=exposure.branch_name,
+                            skey=sup_key,
                             ctext=exposure.cloudflare_token_ciphertext,
                         ):
                             async def _act():
-                                sup = get_server_cloudflared_supervisor(sid)
+                                sup = get_server_cloudflared_supervisor(skey)
                                 if sup.is_running:
                                     return
                                 try:
                                     plaintext = _panel_encryption().decrypt(ctext)
-                                    on_status = _make_persist_server_cloudflare_status(sid)
+                                    on_status = _make_persist_server_cloudflare_status(
+                                        sid, branch_name=bname
+                                    )
                                     await sup.start(plaintext, on_status=on_status)
                                 except Exception:
                                     logger.exception(
@@ -2785,7 +2841,8 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                     exposure.desired_state == DesiredState.DISABLED
                     and exposure.method == ExposureMethod.CLOUDFLARE_TCP
                 ):
-                    srv_supervisor = get_server_cloudflared_supervisor(exposure.server_id)
+                    sup_key = _exposure_supervisor_key(exposure.server_id, exposure.branch_name)
+                    srv_supervisor = get_server_cloudflared_supervisor(sup_key)
                     if srv_supervisor.is_running:
                         post_commit.append(srv_supervisor.stop)
                 _fold_aggregate(exposure)

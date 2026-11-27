@@ -343,7 +343,27 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-# 1. Ensure repository files exist in INSTALL_DIR
+# 1. Preflight Docker availability & daemon permissions (honest warning)
+check_docker_preflight() {
+    if ! command -v docker >/dev/null 2>&1; then
+        log_warn "Docker CLI not found in PATH."
+        log_warn "Minecraft servers run inside Docker containers; panel startup will succeed,"
+        log_warn "but creating/starting servers requires Docker Engine (https://docs.docker.com/engine/install/)."
+        return 0
+    fi
+    if docker info >/dev/null 2>&1; then
+        log_ok "Docker daemon reachable"
+    else
+        log_warn "Docker is installed, but the current user ($(id -un)) cannot access the Docker daemon."
+        log_warn "Ensure Docker is running and grant socket permissions before creating servers:"
+        log_warn "  sudo systemctl enable --now docker"
+        log_warn "  sudo usermod -aG docker \$USER && newgrp docker"
+    fi
+}
+
+check_docker_preflight
+
+# 2. Ensure repository files exist in INSTALL_DIR
 if [ ! -f "${INSTALL_DIR}/backend/pyproject.toml" ]; then
     if ! command -v git >/dev/null 2>&1; then
         log_err "git is required to clone ONX Manager into ${INSTALL_DIR}."
@@ -677,7 +697,8 @@ WantedBy=multi-user.target
             fi
         else
             mkdir -p "${HOME}/.config/systemd/user"
-            printf "%s" "${UNIT_CONTENT/WantedBy=multi-user.target/WantedBy=default.target}" > "${HOME}/.config/systemd/user/onx-manager.service"
+            USER_UNIT_CONTENT="$(printf "%s" "$UNIT_CONTENT" | sed '/^User=/d; s/^WantedBy=multi-user\.target$/WantedBy=default.target/')"
+            printf "%s\n" "$USER_UNIT_CONTENT" > "${HOME}/.config/systemd/user/onx-manager.service"
             systemctl --user daemon-reload >/dev/null 2>&1 || true
             systemctl --user enable --now onx-manager.service >/dev/null 2>&1 || true
             log_ok "Installed user systemd service: ~/.config/systemd/user/onx-manager.service"

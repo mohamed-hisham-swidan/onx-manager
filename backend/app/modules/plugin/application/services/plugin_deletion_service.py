@@ -43,8 +43,12 @@ async def consume_pending_plugin_deletions(
     ]
 
     for plugin in pending:
-        filename = plugin.filename
-        if filename:
+        raw_filename = plugin.filename
+        filename: str | None = None
+        if raw_filename:
+            filename = os.path.basename(raw_filename.replace("\\", "/"))
+            if not filename or filename in (".", ".."):
+                continue
             file_candidates = [filename, f"{filename}.disabled"]
             if filename.endswith(".disabled"):
                 file_candidates.append(filename[:-9])
@@ -53,8 +57,17 @@ async def consume_pending_plugin_deletions(
             deletion_error: str | None = None
 
             for d in dirs_to_check:
+                resolved_dir = os.path.realpath(d)
                 for candidate in file_candidates:
                     path = os.path.join(d, candidate)
+                    if os.path.islink(path):
+                        continue
+                    resolved_path = os.path.realpath(path)
+                    if not (
+                        resolved_path == resolved_dir
+                        or resolved_path.startswith(resolved_dir + os.sep)
+                    ):
+                        continue
                     if fs.exists(path):
                         try:
                             fs.delete(path)

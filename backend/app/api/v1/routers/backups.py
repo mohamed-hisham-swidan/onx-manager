@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.api.deps import (
     get_command_bus,
     get_current_user,
     get_query_bus,
-    require_permission,
+    require_backup_permission,
+    require_server_permission,
 )
 from app.api.errors import check_command_result
 from app.api.v1.schemas.backup import (
@@ -13,6 +14,7 @@ from app.api.v1.schemas.backup import (
     CreateBackupRequest,
     VerifyBackupResponse,
 )
+from app.core.authorization import authorize_server_action, is_admin_or_owner_context
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
 from app.modules.backup.application import (
@@ -34,10 +36,22 @@ async def list_backups(
     server_id: str | None = Query(None),
     tier: str | None = Query(None),
     query_bus: QueryBus = Depends(get_query_bus),
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> list[BackupResponse]:
+    if (
+        server_id
+        and not is_admin_or_owner_context(current_user)
+        and not authorize_server_action(current_user, server_id, "backups.view")
+    ):
+        raise HTTPException(status_code=403, detail="Permission denied")
     q = ListBackupsQuery(server_id=server_id, tier=tier)
     backups = await query_bus.ask(q)
+    if not is_admin_or_owner_context(current_user):
+        backups = [
+            b
+            for b in backups
+            if authorize_server_action(current_user, b.server_id, "backups.view")
+        ]
     return [BackupResponse(**b.__dict__) for b in backups]
 
 
@@ -45,7 +59,7 @@ async def list_backups(
 async def create_backup(
     body: CreateBackupRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    _current_user: dict = Depends(require_permission("backup:create")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.backups")),
 ) -> dict:
     cmd = CreateBackupCommand(
         server_id=body.server_id,
@@ -62,7 +76,7 @@ async def create_backup(
 async def get_backup(
     backup_id: str,
     query_bus: QueryBus = Depends(get_query_bus),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(require_backup_permission("backup:read")),
 ) -> BackupResponse:
     result = await query_bus.ask(GetBackupQuery(backup_id=backup_id))
     return BackupResponse(**result.__dict__)
@@ -72,7 +86,7 @@ async def get_backup(
 async def delete_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    _current_user: dict = Depends(require_permission("backup:delete")),
+    _current_user: dict = Depends(require_backup_permission("backup:delete")),
 ) -> None:
     cmd = DeleteBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)
@@ -83,7 +97,7 @@ async def delete_backup(
 async def restore_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    _current_user: dict = Depends(require_permission("backup:restore")),
+    _current_user: dict = Depends(require_backup_permission("backup:restore")),
 ) -> JSONResponse:
     cmd = RestoreBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)
@@ -96,7 +110,7 @@ async def restore_backup(
 async def verify_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    _current_user: dict = Depends(require_permission("backup:read")),
+    _current_user: dict = Depends(require_backup_permission("backup:read")),
 ) -> VerifyBackupResponse:
     cmd = VerifyBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)

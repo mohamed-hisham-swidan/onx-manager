@@ -624,3 +624,48 @@ class TestCloudflaredHealthProbe:
             assert await supervisor._probe_health() is False
         # The entire range was tried before concluding unhealthy.
         assert [p for _, p in attempts] == _METRICS_PORTS
+
+    async def test_stop_before_restart_clears_callbacks_and_blocks_stale_generation(self) -> None:
+        """stop() followed by start_quick() must never emit STOPPED to the prior callback,
+        and stale generation callbacks must be ignored."""
+        from app.modules.exposure.domain.value_objects import ExposureStatus
+        from app.modules.exposure.infrastructure.cloudflared import CloudflaredSupervisor
+
+        seen_statuses: list[ExposureStatus] = []
+
+        async def _on_status(st: ExposureStatus) -> None:
+            seen_statuses.append(st)
+
+        supervisor = CloudflaredSupervisor()
+        proc1 = TestCloudflaredSupervisor()._mock_subprocess(
+            pid=111,
+            stderr_lines=[b"INF |  https://gen1-slug.trycloudflare.com  |\n"],
+        )
+        proc2 = TestCloudflaredSupervisor()._mock_subprocess(
+            pid=222,
+            stderr_lines=[b"INF |  https://gen2-slug.trycloudflare.com  |\n"],
+        )
+        procs = [proc1, proc2]
+
+        def _next_proc(*_a, **_k):
+            return procs.pop(0)
+
+        with patch("asyncio.create_subprocess_exec", new=AsyncMock(side_effect=_next_proc)):
+            await supervisor.start_quick("http://127.0.0.1:8000", on_status=_on_status)
+            await asyncio.sleep(0.05)
+            stale_gen = supervisor._run_generation
+
+            await supervisor.stop()
+            # Calling _set_status with the stale generation must be a no-op
+            supervisor._set_status(ExposureStatus.ERROR, "stale", generation=stale_gen)
+            assert supervisor.status == ExposureStatus.STOPPED
+
+            await supervisor.start_quick("http://127.0.0.1:8000", on_status=_on_status)
+            await asyncio.sleep(0.05)
+
+        try:
+            assert ExposureStatus.STOPPED not in seen_statuses
+            assert supervisor.quick_url == "https://gen2-slug.trycloudflare.com"
+            assert supervisor.status == ExposureStatus.ACTIVE
+        finally:
+            await supervisor.stop()

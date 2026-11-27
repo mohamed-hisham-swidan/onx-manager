@@ -250,7 +250,7 @@ def _collect_process_metrics(
         ram_mb = mem.rss / (1024 * 1024)
         raw_cpu = proc.cpu_percent(interval=0.1) if fresh else proc.cpu_percent(interval=0)
         core_count = _psutil.cpu_count() or 1
-        cpu = raw_cpu / core_count
+        cpu = max(0.0, min(100.0, raw_cpu / core_count))
     except _PSUTIL_PROC_ERRORS:
         pass
     return ram_mb, cpu
@@ -470,6 +470,7 @@ class MetricsCollector:
             block_read_mb = 0.0
             block_write_mb = 0.0
 
+            server = None
             container_name: str | None = None
             pid: int | None = None
             server_status: str | None = None
@@ -499,11 +500,22 @@ class MetricsCollector:
                                 else ""
                             )
                             cleaned_host = raw_host.strip()
-                            rcon_host = (
-                                "127.0.0.1"
-                                if cleaned_host in ("", "0.0.0.0", "::", "*")
-                                else cleaned_host
+                            from app.modules.server.infrastructure.providers.docker import (
+                                _is_dood_environment,
                             )
+
+                            if getattr(server.runtime, "provider", None) == "docker":
+                                is_dood = _is_dood_environment()
+                                has_ip = cleaned_host not in ("", "0.0.0.0", "::", "*")
+                                rcon_host = (
+                                    cleaned_host if (is_dood and has_ip) else "127.0.0.1"
+                                )
+                            else:
+                                rcon_host = (
+                                    "127.0.0.1"
+                                    if cleaned_host in ("", "0.0.0.0", "::", "*")
+                                    else cleaned_host
+                                )
                         if server.deployment and server.deployment.root_path:
                             raw_props_path = server.deployment.properties_path()
             except Exception:

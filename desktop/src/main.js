@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } = require("electron");
 
 const { LocalBackendManager, probePanelEndpoint } = require("./backendManager");
@@ -13,8 +14,10 @@ const {
 } = require("./connectionsStore");
 
 // Disable unused heavy background features to keep memory footprint lean.
-app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-features", "HardwareMediaKeyHandling");
+
+const LAUNCHER_HTML_PATH = path.join(__dirname, "launcher.html");
+const LAUNCHER_FILE_URL = pathToFileURL(LAUNCHER_HTML_PATH).href;
 
 let mainWindow = null;
 let tray = null;
@@ -40,7 +43,7 @@ function getBrandIconPath(relativePath = null) {
       return preferred;
     }
   }
-  return path.join(candidateDirs[candidateDirs.length - 1], "icon.svg");
+  return path.join(candidateDirs[candidateDirs.length - 1], "icon.png");
 }
 
 function createWindow() {
@@ -111,6 +114,23 @@ function createWindow() {
       shell.openExternal(url);
     }
     return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === LAUNCHER_FILE_URL) return;
+    if (activeTarget.url) {
+      try {
+        const expected = new URL(activeTarget.url);
+        const target = new URL(url);
+        if (target.origin === expected.origin) return;
+      } catch {
+        // Fall through and block invalid URLs
+      }
+    }
+    event.preventDefault();
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      shell.openExternal(url);
+    }
   });
 
   mainWindow.on("close", (event) => {
@@ -236,21 +256,52 @@ async function restartLocalBackend() {
   return snap;
 }
 
-function registerIpc() {
-  ipcMain.handle("desktop:get-state", () => ({
-    store: loadStore(getStorePath()),
-    backend: backendManager.getSnapshot(),
-    target: activeTarget,
-    version: app.getVersion(),
-  }));
+function assertLauncherSender(event) {
+  const senderUrl = event?.senderFrame?.url || event?.sender?.getURL?.() || "";
+  if (senderUrl !== LAUNCHER_FILE_URL) {
+    throw new Error("Unauthorized IPC caller: desktop bridge is restricted to the local launcher.");
+  }
+}
 
-  ipcMain.handle("desktop:connect-local", () => connectLocal());
-  ipcMain.handle("desktop:connect-remote", (_evt, payload) => connectRemote(payload));
-  ipcMain.handle("desktop:probe-remote", (_evt, url) => probePanelEndpoint(url));
-  ipcMain.handle("desktop:delete-remote", (_evt, id) => removeRemote(getStorePath(), id));
-  ipcMain.handle("desktop:restart-backend", () => restartLocalBackend());
-  ipcMain.handle("desktop:open-launcher", () => loadLauncherScreen());
-  ipcMain.handle("desktop:get-backend-logs", () => backendManager.getLogs());
+function registerIpc() {
+  ipcMain.handle("desktop:get-state", (evt) => {
+    assertLauncherSender(evt);
+    return {
+      store: loadStore(getStorePath()),
+      backend: backendManager.getSnapshot(),
+      target: activeTarget,
+      version: app.getVersion(),
+    };
+  });
+
+  ipcMain.handle("desktop:connect-local", (evt) => {
+    assertLauncherSender(evt);
+    return connectLocal();
+  });
+  ipcMain.handle("desktop:connect-remote", (evt, payload) => {
+    assertLauncherSender(evt);
+    return connectRemote(payload);
+  });
+  ipcMain.handle("desktop:probe-remote", (evt, url) => {
+    assertLauncherSender(evt);
+    return probePanelEndpoint(url);
+  });
+  ipcMain.handle("desktop:delete-remote", (evt, id) => {
+    assertLauncherSender(evt);
+    return removeRemote(getStorePath(), id);
+  });
+  ipcMain.handle("desktop:restart-backend", (evt) => {
+    assertLauncherSender(evt);
+    return restartLocalBackend();
+  });
+  ipcMain.handle("desktop:open-launcher", (evt) => {
+    assertLauncherSender(evt);
+    return loadLauncherScreen();
+  });
+  ipcMain.handle("desktop:get-backend-logs", (evt) => {
+    assertLauncherSender(evt);
+    return backendManager.getLogs();
+  });
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -289,8 +340,22 @@ if (!gotSingleInstanceLock) {
     }
   });
 
+  const handleProcessSignal = () => {
+    isQuitting = true;
+    if (backendManager) {
+      backendManager.stop().finally(() => app.exit(0));
+    } else {
+      app.exit(0);
+    }
+  };
+  process.on("SIGINT", handleProcessSignal);
+  process.on("SIGTERM", handleProcessSignal);
+
   app.on("before-quit", async (event) => {
-    if (backendManager && backendManager.child) {
+    if (
+      backendManager &&
+      (backendManager.child || backendManager._startingPromise || backendManager._reconcilerChild)
+    ) {
       event.preventDefault();
       isQuitting = true;
       try {

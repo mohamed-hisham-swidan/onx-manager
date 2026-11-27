@@ -7,7 +7,7 @@
 > Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
 > This document is maintained against the router code (`backend/app/api/v1/routers/`).
-> Verified across the 19 router files (215 live routes via `./scripts/check-route-contract`):
+> Verified across the 19 router files (217 live routes via `./scripts/check-route-contract`):
 > `activity, auth, backups, exposure, files, health, invites, marketplace, modpacks_upgrades,
 > monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`.
 

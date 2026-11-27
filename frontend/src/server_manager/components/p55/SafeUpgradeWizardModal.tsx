@@ -1236,7 +1236,7 @@ function SafeUpgradeWizardModalInner({
         role="complementary"
         aria-label="Change Version"
         data-testid="change-version-side-panel"
-        className="fixed inset-x-3 top-16 z-40 mx-auto flex max-h-[calc(100dvh-5rem)] max-w-xl flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-2xl lg:inset-x-auto lg:left-auto lg:top-16 lg:right-4 lg:bottom-auto lg:mx-0 lg:h-fit lg:max-h-[calc(100dvh-5.5rem)] lg:w-[460px] xl:w-[500px] lg:shadow-xl"
+        className="fixed inset-x-3 top-16 z-40 mx-auto flex max-h-[calc(100vh-5rem)] max-h-[calc(100dvh-5rem)] max-w-xl flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-2xl lg:inset-x-auto lg:left-auto lg:top-16 lg:right-4 lg:bottom-auto lg:mx-0 lg:h-fit lg:max-h-[calc(100vh-5.5rem)] lg:max-h-[calc(100dvh-5.5rem)] lg:w-[460px] xl:w-[500px] lg:shadow-xl"
       >
         <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-4 py-3 shrink-0">
           <div className="min-w-0">
@@ -1260,7 +1260,7 @@ function SafeUpgradeWizardModalInner({
             Hide
           </Button>
         </div>
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-4">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 p-4">
         {upgrade && !TERMINAL_UPGRADE_STATUSES.has(upgrade.status) && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-subtle bg-surface-muted px-3.5 py-2.5 text-xs">
             <div className="flex flex-wrap items-center gap-2 min-w-0">

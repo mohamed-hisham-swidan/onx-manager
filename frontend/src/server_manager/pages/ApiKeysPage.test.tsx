@@ -32,8 +32,19 @@ vi.mock("@/server_manager/hooks/useApiKeys", () => ({
   useRevokeApiKey: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
-function renderPage() {
-  const qc = new QueryClient();
+function renderPage(role: "owner" | "admin" | "member" | "viewer" = "owner") {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc.setQueryData(["currentUser"], {
+    user_id: "u-1",
+    username: role,
+    email: null,
+    display_name: role,
+    roles: [role],
+    permissions: role === "owner" ? ["admin:full"] : [],
+    is_active: true,
+    created_at: "2024-01-01T00:00:00Z",
+    last_login_at: null,
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
@@ -88,8 +99,14 @@ describe("ApiKeysPage", () => {
 
   it("toggles create form", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("owner");
     await user.click(screen.getByRole("button", { name: "Create Key" }));
     expect(screen.getByPlaceholderText(/Key name/i)).toBeInTheDocument();
+  });
+
+  it("disables Create Key for read-only users", () => {
+    renderPage("viewer");
+    expect(screen.getByRole("button", { name: "Create Key" })).toBeDisabled();
+    expect(screen.getByText("Read-only access")).toBeInTheDocument();
   });
 });

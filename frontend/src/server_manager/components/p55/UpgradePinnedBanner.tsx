@@ -110,7 +110,13 @@ export function UpgradePinnedBanner({ serverId }: UpgradePinnedBannerProps) {
     queryKey: ["p55", "banner-op", applyingOpId],
     queryFn: async () => api.getOperation(applyingOpId!),
     enabled: Boolean(applyingOpId) && typeof api.getOperation === "function",
-    refetchInterval: 1_500,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status && ["COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"].includes(status)) {
+        return false;
+      }
+      return 1_500;
+    },
     retry: false,
   });
 

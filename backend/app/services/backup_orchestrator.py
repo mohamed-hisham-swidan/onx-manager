@@ -62,10 +62,7 @@ STREAM_CHUNK_SIZE: int = 64 * 1024
 SAVE_ALL_CONFIRMATION_TIMEOUT_S = 30.0
 SAVE_ALL_POLL_INTERVAL_S = 0.5
 
-# Minecraft's save-all completion line. No sample log output exists in this
-# repo, so both the vanilla wording ("Saved the game") and the
-# paper/purpur/spigot wording ("Saved the world") are matched,
-# case-insensitively.
+# Match both vanilla ("Saved the game") and Paper/Purpur/Spigot ("Saved the world") save-all confirmations.
 _SAVE_CONFIRMED_RE = re.compile(r"saved the (game|world)", re.IGNORECASE)
 
 

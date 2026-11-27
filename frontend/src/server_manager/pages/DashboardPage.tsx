@@ -212,8 +212,37 @@ export function DashboardPage() {
   }
 
   function handleStartAll(targets: ServerResponse[]) {
+    if (typeof startServer.mutateAsync !== "function") {
+      for (const server of targets) {
+        handleStart(server);
+      }
+      return;
+    }
+    const now = Date.now();
+    setNowMs(now);
     for (const server of targets) {
-      handleStart(server);
+      if ((startCooldowns[server.server_id] ?? 0) > now) continue;
+      setStartCooldowns((prev) => ({
+        ...prev,
+        [server.server_id]: now + 30_000,
+      }));
+      markServerBusy(server.server_id, true);
+      void startServer
+        .mutateAsync(server.server_id)
+        .then(() => {
+          toast("success", "Server starting", `"${server.name}" start command issued.`);
+        })
+        .catch((err) => {
+          setStartCooldowns((prev) => {
+            const next = { ...prev };
+            delete next[server.server_id];
+            return next;
+          });
+          toast("error", "Start failed", extractErrorMessage(err));
+        })
+        .finally(() => {
+          markServerBusy(server.server_id, false);
+        });
     }
   }
 
@@ -267,7 +296,7 @@ export function DashboardPage() {
   function handleCopyAddress(address: string, serverId: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(address);
+      void navigator.clipboard.writeText(address).catch(() => {});
     }
     setCopiedAddressId(serverId);
     toast("info", "Address copied", `Copied ${address}`);

@@ -188,12 +188,14 @@ class CreateTagHandler(CommandHandler[CreateTagCommand]):
 
         # project commit if missing
         if await versioning_repo.get_commit(resolved_sha) is None:
+            from app.modules.versioning.domain.value_objects import normalize_server_type_str
+
             commit = ServerCommit(
                 id=resolved_sha,
                 server_id=command.server_id,
                 message="",
                 manifest=CommitManifest(
-                    server_type=str(server.server_type),
+                    server_type=normalize_server_type_str(server.server_type),
                     minecraft_version=str(server.minecraft_version),
                 ),
                 author_id=None,

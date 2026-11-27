@@ -82,7 +82,9 @@ def toggle_addon_file(
     Raises OSError if renaming fails.
     """
     dir_path = Path(addon_dir).resolve()
-    base = os.path.basename(filename)
+    base = os.path.basename(filename.replace("\\", "/"))
+    if not base or base in (".", ".."):
+        raise ValueError(f"Invalid addon filename: {filename!r}")
 
     if base.lower().endswith(".jar.disabled"):
         active_name = base[:-9]
@@ -96,6 +98,8 @@ def toggle_addon_file(
 
     active_path = dir_path / active_name
     disabled_path = dir_path / disabled_name
+    if active_path.is_symlink() or disabled_path.is_symlink():
+        raise PermissionError(f"Refusing to toggle symlinked addon file: {base}")
 
     if enabled:
         # Target: active (.jar)

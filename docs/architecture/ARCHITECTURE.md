@@ -1,7 +1,7 @@
 # Architecture Overview
 
 **Last updated**: 2026-11-22
-**Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md), [SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02](../design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md)
+**Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md), `docs/current-state.md`
 
 ---
 
@@ -42,7 +42,7 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 19 router files (215 live routes) + WebSocket
+│       ├── routers/           # 19 router files (217 live routes) + WebSocket
 │       └── schemas/           # Pydantic request/response schemas (BaseResponse UTC normalization)
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus + DatabaseBusyRetryMiddleware
@@ -88,7 +88,7 @@ backend/app/
 
 ### Dependency Direction
 
-Hexagonal (ports/adapters) architecture — verified clean in Batch 4 audit:
+Hexagonal (ports/adapters) architecture — verified against route contract:
 
 ```
 api/ ──► application/ ──► domain/
@@ -220,7 +220,7 @@ Guided by `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` (v8.7), ONX Manager separat
 | Language | Python 3.12 (installer-pinned; `requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (53 revisions, head `b1e2100000033`, floor `b1e2100000033`) |
+| Migrations | Alembic (53 revisions, head `b1e2100000034`, floor `b1e2100000034`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
@@ -487,13 +487,13 @@ Test isolation: sandbox database + sandbox server directory, set via `ONX_DATABA
 
 - **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `b1e2100000033`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
+  `b1e2100000034`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
   (`scripts/check-stray-db`), and Ruff baseline regression gate
   (`scripts/check-ruff-baseline`).
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
   verifies `pyproject.toml`, runtime, and frontend package versions agree.
 - **Route contract CI** (`.github/workflows/route-permission-ci.yml`): verifies
-  215 live routes match `contracts/permissions.yaml`.
+  217 live routes match `contracts/permissions.yaml`.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): typecheck, lint, test, build.
 - **Docker build smoke** (`.github/workflows/docker-build-smoke.yml`): builds Docker image on backend Dockerfile/requirements changes.
 - **Verification cadence & Windows CI** (`verification-cadence.yml`, `windows-ci.yml`): weekly scheduled cadence (`verification-cadence.yml`) and manual dispatch (`windows-ci.yml`).
@@ -502,7 +502,7 @@ Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`0.1.0` pins minimum Alembic revision `b1e2100000033`
+`0.1.0` pins minimum Alembic revision `b1e2100000034`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

@@ -33,8 +33,31 @@ class DeleteBackupHandler(CommandHandler[DeleteBackupCommand]):
 
         if storage_path:
             try:
-                storage = build_storage_backend(ConfigFactory.global_settings())
-                await storage.delete(storage_path)
+                settings = ConfigFactory.global_settings()
+                import shutil
+                from pathlib import Path
+
+                normalized_path = storage_path.replace("\\", "/")
+                candidate = Path(storage_path)
+                is_local_tier1_dir = "/tier1/" in normalized_path or (
+                    candidate.is_absolute() and candidate.is_dir()
+                )
+                if is_local_tier1_dir:
+                    if not candidate.is_absolute():
+                        candidate = Path(settings.backup_storage_path).resolve() / candidate
+                    resolved = candidate.resolve()
+                    allowed_root = Path(settings.backup_storage_path).resolve()
+                    if resolved.is_relative_to(allowed_root) and resolved != allowed_root:
+                        if resolved.is_dir():
+                            shutil.rmtree(resolved)
+                        elif resolved.exists():
+                            resolved.unlink()
+                    else:
+                        storage = build_storage_backend(settings)
+                        await storage.delete(storage_path)
+                else:
+                    storage = build_storage_backend(settings)
+                    await storage.delete(storage_path)
             except Exception as exc:
                 return CommandResult(
                     success=False,

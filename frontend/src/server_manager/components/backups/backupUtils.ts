@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useAuthPermissions } from "@/hooks/useAuthPermissions";
 import { createAuthenticatedApi } from "@/services/api";
 import { formatDateTime } from "@/server_manager/utils/format";
-import type { BackupResponse, ScheduleResponse, UserResponse } from "@/types";
+import type { BackupResponse, ScheduleResponse } from "@/types";
 
 export interface TierMeta {
   label: string;
@@ -170,19 +170,7 @@ export function isBackupSchedule(schedule: ScheduleResponse): boolean {
   return schedule.task_name === "run_backup_task" || schedule.task_name === "backup";
 }
 
-function hasAnyPermission(
-  user: (UserResponse & { permissions?: string[] }) | null | undefined,
-  required: string[],
-): boolean {
-  if (!user) return true;
-  const roles = user.roles ?? [];
-  if (roles.includes("owner") || roles.includes("admin")) return true;
-  const perms = user.permissions ?? [];
-  if (perms.includes("admin:full") || perms.includes("global.*")) return true;
-  return required.some((p) => perms.includes(p));
-}
-
-export function useBackupPermissions() {
+export function useBackupPermissions(serverId?: string) {
   const api = useMemo(() => {
     try {
       return createAuthenticatedApi();
@@ -192,19 +180,13 @@ export function useBackupPermissions() {
   }, []);
 
   const canQueryMe = Boolean(api && typeof api.getMe === "function");
-  const meQuery = useQuery<UserResponse | null>({
-    queryKey: ["currentUser"],
-    queryFn: async () => (api?.getMe ? api.getMe() : null),
-    enabled: canQueryMe,
-    staleTime: 30_000,
-    retry: false,
-  });
+  const auth = useAuthPermissions();
+  const fallback = !canQueryMe && !auth.user;
 
-  const user = meQuery.data;
   return {
-    canCreate: hasAnyPermission(user, ["backup:create"]),
-    canRestore: hasAnyPermission(user, ["backup:restore"]),
-    canDelete: hasAnyPermission(user, ["backup:delete"]),
-    canManageSchedules: hasAnyPermission(user, ["global.settings"]),
+    canCreate: fallback || auth.canBackups(serverId),
+    canRestore: fallback || auth.canBackups(serverId),
+    canDelete: fallback || auth.canBackups(serverId),
+    canManageSchedules: fallback || auth.canBackups(serverId),
   };
 }

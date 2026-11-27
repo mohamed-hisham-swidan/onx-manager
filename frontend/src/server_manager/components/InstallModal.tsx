@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClientContext } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
@@ -495,6 +495,7 @@ export function InstallModal({
   }, [activeVersion]);
 
   const [depMetaMap, setDepMetaMap] = useState<Record<string, DependencyMeta>>({});
+  const fetchedDepsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (
       !isOpen ||
@@ -505,7 +506,8 @@ export function InstallModal({
     }
     let cancelled = false;
     for (const depId of requiredDependencies) {
-      if (depMetaMap[depId]) continue;
+      if (fetchedDepsRef.current.has(depId)) continue;
+      fetchedDepsRef.current.add(depId);
       const fetchProject = queryClient
         ? () =>
             queryClient.fetchQuery({
@@ -526,13 +528,13 @@ export function InstallModal({
           }
         })
         .catch(() => {
-          // Graceful fallback to depId when upstream metadata is unavailable
+          fetchedDepsRef.current.delete(depId);
         });
     }
     return () => {
       cancelled = true;
     };
-  }, [isOpen, requiredDependencies, api, queryClient, depMetaMap]);
+  }, [isOpen, requiredDependencies, api, queryClient]);
 
   const dependencyEntries = useMemo(
     () =>
@@ -631,7 +633,7 @@ export function InstallModal({
     setManuallyChosenServerId(nextServerId);
     setManualGameVersion(null);
     setManualLoader(null);
-    setHasUserChangedPickers(false);
+    setHasUserChangedPickers(true);
     setManualBranch(null);
     setBranchState({ serverId: null, branches: [], error: null });
     setIsChangingServer(false);
@@ -751,6 +753,56 @@ export function InstallModal({
     ? `Installing dependency ${batchProgress.current}/${batchProgress.total}...`
     : "Installing...";
 
+  const modalFooter =
+    compatibleServers.length === 0 ? (
+      <button
+        type="button"
+        disabled
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text opacity-40 cursor-not-allowed"
+      >
+        <Icon name="plus" size={18} />
+        Install Now
+      </button>
+    ) : missingDependencies.length > 0 ? (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => void handleInstallWithDependencies()}
+          disabled={installDisabled}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <Icon name="plus" size={18} />
+          {isBusy
+            ? primaryBusyLabel
+            : branchesLoading
+              ? "Checking branches..."
+              : "Install with Dependencies"}
+        </button>
+        <button
+          type="button"
+          onClick={handleInstallOnlyThis}
+          disabled={installDisabled}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border-default bg-surface-card px-4 py-2.5 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          Install Only This
+        </button>
+      </div>
+    ) : (
+      <button
+        type="button"
+        onClick={handleInstallOnlyThis}
+        disabled={installDisabled}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      >
+        <Icon name="plus" size={18} />
+        {isBusy
+          ? "Installing..."
+          : branchesLoading
+            ? "Checking branches..."
+            : "Install Now"}
+      </button>
+    );
+
   return (
     <Modal
       open={isOpen}
@@ -760,6 +812,7 @@ export function InstallModal({
       closeOnBackdrop={!isBusy}
       closeOnEscape={!isBusy}
       closeButtonAriaLabel="Close modal"
+      footer={modalFooter}
       title={
         <div className="flex items-center gap-3 min-w-0">
           {project.icon_url ? (
@@ -798,26 +851,16 @@ export function InstallModal({
         )}
 
         {compatibleServers.length === 0 ? (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 text-xs text-status-warning">
-              <div className="flex items-start gap-2">
-                <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-semibold">No compatible servers available</p>
-                  <p className="mt-0.5">
-                    This project is a {effectiveType}, but none of your servers support {effectiveType}s. Create a compatible server to proceed.
-                  </p>
-                </div>
+          <div className="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 text-xs text-status-warning">
+            <div className="flex items-start gap-2">
+              <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">No compatible servers available</p>
+                <p className="mt-0.5">
+                  This project is a {effectiveType}, but none of your servers support {effectiveType}s. Create a compatible server to proceed.
+                </p>
               </div>
             </div>
-            <button
-              type="button"
-              disabled
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text opacity-40 cursor-not-allowed"
-            >
-              <Icon name="plus" size={18} />
-              Install Now
-            </button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -1152,48 +1195,6 @@ export function InstallModal({
               </div>
             )}
 
-            {/* Primary Actions (1 button when no missing deps; 2-option Modrinth choice when missing deps exist) */}
-            {missingDependencies.length > 0 ? (
-              <div className="space-y-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => void handleInstallWithDependencies()}
-                  disabled={installDisabled}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Icon name="plus" size={18} />
-                  {isBusy
-                    ? primaryBusyLabel
-                    : branchesLoading
-                      ? "Checking branches..."
-                      : "Install with Dependencies"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleInstallOnlyThis}
-                  disabled={installDisabled}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border-default bg-surface-card px-4 py-2.5 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Install Only This
-                </button>
-              </div>
-            ) : (
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={handleInstallOnlyThis}
-                  disabled={installDisabled}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Icon name="plus" size={18} />
-                  {isBusy
-                    ? "Installing..."
-                    : branchesLoading
-                      ? "Checking branches..."
-                      : "Install Now"}
-                </button>
-              </div>
-            )}
           </div>
         )}
       </div>

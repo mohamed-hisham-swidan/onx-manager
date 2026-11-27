@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (53 revisions, head `b1e2100000033`, floor `b1e2100000033`) |
+| Migrations | Alembic `>=1.13` (53 revisions, head `b1e2100000034`, floor `b1e2100000034`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -130,7 +130,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | Backend | **5,318 passed, 7 skipped** across 328 `test_*.py` files | `pytest -q` (`backend/tests/`) |
 | Frontend | **1,353 passed** across 139 test files | `npx vitest run --minWorkers=1 --maxWorkers=2` |
 | Desktop | **14 passed** (`0` failed) | `cd desktop && npm test` |
-| CI Gates | **6/6 PASS** | `check-version-propagation`, `check-db-revision` (`b1e2100000033`), `check-ruff-baseline`, `check-route-contract` (`215/215`), `check-ps1-bom`, `check-stray-db` |
+| CI Gates | **6/6 PASS** | `check-version-propagation`, `check-db-revision` (`b1e2100000034`), `check-ruff-baseline`, `check-route-contract` (`217/215`), `check-ps1-bom`, `check-stray-db` |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -143,7 +143,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 19 REST router files (215 live routes + WebSocket; 215/215 contract gate)
+│   │   ├── routers/          # 19 REST router files (217 live routes + WebSocket; 217/215 contract gate)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security, allowlist, host_state, container_hardening
 │   ├── modules/              # 13 DDD modules (server, versioning, activity, exposure,
@@ -153,7 +153,7 @@ backend/
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
 │   ├── services/             # orchestrators (server, backup, deployment)
 │   └── registration.py       # bus handler & middleware registration
-├── alembic/                  # 53 migration revisions (head b1e2100000033)
+├── alembic/                  # 53 migration revisions (head b1e2100000034)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
 │                             #   infrastructure/ integration/ monitoring/ plugin/ tasks/ unit/ versioning/
 ├── config/                   # YAML settings
@@ -217,7 +217,7 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
   close even on commit failure.
 - **ABAC/RBAC authorization**: permission strings (`plugin:manage`, `server.x.view`, …)
   evaluated by `PermissionEvaluator`; enforced via `require_permission` /
-  `require_server_permission` dependencies + route→permission contract check (215/215 live routes).
+  `require_server_permission` dependencies + route→permission contract check (217/217 live routes).
 - **WebSocket layer**: `/ws` endpoint, channel subscriptions, auth via token,
   metrics batching + domain-event dispatch, reconnect/backoff client.
 - **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
@@ -318,8 +318,8 @@ API.md, DEPLOYMENT.md, DEVELOPMENT.md, README.md, VERSIONING.md, getting-started
 | Source files (backend + frontend) | **1,198** |
 | Python files / lines | 875 / 232,768 |
 | TS+TSX files / lines | 322 / 76,155 (+ 1 CSS file, 835 lines) |
-| REST endpoints / live routes | 215 live routes (19 router files + app routes; 215/215 contract gate) |
-| Alembic revisions | 53 (head `b1e2100000033`) |
+| REST endpoints / live routes | 217 live routes (19 router files + app routes; 217/215 contract gate) |
+| Alembic revisions | 53 (head `b1e2100000034`) |
 | DB tables | 56 ORM tables (`__tablename__`; 62 SQLite user tables) |
 | CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |

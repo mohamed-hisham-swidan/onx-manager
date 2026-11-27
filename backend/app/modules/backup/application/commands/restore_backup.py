@@ -121,13 +121,35 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                 else str(server.status).lower()
             )
 
-            has_active_runtime = (
-                server.runtime is not None
-                and bool(
-                    getattr(server.runtime, "external_id", None)
-                    or getattr(server.runtime, "pid", None)
-                )
-            )
+            has_active_runtime = False
+            ext_id = getattr(server.runtime, "external_id", None) if server.runtime else None
+            pid_val = getattr(server.runtime, "pid", None) if server.runtime else None
+            if ext_id:
+                try:
+                    from app.modules.server.domain.value_objects import (
+                        build_server_handle,
+                        default_provider_for_platform,
+                    )
+                    from app.modules.server.infrastructure.providers import provider_factory
+                    from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+                    prov_name = (
+                        getattr(server.runtime, "provider", None)
+                        or default_provider_for_platform()
+                    )
+                    provider = provider_factory.get(prov_name)
+                    handle = build_server_handle(server, prov_name, server_dir=server_dir)
+                    live_rt_status = await provider.status(handle)
+                    has_active_runtime = live_rt_status == ServerRuntimeStatus.RUNNING
+                except Exception:
+                    has_active_runtime = status_val in _NON_IDLE_STATUSES
+            elif pid_val:
+                try:
+                    import psutil
+
+                    has_active_runtime = psutil.pid_exists(int(pid_val))
+                except Exception:
+                    has_active_runtime = status_val in _NON_IDLE_STATUSES
             port_val = None
             if server.runtime and getattr(server.runtime, "port", None):
                 port_val = server.runtime.port

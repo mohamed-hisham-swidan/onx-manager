@@ -69,6 +69,21 @@ class ConnectionRegistry:
             conn_ids = self._user_connections.get(user_id, set())
             return [self._connections[cid] for cid in conn_ids if cid in self._connections]
 
+    async def get_user_connection_entries(
+        self, user_id: str
+    ) -> list[tuple[str, WebSocket]]:
+        async with self._lock:
+            conn_ids = list(self._user_connections.get(user_id, set()))
+            return [
+                (cid, self._connections[cid])
+                for cid in conn_ids
+                if cid in self._connections
+            ]
+
+    async def clear_user_bindings(self, user_id: str) -> None:
+        async with self._lock:
+            self._user_channel_bindings.pop(user_id, None)
+
     async def get_by_channel(self, channel: str) -> list[WebSocket]:
         async with self._lock:
             conn_ids = self._channel_connections.get(channel, set())

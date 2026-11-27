@@ -16,6 +16,7 @@ from app.api.v1.schemas.health import (
     HealthTimelineResponse,
     ServerHealthSummaryResponse,
 )
+from app.core.authorization import accessible_server_ids_for_user
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
 from app.modules.health.application import (
@@ -33,7 +34,7 @@ __all__ = ["router"]
 async def get_health_status(
     server_id: str,
     query_bus: QueryBus = Depends(get_query_bus),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> HealthStatusResponse:
     result = await query_bus.ask(GetHealthStatusQuery(server_id=server_id))
     if result is None:
@@ -64,7 +65,7 @@ async def get_health_timeline(
     server_id: str,
     limit: int = Query(default=100, ge=1, le=10000),
     query_bus: QueryBus = Depends(get_query_bus),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> HealthTimelineResponse:
     entries = await query_bus.ask(GetHealthTimelineQuery(server_id=server_id, limit=limit))
     return HealthTimelineResponse(
@@ -83,14 +84,18 @@ async def get_health_timeline(
 
 @router.get("/dashboard", response_model=HealthDashboardResponse)
 async def get_health_dashboard(
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> HealthDashboardResponse:
     from app.core.persistence.db import database
     from app.modules.health.infrastructure.repository import SQLHealthRepository
 
+    allowed = accessible_server_ids_for_user(current_user)
     async with database.session_factory() as session:
         repo = SQLHealthRepository(session)
         all_statuses = await repo.list_active()
+
+    if allowed is not None:
+        all_statuses = [s for s in all_statuses if str(s.server_id) in allowed]
 
     counts: dict[str, int] = {
         "healthy": 0,

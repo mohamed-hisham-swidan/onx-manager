@@ -267,25 +267,13 @@ async def test_native_git_commit_history_merge_diff_and_tags(client: AsyncClient
     )
     assert res.status_code == 200
     assert len(res.json()) >= 1
-    # merge without force -> 409 (protected main)
+    # merge working branch into main succeeds normally without force bypass
     res = await client.post(
         f"/api/v1/servers/{SERVER_ID}/versioning/commits/merge",
         json={
             "target_branch_name": "main",
             "source_branch_name": "feat",
             "message": "merge feat",
-        },
-        headers=header,
-    )
-    assert res.status_code == 409
-    # merge with bypass -> 201
-    res = await client.post(
-        f"/api/v1/servers/{SERVER_ID}/versioning/commits/merge",
-        json={
-            "target_branch_name": "main",
-            "source_branch_name": "feat",
-            "message": "merge feat",
-            "force_bypass_protection": True,
         },
         headers=header,
     )

@@ -75,10 +75,6 @@ vi.mock("@/server_manager/components/ServerConsole", () => ({
   ServerConsole: () => <div data-testid="server-console">Console</div>,
 }));
 
-vi.mock("@/server_manager/components/ServerMetricsCharts", () => ({
-  ServerMetricsCharts: () => <div data-testid="metrics-charts">Metrics</div>,
-}));
-
 function renderServerShell(initialPath = "/servers/srv-123/console") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },

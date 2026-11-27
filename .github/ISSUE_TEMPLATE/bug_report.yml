@@ -22,7 +22,7 @@ body:
       label: Steps to Reproduce
       description: Minimal steps to reproduce the behavior.
       placeholder: |
-        1. Start ONX Manager with `./start.sh`
+        1. Start ONX Manager with `onx start` (or `python3 launcher.py`)
         2. Navigate to `/servers/...`
         3. Click on ...
         4. See error ...
@@ -43,8 +43,8 @@ body:
       label: Component / Area
       options:
         - Backend API / WebSocket
-        - Server Runtime (Local Linux / Local Windows / Docker)
-        - Versioning & Isolated Bot Testing
+        - Server Runtime (Docker / DooD)
+        - Versioning & Branch Sandboxes
         - Frontend UI / Dashboard
         - File Manager / Plugins / Marketplace
         - Backups & Restore
@@ -66,5 +66,5 @@ body:
     id: logs
     attributes:
       label: Relevant Logs or Screenshots
-      description: Paste any backend tracebacks, browser console errors, or `./start.sh --logs` output (redact any secrets or tokens).
+      description: Paste any backend tracebacks, browser console errors, or `onx logs` / `python3 launcher.py --logs` output (redact any secrets or tokens).
       render: shell

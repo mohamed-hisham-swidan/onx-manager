@@ -405,8 +405,8 @@ async def test_docker_and_branch_providers_emit_memory_swap_and_cpus(tmp_path: P
         )
 
     create_args = next(c for c in captured if c and c[0] == "create")
-    assert create_args[create_args.index("--memory") + 1] == "3584m"
-    assert create_args[create_args.index("--memory-swap") + 1] == "3584m"
+    assert create_args[create_args.index("--memory") + 1] == "3840m"
+    assert create_args[create_args.index("--memory-swap") + 1] == "4352m"
     assert create_args[create_args.index("--cpus") + 1] == "2"
 
     branch_args = build_branch_docker_create_args(

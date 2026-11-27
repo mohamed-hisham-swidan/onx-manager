@@ -2,7 +2,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import require_permission
+from app.api.deps import require_marketplace_access
 from app.api.v1.schemas.plugin import (
     PluginFileResponse,
     PluginProjectResponse,
@@ -50,7 +50,7 @@ async def search_marketplace(
         default="relevance"
     ),
     game_version: str | None = Query(default=None, max_length=32),
-    _current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_marketplace_access("plugin:manage")),
 ) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
     cleaned_gv = game_version.strip() if game_version and game_version.strip() else None
@@ -77,7 +77,7 @@ async def search_marketplace(
 @router.get("/projects/{project_id}", response_model=PluginProjectResponse)
 async def get_marketplace_project(
     project_id: str,
-    _current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_marketplace_access("plugin:manage")),
 ) -> PluginProjectResponse:
     provider = build_plugin_catalog_provider()
     try:
@@ -111,7 +111,7 @@ async def get_marketplace_project_versions(
     project_id: str,
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    _current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_marketplace_access("plugin:manage")),
 ) -> PluginVersionsResponse:
     provider = build_plugin_catalog_provider()
     try:

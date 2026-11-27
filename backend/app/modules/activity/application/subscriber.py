@@ -270,8 +270,6 @@ class ActivityEventSubscriber(EventHandler):
             trigger = getattr(event, "trigger", "manual")
             main_fast_forwarded = getattr(event, "main_fast_forwarded", False)
             if sync_status == "conflict":
-                if getattr(event, "branch_name", None) is None:
-                    event.branch_name = "main"
                 return (
                     f"GitHub sync conflict on 'main' ({trigger}): "
                     "non-fast-forward update rejected",
@@ -363,7 +361,7 @@ class ActivityEventSubscriber(EventHandler):
             )
         if event_name == "UpgradeRolledBackEvent":
             target_mc = getattr(event, "target_mc", "")
-            reason = getattr(event, "reason", "") or "triad restored"
+            reason = getattr(event, "reason", "") or "previous state restored"
             return (
                 f"Rolled back upgrade to Minecraft {target_mc}: {reason}",
                 "upgrade.rolled_back",

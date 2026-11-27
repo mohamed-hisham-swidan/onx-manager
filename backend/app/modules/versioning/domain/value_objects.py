@@ -87,6 +87,14 @@ class ModReference:
     source: str = "custom"  # custom | modrinth
 
 
+def normalize_server_type_str(value: Any) -> str:
+    """Normalize ServerType enum or persisted 'ServerType.X' strings to lowercase slug."""
+    raw = value.value if hasattr(value, "value") else str(value)
+    if raw.startswith("ServerType."):
+        raw = raw[len("ServerType.") :]
+    return raw.strip().lower()
+
+
 @dataclass(frozen=True)
 class CommitManifest:
     """Immutable manifest of all non-world server state captured in a commit."""
@@ -100,9 +108,7 @@ class CommitManifest:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "server_type": str(
-                self.server_type.value if hasattr(self.server_type, "value") else self.server_type
-            ),
+            "server_type": normalize_server_type_str(self.server_type),
             "minecraft_version": str(self.minecraft_version),
             "configs": self.configs,
             "mods": self.mods,
@@ -113,7 +119,7 @@ class CommitManifest:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CommitManifest:
         return cls(
-            server_type=data.get("server_type", "vanilla"),
+            server_type=normalize_server_type_str(data.get("server_type", "vanilla")),
             minecraft_version=data.get("minecraft_version", "1.21.1"),
             configs=data.get("configs", {}),
             mods=data.get("mods", []),

@@ -482,11 +482,11 @@ def _native_handler_context():
     branch = ServerBranch(
         id="branch-1",
         server_id="srv-1",
-        name="main",
+        name="release",
         head_commit_id="a" * 40,
         status=BranchStatus.ACTIVE,
         is_protected=True,
-        protection_policy=BranchProtectionPolicy(allow_force_bypass=True),
+        protection_policy=BranchProtectionPolicy(allow_direct_commit=False, allow_force_bypass=True),
     )
     versioning_repo = AsyncMock()
     versioning_repo.get_branch_by_name.return_value = branch
@@ -494,7 +494,7 @@ def _native_handler_context():
     versioning_repo.advance_branch_head_optimistic.return_value = True
     command = MergeCommitsCommand(
         server_id="srv-1",
-        target_branch_name="main",
+        target_branch_name="release",
         parent_commit_ids=["a" * 40, "b" * 40],
         message="merge",
         author_id="user-1",
@@ -542,7 +542,7 @@ def test_native_merge_force_bypass_writes_audit_log():
     activity_repo.save.assert_awaited_once()
     log = activity_repo.save.await_args.args[0]
     assert log.event_type == "versioning.branch_protection_bypassed"
-    assert log.details == {"branch": "main", "reason": "hotfix"}
+    assert log.details == {"branch": "release", "reason": "hotfix"}
     assert log.actor_id == "user-1"
 
 
@@ -1033,11 +1033,10 @@ def _native_merge_mocks():
     return server, versioning_repo, ctx, mock_merge
 
 
-def test_redteam_main_protection_none_branch():
+def test_native_merge_into_main_allowed_without_force():
     import asyncio
     from unittest.mock import MagicMock, patch
 
-    from app.core.exceptions import BranchProtectedError
     from app.modules.versioning.application.commands import merge_commits as mc
     from app.modules.versioning.application.commands.merge_commits import (
         MergeCommitsCommand,
@@ -1062,16 +1061,16 @@ def test_redteam_main_protection_none_branch():
                 lambda _layout: MagicMock(list_paths=lambda _sid: frozenset()),
             ),
             patch.object(mc, "GitMergeService", lambda _layout: mock_merge),
-            pytest.raises(BranchProtectedError),
         ):
-            await handler._execute_native_git(
+            res = await handler._execute_native_git(
                 cmd, server, ctx, versioning_repo, None, []
             )
+            assert res.success is True
 
     asyncio.run(run())
 
 
-def test_redteam_main_protection_none_branch_force_bypass_audited():
+def test_redteam_custom_protected_branch_force_bypass_audited():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1080,8 +1079,22 @@ def test_redteam_main_protection_none_branch_force_bypass_audited():
         MergeCommitsCommand,
         MergeCommitsHandler,
     )
+    from app.modules.versioning.domain.entities import BranchProtectionPolicy, ServerBranch
+    from app.modules.versioning.domain.value_objects import BranchStatus
 
     server, versioning_repo, ctx, mock_merge = _native_merge_mocks()
+    versioning_repo.get_commit = AsyncMock(return_value=None)
+    versioning_repo.save_commit = AsyncMock()
+    versioning_repo.advance_branch_head_optimistic = AsyncMock(return_value=True)
+    versioning_repo.get_branch_by_name.return_value = ServerBranch(
+        id="b-rel",
+        server_id="s1",
+        name="release",
+        head_commit_id="a",
+        status=BranchStatus.ACTIVE,
+        is_protected=True,
+        protection_policy=BranchProtectionPolicy(allow_direct_commit=False, allow_force_bypass=True),
+    )
     activity_repo = MagicMock()
     activity_repo.save = AsyncMock()
 
@@ -1089,7 +1102,7 @@ def test_redteam_main_protection_none_branch_force_bypass_audited():
         handler = MergeCommitsHandler(server_repo=MagicMock(), versioning_repo=versioning_repo)
         cmd = MergeCommitsCommand(
             server_id="s1",
-            target_branch_name="main",
+            target_branch_name="release",
             parent_commit_ids=["a", "b"],
             message="m",
             author_id="u1",
@@ -1113,6 +1126,6 @@ def test_redteam_main_protection_none_branch_force_bypass_audited():
         activity_repo.save.assert_awaited_once()
         audit = activity_repo.save.await_args.args[0]
         assert audit.event_type == "versioning.branch_protection_bypassed"
-        assert audit.details == {"branch": "main", "reason": "emergency"}
+        assert audit.details == {"branch": "release", "reason": "emergency"}
 
     asyncio.run(run())

@@ -4,20 +4,22 @@ import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from app.core.authorization import compute_effective_global_permissions
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ConflictError, InvalidValueError
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import hash_api_key, hash_password
-from app.modules.auth.domain.aggregate import Role, User
+from app.modules.auth.application.access_policy import (
+    ensure_canonical_role,
+    resolve_invite_policy,
+)
+from app.modules.auth.domain.aggregate import User
 from app.modules.auth.infrastructure.jwt import create_access_token, create_refresh_token
 from app.modules.auth.infrastructure.models import RefreshTokenModel
-from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLInvitationRepository, SQLUserRepository
-from app.modules.server.infrastructure.repository import (
-    SQLServerMembershipRepository,
-)
-from app.modules.shared.value_objects import EmailAddress, Permission, RoleId, UserId, Username
+from app.modules.server.infrastructure.repository import SQLServerMembershipRepository
+from app.modules.shared.value_objects import EmailAddress, UserId, Username
 
 
 class AcceptInviteCommand(Command):
@@ -31,7 +33,6 @@ class AcceptInviteCommand(Command):
 class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
     def __init__(self, event_bus: EventBus) -> None:
         self._event_bus = event_bus
-        self._perm_evaluator = PermissionEvaluator()
 
     async def handle(self, command: AcceptInviteCommand) -> CommandResult:
         if len(command.password) < 8:
@@ -84,19 +85,16 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
             if email_vo is not None and await user_repo.get_by_email(str(email_vo)):
                 raise ConflictError("Email already registered")
 
-            role_name = invitation.global_role or "member"
-            assigned_role = await user_repo.get_role_by_name(role_name)
-            if assigned_role is None:
-                canonical_perms: dict[str, list[Permission]] = {
-                    "member": [Permission("user", "read"), Permission("server", "create")],
-                }
-                assigned_role = Role(
-                    role_id=RoleId(uuid.uuid4().hex),
-                    name=role_name,
-                    permissions=canonical_perms.get(role_name, []),
-                    description=f"Global {role_name} role",
-                )
-                await user_repo.save_role(assigned_role)
+            target_role, server_ids, all_servers, denied_caps = resolve_invite_policy(
+                global_role=invitation.global_role,
+                server_role=invitation.server_role,
+                server_id=invitation.server_id,
+                server_ids=invitation.server_ids,
+                all_servers_access=invitation.all_servers_access,
+                denied_permissions=invitation.denied_permissions,
+            )
+
+            assigned_role = await ensure_canonical_role(user_repo, target_role)
 
             resolved_display = (command.display_name or "").strip() or str(username_vo)
             user = User.create(
@@ -105,27 +103,29 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
                 email=email_vo,
                 password_hash=hash_password(command.password),
                 display_name=resolved_display,
+                denied_permissions=denied_caps,
+                all_servers_access=all_servers,
             )
             user.add_role(assigned_role)
             await user_repo.save(user)
 
-            if invitation.server_id and invitation.server_role:
-                server_repo = SQLServerMembershipRepository(uow.session)
-                await server_repo.add_membership(
-                    id=uuid.uuid4().hex,
-                    server_id=invitation.server_id,
-                    user_id=str(user.user_id),
-                    role=invitation.server_role,
+            if server_ids and target_role in ("server_admin", "viewer"):
+                mem_repo = SQLServerMembershipRepository(uow.session)
+                mem_role = "server_admin" if target_role == "server_admin" else "viewer"
+                await mem_repo.replace_memberships_for_user(
+                    str(user.user_id), server_ids, mem_role
                 )
 
             for event in user.collect_events():
                 uow.add_event(event)
 
-            user_perms = await self._perm_evaluator.get_effective_permissions(user)
-            scope = ",".join(str(p) for p in user_perms)
+            user_perms = compute_effective_global_permissions(
+                target_role, denied_permissions=denied_caps
+            )
+            scope = ",".join(user_perms)
             access_token = create_access_token(
                 user_id=str(user.user_id),
-                roles=[r.name for r in user.roles],
+                roles=[target_role],
                 permissions=user_perms,
                 scope=scope,
             )

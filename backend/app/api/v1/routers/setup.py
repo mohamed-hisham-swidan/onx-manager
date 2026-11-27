@@ -9,7 +9,7 @@ from app.api.deps import get_command_bus, get_query_bus, require_owner
 from app.api.errors import check_command_result
 from app.core.command_bus import CommandBus
 from app.core.config import ConfigFactory
-from app.core.local_auth import compute_auth_mode
+from app.core.local_auth import compute_auth_mode, default_bootstrap_access_mode
 from app.core.query_bus import QueryBus
 from app.core.version import get_app_version
 from app.modules.auth.application import (
@@ -38,7 +38,12 @@ class BootstrapRequest(BaseModel):
     email: str | None = None
     password: str = Field(min_length=8)
     display_name: str | None = None
-    access_mode: str = Field(default="LOCAL", description="LOCAL or GLOBAL")
+    access_mode: str | None = Field(
+        default=None,
+        description=(
+            "LOCAL or GLOBAL (defaults to GLOBAL on VPS/non-loopback, LOCAL on local loopback)"
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_identifier(self) -> BootstrapRequest:
@@ -93,13 +98,18 @@ async def bootstrap_instance(
     body: BootstrapRequest,
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
 ) -> BootstrapResponse:
+    resolved_mode = (
+        body.access_mode
+        if body.access_mode is not None
+        else default_bootstrap_access_mode().value
+    )
     result = await command_bus.send(
         BootstrapInstanceCommand(
             username=body.username,
             email=body.email,
             password=body.password,
             display_name=body.display_name,
-            access_mode=body.access_mode,
+            access_mode=resolved_mode,
         )
     )
     data = check_command_result(result)
@@ -131,10 +141,17 @@ async def update_access_mode(
     current_user: dict = Depends(require_owner()),  # noqa: B008
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
 ) -> SystemStatusResponse:
+    from app.core.authorization import is_owner_context
+
+    requester_roles = (
+        ["owner"]
+        if is_owner_context(current_user)
+        else current_user.get("roles", [])
+    )
     result = await command_bus.send(
         UpdateAccessModeCommand(
             access_mode=body.access_mode,
-            requester_roles=current_user.get("roles", []),
+            requester_roles=requester_roles,
             requester_permissions=current_user.get("permissions", []),
         )
     )

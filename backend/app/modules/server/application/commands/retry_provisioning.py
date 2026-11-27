@@ -51,6 +51,16 @@ class RetryProvisioningHandler(CommandHandler[RetryProvisioningCommand]):
                     ),
                     error_code="INVALID_STATUS",
                 )
+            stype = server.server_type.value
+            if stype not in ("forge", "neoforge"):
+                return CommandResult(
+                    success=False,
+                    error=(
+                        f"Server {command.server_id} with type '{stype}' "
+                        "does not use installer provisioning"
+                    ),
+                    error_code="UNSUPPORTED_SERVER_TYPE",
+                )
             server.begin_provisioning()
             await repo.save(server)
             for event in server.collect_events():

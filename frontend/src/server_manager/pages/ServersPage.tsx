@@ -362,7 +362,7 @@ export function ServersPage() {
 
   const handleCopyAddress = (address: string, serverId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(address);
+    void navigator.clipboard?.writeText(address)?.catch(() => {});
     setCopiedAddressId(serverId);
     toast("info", "Address copied", `Copied ${address}`);
     if (copyTimerRef.current !== null) {

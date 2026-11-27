@@ -291,6 +291,8 @@ class UpgradeHealthGateEvaluator:
                         self._container_started_at = refreshed["container_started_at"]
                     if "rcon_client" in refreshed:
                         self._rcon_client = refreshed["rcon_client"]
+                    if refreshed.get("host"):
+                        self._host = str(refreshed["host"])
                     if refreshed.get("game_port") is not None:
                         self._game_port = int(refreshed["game_port"])
                     if refreshed.get("world_name"):

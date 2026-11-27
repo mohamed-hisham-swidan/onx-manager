@@ -61,16 +61,9 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
 
             viewer_role = await repo.get_role_by_name("viewer")
             if viewer_role is None:
-                from app.modules.auth.domain.aggregate import Role
-                from app.modules.shared.value_objects import Permission, RoleId
+                from app.modules.auth.application.access_policy import ensure_canonical_role
 
-                viewer_role = Role(
-                    role_id=RoleId(uuid.uuid4().hex),
-                    name="viewer",
-                    permissions=[Permission("user", "read"), Permission("server", "read")],
-                    description="Default Viewer role",
-                )
-                await repo.save_role(viewer_role)
+                viewer_role = await ensure_canonical_role(repo, "viewer")
 
             user.add_role(viewer_role)
 

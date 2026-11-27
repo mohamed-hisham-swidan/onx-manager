@@ -871,7 +871,20 @@ async def test_activity_log_contains_all_six_github_events_without_secrets(
 
 @pytest.mark.asyncio
 async def test_rbac_read_only_and_unauthenticated_routes(p53_api: Any) -> None:
+    from app.modules.server.infrastructure.models import ServerMembershipModel
+
     api = p53_api
+    async with database.session_factory() as session:
+        session.add(
+            ServerMembershipModel(
+                id="mem-p53-rbac",
+                server_id=SERVER_ID,
+                user_id=api.user["user_id"],
+                role="server_admin",
+            )
+        )
+        await session.commit()
+
     viewer = await _seed_api_key_header(
         api.client, api.user["user_id"], ["server:version:read"]
     )

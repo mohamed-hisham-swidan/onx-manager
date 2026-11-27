@@ -479,7 +479,7 @@ class _LedgerRunner:
             return self._mode
 
         raise RuntimeError(
-            "P3-3 ledger requires a sync_session_factory for non-SQLite backends"
+            "Snapshot ledger requires a sync_session_factory for non-SQLite backends"
         )
 
     @property

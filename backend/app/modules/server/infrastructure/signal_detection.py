@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BOOT_MARKERS: tuple[str, ...] = ("Done (",)
 ANSI_ESCAPE_RE: re.Pattern[str] = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 DONE_BOOT_LINE_PATTERN = (
-    r"^.*?\bINFO\b.*?: Done \([0-9.,]+s\)! For help, type [\"']help[\"']"
+    r"^.*?\bINFO\b.*?: (?:Done \([0-9.,]+s\)!(?: For help, type [\"']help[\"'])?|Listening on /)"
 )
 DONE_BOOT_LINE_RE: re.Pattern[str] = re.compile(
     DONE_BOOT_LINE_PATTERN, re.MULTILINE
@@ -110,9 +110,9 @@ def check_crash_reports(
     if not crash_files:
         return False, None, None
 
-    first_crash = crash_files[0]
+    latest_crash = crash_files[-1]
     try:
-        content = first_crash.read_text(encoding="utf-8", errors="replace")
+        content = latest_crash.read_text(encoding="utf-8", errors="replace")
         analyzer = PatternCrashAnalyzer()
         analysis = analyzer.analyze_crash_content(content)
         blamed = analysis.blamed_mod or "Unknown mod"
@@ -122,7 +122,7 @@ def check_crash_reports(
         )
         return True, failure_reason, analysis.blamed_mod
     except Exception:
-        failure_reason = f"Server crashed during boot: {first_crash.name}"
+        failure_reason = f"Server crashed during boot: {latest_crash.name}"
         return True, failure_reason, None
 
 

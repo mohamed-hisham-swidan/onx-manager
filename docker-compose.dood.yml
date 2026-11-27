@@ -19,7 +19,7 @@
 #
 # Primary Supported Tier:
 #   Running ONX Manager natively on the host remains the primary recommended
-#   deployment model for Phase 5. This DooD override is provided specifically
+#   deployment model. This DooD override is provided specifically
 #   for containerized environments where ONX Manager must orchestrate sibling
 #   Minecraft containers on the host daemon.
 #
@@ -37,7 +37,7 @@
 #   daemon, which resolves bind mounts against the HOST filesystem, NOT from
 #   within the ONX backend container.
 #   Therefore, the servers directory is bind-mounted from the host filesystem:
-#     ${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers
+#     ${ONX_HOST_DATA_DIR}:/app/data/servers
 #   Set ONX_HOST_DATA_DIR to the absolute path of your servers directory on the
 #   host (e.g. export ONX_HOST_DATA_DIR=/opt/onx/data/servers).
 #

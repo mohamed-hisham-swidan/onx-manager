@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import errno
 import logging
@@ -9,6 +10,8 @@ import shutil
 import tarfile
 import tempfile
 import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.api.deps import build_backup_encryption, build_storage_backend
@@ -266,42 +269,16 @@ def _safe_extract_tar(tar: tarfile.TarFile, target_dir: str) -> None:
         tar.extractall(target_dir)
 
 
-async def perform_safe_restore(
-    backup_id: BackupJobId,
+def _perform_safe_restore_sync(
+    *,
+    encrypted: bytes,
+    recorded_checksum: str,
     server_dir: str,
-    base_world: str = "world",
-    storage: StorageBackend | None = None,
-    encryption: BackupEncryption | None = None,
+    base_world: str,
+    encryption: BackupEncryption,
 ) -> list[str]:
-    """Decrypt, verify and atomically apply the top-level entries present in a backup archive.
-
-    The archive is decrypted and fully extracted to a temp directory (never the live
-    server dir). Member paths are validated before extraction starts, so an archive
-    carrying trailing-dot/space (or otherwise non-canonical) names fails closed with
-    ``RestoreError`` before any live path is swapped or written.
-
-    For each dimension folder / plugins folder that exists in the extract,
-    the corresponding live folder is atomically swapped in. Config files present in the
-    extract are replaced at the file level. Playerdata pulled into the
-    ``mcs_playerdata/<dim>/playerdata`` namespace is swapped onto only the live
-    ``<dim>/playerdata`` subfolder. Live paths absent from the archive are left
-    completely untouched. Returns the names of the replaced items.
-    """
-    settings = ConfigFactory.global_settings()
-    storage = storage or build_storage_backend(settings)
-    encryption = encryption or build_backup_encryption(settings.backup_encryption_key_path)
-
-    storage_path, recorded_size, recorded_checksum = await _load_job_storage(backup_id)
-
-    encrypted = await storage.read(storage_path)
-    if not encrypted:
-        raise RestoreError(f"Backup artifact missing at {storage_path}")
-    if len(encrypted) != recorded_size:
-        raise RestoreError(
-            f"Backup {backup_id} size mismatch: recorded {recorded_size}, got {len(encrypted)}",
-        )
     if encryption.checksum(encrypted) != recorded_checksum:
-        raise RestoreError(f"Backup {backup_id} checksum mismatch — refusing to restore")
+        raise RestoreError("Backup checksum mismatch — refusing to restore")
 
     # Drop the encrypted buffer as soon as it has been decrypted so both copies
     # never sit in memory together.
@@ -366,6 +343,23 @@ async def perform_safe_restore(
                 backup = _atomic_replace_dir(src, dst, backup_dir)
                 applied.append((dst, backup))
                 restored_items.append(f"playerdata:{dim}")
+
+            if os.path.isdir(backup_dir) and any(os.scandir(backup_dir)):
+                from app.modules.backup.application.two_tier_restore import (
+                    _PRE_RESTORE_PREFIX,
+                    _prune_old_pre_restore_copies,
+                )
+
+                srv_name = Path(os.path.abspath(server_dir)).name
+                _prune_old_pre_restore_copies(Path(staging_parent), srv_name, keep_latest=0)
+                ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+                retained = os.path.join(
+                    staging_parent,
+                    f"{_PRE_RESTORE_PREFIX}{srv_name}-{ts}-{uuid.uuid4().hex[:6]}",
+                )
+                with contextlib.suppress(OSError):
+                    os.replace(backup_dir, retained)
+
             return restored_items
         except OSError as exc:
             # Undo already-replaced items from temp_dir/prev so a mid-restore
@@ -384,6 +378,53 @@ async def perform_safe_restore(
         raise
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+async def perform_safe_restore(
+    backup_id: BackupJobId,
+    server_dir: str,
+    base_world: str = "world",
+    storage: StorageBackend | None = None,
+    encryption: BackupEncryption | None = None,
+) -> list[str]:
+    """Decrypt, verify and atomically apply the top-level entries present in a backup archive.
+
+    The archive is decrypted and fully extracted to a temp directory (never the live
+    server dir). Member paths are validated before extraction starts, so an archive
+    carrying trailing-dot/space (or otherwise non-canonical) names fails closed with
+    ``RestoreError`` before any live path is swapped or written.
+
+    For each dimension folder / plugins folder that exists in the extract,
+    the corresponding live folder is atomically swapped in. Config files present in the
+    extract are replaced at the file level. Playerdata pulled into the
+    ``mcs_playerdata/<dim>/playerdata`` namespace is swapped onto only the live
+    ``<dim>/playerdata`` subfolder. Live paths absent from the archive are left
+    completely untouched. Returns the names of the replaced items.
+    """
+    settings = ConfigFactory.global_settings()
+    storage = storage or build_storage_backend(settings)
+    encryption = encryption or build_backup_encryption(settings.backup_encryption_key_path)
+
+    storage_path, recorded_size, recorded_checksum = await _load_job_storage(backup_id)
+
+    encrypted = await storage.read(storage_path)
+    if not encrypted:
+        raise RestoreError(f"Backup artifact missing at {storage_path}")
+    if len(encrypted) != recorded_size:
+        raise RestoreError(
+            f"Backup {backup_id} size mismatch: recorded {recorded_size}, got {len(encrypted)}",
+        )
+    if encryption.checksum(encrypted) != recorded_checksum:
+        raise RestoreError(f"Backup {backup_id} checksum mismatch — refusing to restore")
+
+    return await asyncio.to_thread(
+        _perform_safe_restore_sync,
+        encrypted=encrypted,
+        recorded_checksum=recorded_checksum,
+        server_dir=server_dir,
+        base_world=base_world,
+        encryption=encryption,
+    )
 
 
 def _atomic_replace_file(

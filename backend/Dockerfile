@@ -15,7 +15,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy static standalone Docker CLI binary (Phase 5 Decision 12 - DooD Policy)
+# Copy static standalone Docker CLI binary for Docker-outside-of-Docker (DooD) support
 COPY --from=docker:27.5.1-cli /usr/local/bin/docker /usr/local/bin/docker
 
 RUN addgroup --system --gid 1001 app && \

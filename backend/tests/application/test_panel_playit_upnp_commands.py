@@ -334,8 +334,12 @@ class TestPortForwardPanelExposure:
             result = await handler.handle(cmd)
             assert result.success is True
             data = result.data
-            assert "Access Mode is LOCAL" in data["security_advisory"]
-            assert "Open self-registration" in data["security_advisory"]
+            assert "unencrypted HTTP" in data["security_advisory"]
+            assert "Open self-registration" not in data["security_advisory"]
+
+        async with UnitOfWork() as uow:
+            state = await SQLSystemStateRepository(uow.session).get()
+            assert state.access_mode == AccessMode.GLOBAL
 
     async def test_enable_port_forward_security_advisory_global_mode(self) -> None:
         init_active_panel_bind("0.0.0.0", 8000)

@@ -855,7 +855,7 @@ describe("CreateServerPage sequential naming, stepper, and optional add-ons step
     });
   });
 
-  it("displays Review & Confirm summary with Java runtime, resources, properties, what-will-happen note, and Edit jump links", async () => {
+  it("displays Review & Confirm summary with Java runtime, resources, properties, and what-will-happen note without section Edit buttons", async () => {
     listServersMock.mockResolvedValue([]);
     listSoftwareMock.mockResolvedValue([
       { type: "purpur", name: "Purpur", description: "Feature-rich fork" },
@@ -894,9 +894,6 @@ describe("CreateServerPage sequential naming, stepper, and optional add-ons step
     const note = screen.getByTestId("review-what-happens-note");
     expect(note).toHaveTextContent(/Downloads Purpur 1\.21\.11, verifies checksum/i);
 
-    // Quick Edit jump link navigates back to Configuration
-    const editButtons = screen.getAllByRole("button", { name: /Edit/i });
-    await user.click(editButtons[0]);
-    expect(await screen.findByText("Server Configuration")).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /^Edit$/i })).toHaveLength(0);
   });
 });

@@ -188,7 +188,39 @@ async def trackb_api(
     _write_server_tree(simple_root)
     await _seed_server(SIMPLE_ID, simple_root, mode="simple", port=29971)
 
-    header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    from app.core.security import hash_password
+    from app.modules.auth.infrastructure.models import RoleModel, UserModel, UserRoleModel
+
+    admin_id = "u-trackb-admin"
+    async with database._session_factory() as session:
+        if await session.get(UserModel, admin_id) is None:
+            session.add(
+                UserModel(
+                    id=admin_id,
+                    username="trackbadmin",
+                    email="trackbadmin@test.com",
+                    password_hash=hash_password("admin-password-123"),
+                    display_name="TrackB Admin",
+                    is_active=True,
+                    all_servers_access=True,
+                )
+            )
+            role_row = (
+                await session.execute(select(RoleModel).where(RoleModel.name == "admin"))
+            ).scalar_one_or_none()
+            if role_row is None:
+                role_row = RoleModel(
+                    id="r-trackb-admin",
+                    name="admin",
+                    description="Admin role",
+                    permissions='["admin:full"]',
+                )
+                session.add(role_row)
+            await session.flush()
+            session.add(UserRoleModel(user_id=admin_id, role_id=role_row.id))
+            await session.commit()
+
+    header = await _seed_api_key_header(client, admin_id, ["admin:full"])
     runner = FakeDockerRunner()
     service = BranchRuntimeService(
         layout,

@@ -13,6 +13,7 @@ from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.main import app
 from app.modules.auth.infrastructure.jwt import create_access_token
+from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 from app.registration import register_handlers
 
 
@@ -42,40 +43,80 @@ async def init_test_db():
     reset_idempotency_store()
 
 
-def auth_headers(permissions: list[str]) -> dict[str, str]:
+def auth_headers(
+    permissions: list[str],
+    *,
+    user_id: str = "usr-test-1",
+    roles: list[str] | None = None,
+) -> dict[str, str]:
     token = create_access_token(
-        user_id="usr-test-1",
-        roles=["operator"],
+        user_id=user_id,
+        roles=roles or (["admin"] if "admin:full" in permissions else ["server_admin"]),
         permissions=permissions,
     )
     return {"Authorization": f"Bearer {token}"}
 
 
+async def _seed_server_access(server_id: str, user_id: str = "usr-test-1", role: str = "server_admin") -> None:
+    async with database.session_factory() as session:
+        if await session.get(ServerModel, server_id) is None:
+            session.add(
+                ServerModel(
+                    id=server_id,
+                    name=server_id,
+                    server_type="paper",
+                    minecraft_version="1.21.4",
+                    status="stopped",
+                )
+            )
+            await session.flush()
+        session.add(
+            ServerMembershipModel(
+                id=f"mem-{server_id}-{user_id}",
+                server_id=server_id,
+                user_id=user_id,
+                role=role,
+            )
+        )
+        await session.commit()
+
+
 @pytest.mark.asyncio
 async def test_operations_api_permissions():
+    await _seed_server_access("srv-1", user_id="usr-test-1", role="server_admin")
+    await _seed_server_access("srv-1", user_id="usr-viewer-1", role="viewer")
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # 1. Unauthenticated -> 401
         res = await client.get("/api/v1/operations")
         assert res.status_code == 401
 
-        # 2. Missing server:read -> 403
-        res = await client.get("/api/v1/operations", headers=auth_headers(["backup:read"]))
+        # 2. Unassigned user filtered to target server -> 403; unfiltered -> []
+        outsider = auth_headers(["backup:read"], user_id="usr-outsider", roles=["viewer"])
+        res = await client.get(
+            "/api/v1/operations?target_type=server&target_id=srv-1",
+            headers=outsider,
+        )
         assert res.status_code == 403
+        res_unfiltered = await client.get("/api/v1/operations", headers=outsider)
+        assert res_unfiltered.status_code == 200
+        assert res_unfiltered.json() == []
 
-        # 3. With server:read -> 200 []
-        res = await client.get("/api/v1/operations", headers=auth_headers(["server:read"]))
+        # 3. Viewer with server:read -> 200 []
+        viewer = auth_headers(["server:read"], user_id="usr-viewer-1", roles=["viewer"])
+        res = await client.get("/api/v1/operations", headers=viewer)
         assert res.status_code == 200
         assert res.json() == []
 
-        # 4. POST without server:write -> 403
+        # 4. POST by viewer (without write access) -> 403
         res = await client.post(
             "/api/v1/operations",
             json={"type": "BACKUP_RESTORE", "target_type": "server", "target_id": "srv-1"},
-            headers=auth_headers(["server:read"]),
+            headers=viewer,
         )
         assert res.status_code == 403
 
-        # 5. POST with server:write -> 202
+        # 5. POST by assigned server_admin -> 202
         res = await client.post(
             "/api/v1/operations",
             json={"type": "BACKUP_RESTORE", "target_type": "server", "target_id": "srv-1"},
@@ -88,13 +129,14 @@ async def test_operations_api_permissions():
         assert op_data["type"] == "BACKUP_RESTORE"
 
         # 6. GET /api/v1/operations/{op_id}
-        res = await client.get(f"/api/v1/operations/{op_id}", headers=auth_headers(["server:read"]))
+        res = await client.get(f"/api/v1/operations/{op_id}", headers=viewer)
         assert res.status_code == 200
         assert res.json()["id"] == op_id
 
 
 @pytest.mark.asyncio
 async def test_operations_idempotency_and_headers():
+    await _seed_server_access("srv-idem")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {**auth_headers(["server:write"]), "Idempotency-Key": "idem-key-123"}
         payload = {
@@ -118,6 +160,7 @@ async def test_operations_idempotency_and_headers():
 
 @pytest.mark.asyncio
 async def test_operations_concurrency_and_run_test_exemption():
+    await _seed_server_access("srv-shared")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = auth_headers(["server:write"])
 
@@ -158,6 +201,8 @@ async def test_operations_concurrency_and_run_test_exemption():
 
 @pytest.mark.asyncio
 async def test_operation_cancel_and_retry_flow():
+    await _seed_server_access("srv-lifecycle")
+    await _seed_server_access("srv-failed-test")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         write_headers = auth_headers(["server:write"])
         read_headers = auth_headers(["server:read"])
@@ -239,6 +284,7 @@ async def test_stale_orphan_operation_reaped_and_live_conflict_returns_op_id():
     from app.modules.operations.domain.enums import OperationStatus
     from app.modules.operations.infrastructure.repository import SQLOperationRepository
 
+    await _seed_server_access("srv-orphan-reap")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         write_headers = auth_headers(["server:write"])
         read_headers = auth_headers(["server:read"])

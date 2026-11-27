@@ -398,12 +398,20 @@ class GuardConfigurationError(MCSError):
 
 
 class RateLimitExceeded(MCSError):  # noqa: N818 - public error name is stable
-    def __init__(self, retry_after: int = 60) -> None:
+    def __init__(
+        self,
+        retry_after: int = 60,
+        message: str = "Rate limit exceeded",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged_details: dict[str, Any] = {"retry_after": retry_after}
+        if details:
+            merged_details.update(details)
         super().__init__(
-            "Rate limit exceeded",
+            message,
             code="RATE_LIMIT_EXCEEDED",
             http_status=429,
-            details={"retry_after": retry_after},
+            details=merged_details,
         )
 
 

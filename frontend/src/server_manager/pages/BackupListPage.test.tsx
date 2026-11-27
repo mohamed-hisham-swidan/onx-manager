@@ -172,6 +172,11 @@ function renderPage(initialEntry = "/backups") {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  qc.setQueryData(["currentUser"], {
+    user_id: "u-owner",
+    roles: ["owner"],
+    permissions: ["admin:full", "backup:create", "backup:restore", "backup:delete", "global.settings"],
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialEntry]}>

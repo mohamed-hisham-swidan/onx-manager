@@ -236,6 +236,23 @@ export interface ApiKeyResponse {
   created_at: string;
 }
 
+export type CanonicalRole = "owner" | "admin" | "server_admin" | "viewer";
+
+export type CapabilityKey =
+  | "power"
+  | "console"
+  | "files"
+  | "plugins"
+  | "backups"
+  | "settings"
+  | "exposure"
+  | "versioning";
+
+export interface ServerMembershipItem {
+  server_id: string;
+  role: string;
+}
+
 export interface UserResponse {
   user_id: string;
   username?: string;
@@ -243,8 +260,35 @@ export interface UserResponse {
   display_name: string;
   is_active: boolean;
   roles: string[];
+  global_role?: CanonicalRole | string;
+  permissions?: string[];
+  denied_permissions?: CapabilityKey[] | string[];
+  all_servers_access?: boolean;
+  assigned_server_ids?: string[];
+  server_memberships?: ServerMembershipItem[];
+  owned_server_ids?: string[];
   created_at: string;
   last_login_at: string | null;
+}
+
+export interface AdminCreateUserRequest {
+  username: string;
+  email?: string | null;
+  password: string;
+  display_name?: string | null;
+  role: CanonicalRole;
+  server_ids?: string[];
+  all_servers_access?: boolean;
+  denied_permissions?: string[];
+  is_active?: boolean;
+}
+
+export interface UpdateUserAccessRequest {
+  role: CanonicalRole;
+  server_ids: string[];
+  all_servers_access: boolean;
+  denied_permissions: string[];
+  is_active?: boolean | null;
 }
 
 export interface CreateUserRequest {
@@ -437,6 +481,13 @@ export interface CurrentUserResponse {
   display_name: string;
   is_active: boolean;
   roles: string[];
+  global_role?: CanonicalRole | string;
+  permissions?: string[];
+  denied_permissions?: CapabilityKey[] | string[];
+  all_servers_access?: boolean;
+  assigned_server_ids?: string[];
+  server_memberships?: ServerMembershipItem[];
+  owned_server_ids?: string[];
   created_at: string;
   last_login_at: string | null;
 }
@@ -444,9 +495,13 @@ export interface CurrentUserResponse {
 
 export interface CreateInviteRequest {
   email?: string | null;
+  role?: CanonicalRole;
   global_role?: string;
   server_id?: string | null;
+  server_ids?: string[];
   server_role?: string | null;
+  all_servers_access?: boolean;
+  denied_permissions?: string[];
   max_uses?: number;
   expires_in_hours?: number | null;
 }
@@ -456,9 +511,13 @@ export interface CreateInviteResponse {
   token: string;
   token_prefix: string;
   email: string | null;
+  role?: CanonicalRole | string;
   global_role: string;
   server_id: string | null;
+  server_ids?: string[];
   server_role: string | null;
+  all_servers_access?: boolean;
+  denied_permissions?: string[];
   status: string;
   max_uses: number;
   expires_at: string | null;
@@ -490,9 +549,13 @@ export interface InvitationItem {
   invite_id: string;
   token_prefix: string;
   email: string | null;
+  role?: CanonicalRole | string;
   global_role: string;
   server_id: string | null;
+  server_ids?: string[];
   server_role: string | null;
+  all_servers_access?: boolean;
+  denied_permissions?: string[];
   creator_id: string;
   status: string;
   max_uses: number;
@@ -563,7 +626,7 @@ export interface ClaimResponse {
   expires_at: string;
 }
 
-// Server Network Exposure & Targets (Phase 7.5)
+// Server Network Exposure & Targets
 export type ExposureMethodType = "none" | "host_port" | "playit" | "port_forward" | "cloudflare_tcp";
 
 export type TargetProtocolType = "tcp" | "udp";
@@ -741,7 +804,7 @@ export function validateLocalPort(port: number, serverGamePort: number): { valid
 
 
 
-// P5.5 shared re-exports (single source of truth lives in server_manager/types)
+// Shared modpack & upgrade re-exports (single source of truth lives in server_manager/types)
 export type {
   ApplyUpgradeRequest,
   CompatibilityMatrixPayload,

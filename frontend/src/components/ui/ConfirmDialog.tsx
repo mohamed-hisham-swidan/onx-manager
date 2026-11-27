@@ -109,7 +109,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -124,18 +124,24 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-label={title}
         aria-busy={isPending ? "true" : undefined}
-        className="relative z-10 w-full max-w-sm rounded-xl border border-border-subtle bg-surface-card p-6 shadow-2xl transition-all"
+        className="relative z-10 flex w-full max-w-sm max-h-[calc(100vh-2rem)] max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-5 sm:p-6 shadow-2xl transition-all"
       >
-        <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${iconColors}`}>
-          <Icon name="alert" size={22} />
+        <div className="shrink-0">
+          <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${iconColors}`}>
+            <Icon name="alert" size={22} />
+          </div>
+          <h2 className="mb-1 text-base font-semibold text-text-primary">{title}</h2>
         </div>
-        <h2 className="mb-1 text-base font-semibold text-text-primary">{title}</h2>
-        {description && (
-          <p className="mb-4 text-sm text-text-muted">{description}</p>
+        {(description || children) && (
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            {description && (
+              <p className="mb-4 text-sm text-text-muted">{description}</p>
+            )}
+            {children && <div className="mb-5">{children}</div>}
+            {!children && description && <div className="mb-1" />}
+          </div>
         )}
-        {children && <div className="mb-5">{children}</div>}
-        {!children && description && <div className="mb-1" />}
-        <div className="flex justify-end gap-2">
+        <div className="shrink-0 flex justify-end gap-2 pt-2">
           <button
             ref={cancelButtonRef}
             type="button"

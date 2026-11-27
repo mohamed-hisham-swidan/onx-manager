@@ -26,7 +26,7 @@ const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 const secondaryButtonClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 const primaryButtonClass =
-  "inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 const dangerButtonClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3.5 py-1.5 text-xs font-semibold text-status-danger hover:bg-status-danger/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 const errorAlertClass =
@@ -315,47 +315,30 @@ export function ConnectGitHubModal({
   onConnected,
   onClose,
 }: ConnectGitHubModalProps) {
-  const [isPending, setIsPending] = useState(false);
+  if (!isOpen) return null;
   return (
-    <Modal
-      open={isOpen}
+    <ConnectGitHubBody
+      serverId={serverId}
+      onConnected={onConnected}
       onClose={onClose}
-      title="Connect GitHub Repository"
-      size="lg"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      {isOpen && (
-        <ConnectGitHubBody
-          serverId={serverId}
-          isPending={isPending}
-          onPendingChange={setIsPending}
-          onConnected={onConnected}
-          onClose={onClose}
-        />
-      )}
-    </Modal>
+    />
   );
 }
 
 interface ConnectGitHubBodyProps {
   serverId: string;
-  isPending: boolean;
-  onPendingChange: (pending: boolean) => void;
   onConnected: (status: GitHubConnectionStatusResponse) => void;
   onClose: () => void;
 }
 
 function ConnectGitHubBody({
   serverId,
-  isPending,
-  onPendingChange,
   onConnected,
   onClose,
 }: ConnectGitHubBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { copiedKey, copy } = useCopyFeedback();
+  const [isPending, setIsPending] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [authMethod, setAuthMethod] = useState<GitHubAuthMethod>("pat");
   const [patToken, setPatToken] = useState("");
@@ -397,8 +380,7 @@ function ConnectGitHubBody({
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitConnect = async () => {
     if (isPending) return;
     const trimmedUrl = remoteUrl.trim();
     const trimmedSecret = webhookSecret.trim();
@@ -416,7 +398,7 @@ function ConnectGitHubBody({
     }
 
     setError(null);
-    onPendingChange(true);
+    setIsPending(true);
     try {
       const payload: ConnectGitHubRequest = {
         remote_url: trimmedUrl,
@@ -442,23 +424,68 @@ function ConnectGitHubBody({
         formatGitHubError(err, "Failed to connect the GitHub repository."),
       );
     } finally {
-      onPendingChange(false);
+      setIsPending(false);
     }
+  };
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitConnect();
   };
 
   if (oneTimeResult?.generated_webhook_secret) {
     return (
-      <OneTimeWebhookSecretPanel
-        secret={oneTimeResult.generated_webhook_secret}
-        webhookPath={oneTimeResult.webhook_path}
-        copiedKey={copiedKey}
-        onCopy={copy}
-        onDone={onClose}
-      />
+      <Modal
+        open={true}
+        onClose={onClose}
+        title="Connect GitHub Repository"
+        size="lg"
+        showCloseButton={false}
+        closeOnBackdrop={false}
+        closeOnEscape={true}
+      >
+        <OneTimeWebhookSecretPanel
+          secret={oneTimeResult.generated_webhook_secret}
+          webhookPath={oneTimeResult.webhook_path}
+          copiedKey={copiedKey}
+          onCopy={copy}
+          onDone={onClose}
+        />
+      </Modal>
     );
   }
 
   return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Connect GitHub Repository"
+      size="lg"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      closeOnEscape={!isPending}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPending}
+            className={secondaryButtonClass}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitConnect()}
+            disabled={isPending || !canSubmit}
+            className={primaryButtonClass}
+          >
+            <Icon name="check" size={13} />
+            {isPending ? "Connecting..." : "Connect Repository"}
+          </button>
+        </div>
+      }
+    >
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
         <div role="alert" className={errorAlertClass}>
@@ -619,26 +646,8 @@ function ConnectGitHubBody({
           </div>
         )}
       </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={isPending}
-          className={secondaryButtonClass}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={isPending || !canSubmit}
-          className={primaryButtonClass}
-        >
-          <Icon name="check" size={13} />
-          {isPending ? "Connecting..." : "Connect Repository"}
-        </button>
-      </div>
     </form>
+    </Modal>
   );
 }
 
@@ -662,36 +671,20 @@ export function RotateGitHubCredentialsModal({
   onRotated,
   onClose,
 }: RotateGitHubCredentialsModalProps) {
-  const [isPending, setIsPending] = useState(false);
+  if (!isOpen) return null;
   return (
-    <Modal
-      open={isOpen}
+    <RotateGitHubCredentialsBody
+      serverId={serverId}
+      currentStatus={currentStatus}
+      onRotated={onRotated}
       onClose={onClose}
-      title="Rotate GitHub Credentials & Webhook"
-      size="lg"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      {isOpen && (
-        <RotateGitHubCredentialsBody
-          serverId={serverId}
-          currentStatus={currentStatus}
-          isPending={isPending}
-          onPendingChange={setIsPending}
-          onRotated={onRotated}
-          onClose={onClose}
-        />
-      )}
-    </Modal>
+    />
   );
 }
 
 interface RotateGitHubCredentialsBodyProps {
   serverId: string;
   currentStatus: GitHubConnectionStatusResponse | null;
-  isPending: boolean;
-  onPendingChange: (pending: boolean) => void;
   onRotated: (status: GitHubConnectionStatusResponse) => void;
   onClose: () => void;
 }
@@ -699,13 +692,12 @@ interface RotateGitHubCredentialsBodyProps {
 function RotateGitHubCredentialsBody({
   serverId,
   currentStatus,
-  isPending,
-  onPendingChange,
   onRotated,
   onClose,
 }: RotateGitHubCredentialsBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { copiedKey, copy } = useCopyFeedback();
+  const [isPending, setIsPending] = useState(false);
   const initialAuthMethod: GitHubAuthMethod =
     currentStatus?.auth_method === "ssh_deploy_key" ? "ssh_deploy_key" : "pat";
   const [authMethod, setAuthMethod] =
@@ -743,8 +735,7 @@ function RotateGitHubCredentialsBody({
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitRotate = async () => {
     if (isPending) return;
 
     const credential =
@@ -790,7 +781,7 @@ function RotateGitHubCredentialsBody({
     }
 
     setError(null);
-    onPendingChange(true);
+    setIsPending(true);
     try {
       const response = await api.rotateGitHubCredentials(serverId, payload);
       onRotated(response);
@@ -804,23 +795,68 @@ function RotateGitHubCredentialsBody({
         formatGitHubError(err, "Failed to rotate GitHub credentials."),
       );
     } finally {
-      onPendingChange(false);
+      setIsPending(false);
     }
+  };
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitRotate();
   };
 
   if (oneTimeResult?.generated_webhook_secret) {
     return (
-      <OneTimeWebhookSecretPanel
-        secret={oneTimeResult.generated_webhook_secret}
-        webhookPath={oneTimeResult.webhook_path}
-        copiedKey={copiedKey}
-        onCopy={copy}
-        onDone={onClose}
-      />
+      <Modal
+        open={true}
+        onClose={onClose}
+        title="Rotate GitHub Credentials & Webhook"
+        size="lg"
+        showCloseButton={false}
+        closeOnBackdrop={false}
+        closeOnEscape={true}
+      >
+        <OneTimeWebhookSecretPanel
+          secret={oneTimeResult.generated_webhook_secret}
+          webhookPath={oneTimeResult.webhook_path}
+          copiedKey={copiedKey}
+          onCopy={copy}
+          onDone={onClose}
+        />
+      </Modal>
     );
   }
 
   return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Rotate GitHub Credentials & Webhook"
+      size="lg"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      closeOnEscape={!isPending}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPending}
+            className={secondaryButtonClass}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitRotate()}
+            disabled={isPending}
+            className={primaryButtonClass}
+          >
+            <Icon name="restart" size={13} />
+            {isPending ? "Rotating..." : "Rotate Credentials"}
+          </button>
+        </div>
+      }
+    >
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
         <div role="alert" className={errorAlertClass}>
@@ -989,22 +1025,8 @@ function RotateGitHubCredentialsBody({
           </p>
         )}
       </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={isPending}
-          className={secondaryButtonClass}
-        >
-          Cancel
-        </button>
-        <button type="submit" disabled={isPending} className={primaryButtonClass}>
-          <Icon name="restart" size={13} />
-          {isPending ? "Rotating..." : "Rotate Credentials"}
-        </button>
-      </div>
     </form>
+    </Modal>
   );
 }
 
@@ -1026,36 +1048,20 @@ export function DisconnectGitHubModal({
   onDisconnected,
   onClose,
 }: DisconnectGitHubModalProps) {
-  const [isPending, setIsPending] = useState(false);
+  if (!isOpen) return null;
   return (
-    <Modal
-      open={isOpen}
+    <DisconnectGitHubBody
+      serverId={serverId}
+      remoteUrl={remoteUrl}
+      onDisconnected={onDisconnected}
       onClose={onClose}
-      title="Disconnect GitHub Repository"
-      size="md"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      {isOpen && (
-        <DisconnectGitHubBody
-          serverId={serverId}
-          remoteUrl={remoteUrl}
-          isPending={isPending}
-          onPendingChange={setIsPending}
-          onDisconnected={onDisconnected}
-          onClose={onClose}
-        />
-      )}
-    </Modal>
+    />
   );
 }
 
 interface DisconnectGitHubBodyProps {
   serverId: string;
   remoteUrl: string | null;
-  isPending: boolean;
-  onPendingChange: (pending: boolean) => void;
   onDisconnected: (result: GitHubDisconnectResponse) => void;
   onClose: () => void;
 }
@@ -1063,20 +1069,18 @@ interface DisconnectGitHubBodyProps {
 function DisconnectGitHubBody({
   serverId,
   remoteUrl,
-  isPending,
-  onPendingChange,
   onDisconnected,
   onClose,
 }: DisconnectGitHubBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const [isPending, setIsPending] = useState(false);
   const [purgeDeliveries, setPurgeDeliveries] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitDisconnect = async () => {
     if (isPending) return;
     setError(null);
-    onPendingChange(true);
+    setIsPending(true);
     try {
       const result = await api.disconnectGitHub(serverId, purgeDeliveries);
       onDisconnected(result);
@@ -1086,11 +1090,46 @@ function DisconnectGitHubBody({
         formatGitHubError(err, "Failed to disconnect the GitHub repository."),
       );
     } finally {
-      onPendingChange(false);
+      setIsPending(false);
     }
   };
 
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitDisconnect();
+  };
+
   return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Disconnect GitHub Repository"
+      size="md"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      closeOnEscape={!isPending}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPending}
+            className={secondaryButtonClass}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitDisconnect()}
+            disabled={isPending}
+            className={dangerButtonClass}
+          >
+            <Icon name="x" size={13} />
+            {isPending ? "Disconnecting..." : "Disconnect GitHub"}
+          </button>
+        </div>
+      }
+    >
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
         <div role="alert" className={errorAlertClass}>
@@ -1129,22 +1168,8 @@ function DisconnectGitHubBody({
           Also purge stored webhook delivery history
         </span>
       </label>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={isPending}
-          className={secondaryButtonClass}
-        >
-          Cancel
-        </button>
-        <button type="submit" disabled={isPending} className={dangerButtonClass}>
-          <Icon name="x" size={13} />
-          {isPending ? "Disconnecting..." : "Disconnect GitHub"}
-        </button>
-      </div>
     </form>
+    </Modal>
   );
 }
 
@@ -1178,6 +1203,13 @@ export function GitHubWebhookDeliveriesModal({
       showCloseButton={false}
       closeOnBackdrop={false}
       closeOnEscape={redeliveringId === null}
+      footer={
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className={secondaryButtonClass}>
+            Close
+          </button>
+        </div>
+      }
     >
       {isOpen && (
         <GitHubWebhookDeliveriesBody
@@ -1227,7 +1259,7 @@ function GitHubWebhookDeliveriesBody({
   webhookPath,
   onRedelivered,
   onRedeliveringChange,
-  onClose,
+  onClose: _onClose,
 }: GitHubWebhookDeliveriesBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { copiedKey, copy } = useCopyFeedback();
@@ -1458,11 +1490,6 @@ function GitHubWebhookDeliveriesBody({
         </div>
       )}
 
-      <div className="flex justify-end border-t border-border-subtle pt-3">
-        <button type="button" onClick={onClose} className={secondaryButtonClass}>
-          Close
-        </button>
-      </div>
     </div>
   );
 }

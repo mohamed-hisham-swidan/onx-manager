@@ -159,27 +159,57 @@ async def set_panel_exposure(
     return _to_panel_exposure_response(check_command_result(result))
 
 
-def _is_blocked_ssrf_probe_host(host: str) -> bool:
-    """Reject loopback/private/link-local/metadata IPs on user-supplied external probes."""
+def _is_ip_blocked_for_ssrf(ip: object) -> bool:
     import ipaddress
 
-    cleaned = (host or "").strip().strip("[]").lower()
+    assert isinstance(ip, (ipaddress.IPv4Address, ipaddress.IPv6Address))
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _is_blocked_ssrf_probe_host(host: str) -> bool:
+    """Reject loopback/private/link-local/metadata IPs and DNS targets on external probes."""
+    import ipaddress
+    import socket
+
+    cleaned = (host or "").strip().strip("[]").lower().rstrip(".")
     if not cleaned:
         return True
-    if cleaned in ("localhost", "localhost.localdomain", "metadata.google.internal"):
+    if cleaned in (
+        "localhost",
+        "localhost.localdomain",
+        "metadata.google.internal",
+    ) or cleaned.endswith(".localhost"):
         return True
     try:
         ip = ipaddress.ip_address(cleaned)
-        return (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        )
+        return _is_ip_blocked_for_ssrf(ip)
     except ValueError:
+        pass
+    # Resolve hostname and reject if any resolved address is non-public/internal.
+    try:
+        infos = socket.getaddrinfo(cleaned, None, type=socket.SOCK_STREAM)
+    except OSError:
+        # Unresolvable hostnames cannot connect to internal networks; let probe report unreachable.
         return False
+    for info in infos:
+        sockaddr = info[4]
+        if not sockaddr:
+            continue
+        raw_ip = sockaddr[0].split("%", 1)[0]
+        try:
+            resolved_ip = ipaddress.ip_address(raw_ip)
+        except ValueError:
+            continue
+        if _is_ip_blocked_for_ssrf(resolved_ip):
+            return True
+    return False
 
 
 def _parse_probe_host_port(result: dict) -> tuple[str, int] | None:
@@ -209,6 +239,8 @@ def _parse_probe_host_port(result: dict) -> tuple[str, int] | None:
                     if h and p.isdigit():
                         host_part = h
                         port_val = int(p)
+                if not (1 <= port_val <= 65535):
+                    return None
                 if _is_blocked_ssrf_probe_host(host_part):
                     return None
                 return host_part, port_val

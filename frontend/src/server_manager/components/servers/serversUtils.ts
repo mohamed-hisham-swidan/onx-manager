@@ -1,13 +1,8 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { createAuthenticatedApi } from "@/services/api";
-import { queryKeys } from "@/services/queryClient";
-import { useAuthStore } from "@/stores/authStore";
+import { useAuthPermissions } from "@/hooks/useAuthPermissions";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { resolveServerMode } from "@/server_manager/utils/serverMode";
 import type { ViewMode } from "@/components/ui/ViewModeToggle";
 import type { ServerResponse } from "@/server_manager/types";
-import type { CurrentUserResponse } from "@/types";
 
 export const SERVERS_VIEW_MODE_STORAGE_KEY = "onx_servers_view_mode";
 
@@ -209,180 +204,56 @@ export function filterAndSortServers(
   });
 }
 
-function decodeJwtPermissions(token: string | null): string[] {
-  if (!token) return [];
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return [];
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
-    const payload = JSON.parse(atob(padded)) as { permissions?: unknown };
-    return Array.isArray(payload.permissions)
-      ? payload.permissions.filter((p): p is string => typeof p === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 export interface FleetPermissions {
   canCreate: boolean;
   canImport: boolean;
   canDelete: boolean;
   canManageVersioning?: boolean;
+  isOwner?: boolean;
+  isAdmin?: boolean;
+  isViewer?: boolean;
   canPower: (serverId: string) => boolean;
   canConsole: (serverId: string) => boolean;
+  canConsoleView?: (serverId: string) => boolean;
   canWrite: (serverId: string) => boolean;
   canFiles: (serverId: string) => boolean;
+  canViewLogs?: (serverId: string) => boolean;
   canManagePlugins: (serverId: string) => boolean;
+  canViewPlugins?: (serverId: string) => boolean;
   canViewExposure: (serverId: string) => boolean;
+  canManageExposure?: (serverId: string) => boolean;
+  canBackups?: (serverId: string) => boolean;
+  canViewBackups?: (serverId: string) => boolean;
+  canSettings?: (serverId: string) => boolean;
+  canVersioning?: (serverId: string) => boolean;
+  canViewVersioning?: (serverId: string) => boolean;
 }
 
 export function useFleetPermissions(): FleetPermissions {
-  const api = useMemo(() => {
-    try {
-      return createAuthenticatedApi();
-    } catch {
-      return null;
-    }
-  }, []);
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const canQueryMe = Boolean(api && typeof api.getMe === "function");
+  const auth = useAuthPermissions();
 
-  const meQuery = useQuery<(CurrentUserResponse & { permissions?: string[] }) | null>({
-    queryKey: queryKeys.auth.me,
-    queryFn: async () => (api?.getMe ? api.getMe() : null),
-    enabled: canQueryMe,
-    staleTime: 30_000,
-    retry: false,
-  });
-
-  const user = meQuery.data;
-  const jwtPermissions = useMemo(() => decodeJwtPermissions(accessToken), [accessToken]);
-
-  return useMemo(() => {
-    if (!user && jwtPermissions.length === 0) {
-      return {
-        canCreate: false,
-        canImport: false,
-        canDelete: false,
-        canManageVersioning: false,
-        canPower: () => false,
-        canConsole: () => false,
-        canWrite: () => false,
-        canFiles: () => false,
-        canManagePlugins: () => false,
-        canViewExposure: () => false,
-      };
-    }
-
-    const roles = user?.roles ?? [];
-    const perms = Array.from(new Set([...(user?.permissions ?? []), ...jwtPermissions]));
-    const isGlobalAdmin =
-      roles.includes("owner") ||
-      roles.includes("admin") ||
-      perms.includes("admin:full") ||
-      perms.includes("global.*") ||
-      perms.includes("global.servers.manage");
-
-    if (isGlobalAdmin) {
-      return {
-        canCreate: true,
-        canImport: true,
-        canDelete: true,
-        canManageVersioning: true,
-        canPower: () => true,
-        canConsole: () => true,
-        canWrite: () => true,
-        canFiles: () => true,
-        canManagePlugins: () => true,
-        canViewExposure: () => true,
-      };
-    }
-
-    const hasExplicitPerms = perms.length > 0;
-    const isViewerOnly = roles.length > 0 && roles.every((r) => r === "viewer");
-
-    return {
-      canCreate: hasExplicitPerms
-        ? perms.includes("server:create")
-        : !isViewerOnly,
-      canImport: hasExplicitPerms
-        ? perms.includes("server:write") || perms.includes("server:create")
-        : !isViewerOnly,
-      canDelete: hasExplicitPerms
-        ? perms.includes("server:delete")
-        : !isViewerOnly,
-      canManageVersioning: hasExplicitPerms
-        ? perms.includes("server.versioning.manage")
-        : !isViewerOnly,
-      canPower: (serverId: string) => {
-        if (hasExplicitPerms) {
-          return (
-            perms.includes("server:write") ||
-            perms.includes("server:start") ||
-            perms.includes("server:power") ||
-            perms.includes(`server.${serverId}.power`) ||
-            perms.includes(`server.${serverId}.*`)
-          );
-        }
-        return !isViewerOnly;
-      },
-      canConsole: (serverId: string) => {
-        if (hasExplicitPerms) {
-          return (
-            perms.includes("server:write") ||
-            perms.includes("server:console") ||
-            perms.includes(`server.${serverId}.console`) ||
-            perms.includes(`server.${serverId}.*`)
-          );
-        }
-        return !isViewerOnly;
-      },
-      canWrite: (serverId: string) => {
-        if (hasExplicitPerms) {
-          return (
-            perms.includes("server:write") ||
-            perms.includes(`server.${serverId}.write`) ||
-            perms.includes(`server.${serverId}.*`)
-          );
-        }
-        return !isViewerOnly;
-      },
-      canFiles: (serverId: string) => {
-        if (hasExplicitPerms) {
-          return (
-            perms.includes("server:write") ||
-            perms.includes("server:files") ||
-            perms.includes(`server.${serverId}.files`) ||
-            perms.includes(`server.${serverId}.*`)
-          );
-        }
-        return !isViewerOnly;
-      },
-      canManagePlugins: (serverId: string) => {
-        if (hasExplicitPerms) {
-          return (
-            perms.includes("plugin:manage") ||
-            perms.includes("server:write") ||
-            perms.includes(`server.${serverId}.plugins`) ||
-            perms.includes(`server.${serverId}.*`)
-          );
-        }
-        return !isViewerOnly;
-      },
-      canViewExposure: (serverId: string) => {
-        if (hasExplicitPerms) {
-          return (
-            perms.includes("server:write") ||
-            perms.includes("exposure:read") ||
-            perms.includes("exposure:write") ||
-            perms.includes(`server.${serverId}.exposure`) ||
-            perms.includes(`server.${serverId}.*`)
-          );
-        }
-        return !isViewerOnly;
-      },
-    };
-  }, [user, jwtPermissions]);
+  return {
+    canCreate: auth.canCreateServer,
+    canImport: auth.canImportServer,
+    canDelete: auth.canDeleteServer,
+    canManageVersioning: auth.isAdmin || auth.canVersioning(),
+    isOwner: auth.isOwner,
+    isAdmin: auth.isAdmin,
+    isViewer: auth.isViewer,
+    canPower: (serverId: string) => auth.canPower(serverId),
+    canConsole: (serverId: string) => auth.canConsole(serverId),
+    canConsoleView: (serverId: string) => auth.canConsoleView(serverId),
+    canWrite: (serverId: string) => auth.canSettings(serverId),
+    canFiles: (serverId: string) => auth.canFiles(serverId),
+    canViewLogs: (serverId: string) => auth.canViewLogs(serverId),
+    canManagePlugins: (serverId: string) => auth.canManagePlugins(serverId),
+    canViewPlugins: (serverId: string) => auth.canViewPlugins(serverId),
+    canViewExposure: (serverId: string) => auth.canViewExposure(serverId),
+    canManageExposure: (serverId: string) => auth.canManageExposure(serverId),
+    canBackups: (serverId: string) => auth.canBackups(serverId),
+    canViewBackups: (serverId: string) => auth.canViewBackups(serverId),
+    canSettings: (serverId: string) => auth.canSettings(serverId),
+    canVersioning: (serverId: string) => auth.canVersioning(serverId),
+    canViewVersioning: (serverId: string) => auth.canViewVersioning(serverId),
+  };
 }

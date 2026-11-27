@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
@@ -12,6 +12,7 @@ interface ManageBranchesModalProps {
   serverId: string;
   branches: ServerBranch[];
   currentBranchName: string;
+  canEdit?: boolean;
   onBranchesChanged: () => void;
   onOpenProtectionModal: (branch: ServerBranch) => void;
 }
@@ -22,32 +23,34 @@ export function ManageBranchesModal({
   serverId,
   branches,
   currentBranchName,
+  canEdit = true,
   onBranchesChanged,
   onOpenProtectionModal,
 }: ManageBranchesModalProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
-  const [archivingBranch, setArchivingBranch] = useState<string | null>(null);
+  const [busyBranch, setBusyBranch] = useState<string | null>(null);
   const [confirmArchiveName, setConfirmArchiveName] = useState<string | null>(null);
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // React 19 pattern
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
     if (isOpen) {
       setError(null);
       setConfirmArchiveName(null);
+      setConfirmDeleteName(null);
     }
   }
 
   const handleClose = () => {
-    if (!archivingBranch) {
+    if (!busyBranch) {
       onClose();
     }
   };
 
   const handleArchive = async (branchName: string) => {
-    setArchivingBranch(branchName);
+    setBusyBranch(branchName);
     setError(null);
     try {
       await api.archiveBranch(serverId, branchName);
@@ -58,7 +61,23 @@ export function ManageBranchesModal({
       const msg = err instanceof Error ? err.message : "Failed to archive branch.";
       setError(msg);
     } finally {
-      setArchivingBranch(null);
+      setBusyBranch(null);
+    }
+  };
+
+  const handleDelete = async (branchName: string) => {
+    setBusyBranch(branchName);
+    setError(null);
+    try {
+      await api.deleteServerBranch(serverId, branchName);
+      toast("success", "Branch Deleted", `Branch '${branchName}' has been deleted.`);
+      setConfirmDeleteName(null);
+      onBranchesChanged();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete branch.";
+      setError(msg);
+    } finally {
+      setBusyBranch(null);
     }
   };
 
@@ -96,16 +115,30 @@ export function ManageBranchesModal({
       open={isOpen}
       onClose={handleClose}
       title="Branch Lifecycle Management"
-      description="Manage branch status, protection rules, and archive inactive branches"
+      description="Manage branch protection rules, archive inactive branches, or delete branches"
       size="xl"
-      closeOnBackdrop={!archivingBranch}
-      closeOnEscape={!archivingBranch}
+      closeOnBackdrop={!busyBranch}
+      closeOnEscape={!busyBranch}
       closeButtonAriaLabel="Close modal"
+      footer={
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={!!busyBranch}
+            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      }
     >
       <div className="space-y-4 flex flex-col text-text-primary">
-        {/* Error alert */}
         {error && (
-          <div role="alert" className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger">
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger"
+          >
             <Icon name="alert" size={16} className="shrink-0" />
             <span className="flex-1">{error}</span>
             <button
@@ -118,12 +151,14 @@ export function ManageBranchesModal({
           </div>
         )}
 
-        {/* Confirm Archive Prompt */}
         {confirmArchiveName && (
-          <div role="alert" className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4 space-y-2 animate-fade-in">
+          <div
+            role="alert"
+            className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4 space-y-2 animate-fade-in"
+          >
             <div className="flex items-center gap-2 text-sm font-semibold text-status-warning">
               <Icon name="alert" size={18} />
-              <span>Archive Branch '{confirmArchiveName}'?</span>
+              <span>{`Archive Branch '${confirmArchiveName}'?`}</span>
             </div>
             <p className="text-xs text-text-primary">
               Archived branches become read-only. No new commits can be created on an archived branch.
@@ -139,16 +174,47 @@ export function ManageBranchesModal({
               <button
                 type="button"
                 onClick={() => handleArchive(confirmArchiveName)}
-                disabled={archivingBranch === confirmArchiveName}
+                disabled={busyBranch === confirmArchiveName}
                 className="px-3 py-1.5 text-xs font-medium text-accent-contrast-text bg-status-warning hover:opacity-90 rounded-lg transition-colors disabled:opacity-50"
               >
-                {archivingBranch === confirmArchiveName ? "Archiving..." : "Yes, Archive Branch"}
+                {busyBranch === confirmArchiveName ? "Archiving..." : "Yes, Archive Branch"}
               </button>
             </div>
           </div>
         )}
 
-        {/* Branch List */}
+        {confirmDeleteName && (
+          <div
+            role="alert"
+            className="rounded-lg border border-status-danger-border bg-status-danger-bg p-4 space-y-2 animate-fade-in"
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-status-danger">
+              <Icon name="trash" size={18} />
+              <span>Delete Branch &lsquo;{confirmDeleteName}&rsquo;?</span>
+            </div>
+            <p className="text-xs text-text-primary">
+              Permanently removes this branch&apos;s worktree, Git ref, and any stopped sandbox container.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteName(null)}
+                className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(confirmDeleteName)}
+                disabled={busyBranch === confirmDeleteName}
+                className="px-3 py-1.5 text-xs font-semibold text-accent-contrast-text bg-status-danger hover:opacity-90 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {busyBranch === confirmDeleteName ? "Deleting..." : "Yes, Delete Branch"}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div
           tabIndex={0}
           className="overflow-y-auto max-h-[55vh] divide-y divide-border-subtle border border-border-default rounded-lg bg-surface-card focus:outline-none focus:ring-1 focus:ring-border-focus"
@@ -161,17 +227,22 @@ export function ManageBranchesModal({
             branches.map((b) => {
               const isCurrent = b.name === currentBranchName;
               const isArchived = b.status === "archived";
+              const isMain = b.name === "main";
+              const isRuntimeActive =
+                b.runtime_status === "running" || b.runtime_status === "starting";
 
               return (
                 <div
                   key={b.name}
-                  className={`flex items-center justify-between p-3.5 text-xs transition-colors ${
-                    isCurrent ? "bg-accent-primary/10 border-accent-primary/20" : "hover:bg-surface-hover"
+                  className={`flex flex-wrap items-center justify-between gap-2 p-3.5 text-xs transition-colors ${
+                    isCurrent
+                      ? "bg-accent-primary/10 border-accent-primary/20"
+                      : "hover:bg-surface-hover"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono font-semibold text-text-primary">
                           {b.name}
                         </span>
@@ -182,9 +253,6 @@ export function ManageBranchesModal({
                         )}
                         {b.is_protected && (
                           <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-success-bg text-status-success border border-status-success-border">
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                            </svg>
                             PROTECTED
                           </span>
                         )}
@@ -197,27 +265,57 @@ export function ManageBranchesModal({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
                         onClose();
                         onOpenProtectionModal(b);
                       }}
-                      className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors"
+                      className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
                     >
                       Protection Rules
                     </button>
 
-                    {!isArchived && (
+                    {canEdit && !isArchived && (
                       <button
                         type="button"
-                        onClick={() => setConfirmArchiveName(b.name)}
-                        disabled={b.is_protected || !!archivingBranch}
-                        title={b.is_protected ? "Protected branches cannot be archived" : "Archive branch"}
-                        className="px-2.5 py-1 text-xs font-medium text-status-warning bg-status-warning-bg border border-status-warning-border rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors"
+                        onClick={() => {
+                          setConfirmDeleteName(null);
+                          setConfirmArchiveName(b.name);
+                        }}
+                        disabled={isMain || Boolean(b.is_protected) || isRuntimeActive || !!busyBranch}
+                        title={
+                          isMain || b.is_protected
+                            ? "Protected branches cannot be archived"
+                            : isRuntimeActive
+                              ? "Stop active sandbox before archiving"
+                              : "Archive branch"
+                        }
+                        className="px-2.5 py-1 text-xs font-medium text-status-warning bg-status-warning-bg border border-status-warning-border rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors cursor-pointer"
                       >
                         Archive
+                      </button>
+                    )}
+
+                    {canEdit && !isMain && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmArchiveName(null);
+                          setConfirmDeleteName(b.name);
+                        }}
+                        disabled={Boolean(b.is_protected) || isRuntimeActive || !!busyBranch}
+                        title={
+                          b.is_protected
+                            ? "Protected branches cannot be deleted"
+                            : isRuntimeActive
+                              ? "Stop active sandbox before deleting"
+                              : "Delete branch"
+                        }
+                        className="px-2.5 py-1 text-xs font-medium text-status-danger bg-status-danger-bg border border-status-danger-border rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors cursor-pointer"
+                      >
+                        Delete
                       </button>
                     )}
                   </div>
@@ -225,18 +323,6 @@ export function ManageBranchesModal({
               );
             })
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end border-t border-border-default pt-3">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={!!archivingBranch}
-            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50"
-          >
-            Close
-          </button>
         </div>
       </div>
     </Modal>

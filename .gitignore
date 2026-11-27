@@ -117,10 +117,6 @@ build/
 # Server runtime data (worlds, JARs, plugins, DBs, staging)
 # ──────────────────────────────────────────────
 backend/data/*
-!backend/data/servers_test/
-backend/data/servers_test/*
-!backend/data/servers_test/TEST_DB.md
-!backend/data/servers_test/README.md
 
 # ──────────────────────────────────────────────
 # Generated / auto-documented artifacts

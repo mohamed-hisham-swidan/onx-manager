@@ -1,15 +1,13 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { createAuthenticatedApi } from "@/services/api";
 import type { IconName } from "@/components/ui/Icon";
-import type { SettingsResponse, SettingsUpdateRequest, UserResponse } from "@/types";
+import { useAuthPermissions } from "@/hooks/useAuthPermissions";
+import type { SettingsResponse, SettingsUpdateRequest } from "@/types";
 
 export type SettingsTabId =
   | "general"
   | "appearance"
   | "integrations"
   | "access"
-  | "invitations"
+  | "users"
   | "api-keys";
 
 export interface SettingsNavItem {
@@ -18,16 +16,26 @@ export interface SettingsNavItem {
   icon: IconName;
   group: "panel" | "team";
   vpsOnly?: boolean;
+  ownerOnly?: boolean;
+  adminOnly?: boolean;
   ownerOnlyHint?: boolean;
 }
 
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
-  { id: "general", label: "General", icon: "sliders", group: "panel" },
+  { id: "general", label: "General", icon: "sliders", group: "panel", adminOnly: true },
   { id: "appearance", label: "Appearance", icon: "palette", group: "panel" },
-  { id: "integrations", label: "Modpacks & Cache", icon: "mod", group: "panel" },
-  { id: "access", label: "Remote & Access", icon: "globe", group: "team", vpsOnly: true, ownerOnlyHint: true },
-  { id: "invitations", label: "Invitations", icon: "users", group: "team", vpsOnly: true },
-  { id: "api-keys", label: "API Keys", icon: "key", group: "team", vpsOnly: true },
+  { id: "integrations", label: "Modpacks & Cache", icon: "mod", group: "panel", adminOnly: true },
+  {
+    id: "access",
+    label: "Remote & Access",
+    icon: "globe",
+    group: "team",
+    vpsOnly: true,
+    ownerOnly: true,
+    ownerOnlyHint: true,
+  },
+  { id: "users", label: "Users & Invitations", icon: "users", group: "team", vpsOnly: true, adminOnly: true },
+  { id: "api-keys", label: "API Keys", icon: "key", group: "team", vpsOnly: true, adminOnly: true },
 ];
 
 export interface SystemFormState {
@@ -220,40 +228,21 @@ export function computeDirtyPatch(
 }
 
 export function useSettingsPermissions() {
-  const api = useMemo(() => {
-    try {
-      return createAuthenticatedApi();
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const canQueryMe = Boolean(api && typeof api.getMe === "function");
-  const meQuery = useQuery<UserResponse | null>({
-    queryKey: ["currentUser"],
-    queryFn: async () => (api?.getMe ? api.getMe() : null),
-    enabled: canQueryMe,
-    staleTime: 30_000,
-    retry: false,
-  });
-
-  const user = meQuery.data;
-  const roles = user?.roles ?? [];
-  const isOwner = roles.includes("owner");
-  const isAdminOrOwner = roles.includes("owner") || roles.includes("admin");
-  const hasKnownUser = Boolean(user);
-  const canWriteSettings = !hasKnownUser || isAdminOrOwner;
-  const canManageInvites = !hasKnownUser || isAdminOrOwner;
-  const canManageApiKeys = !hasKnownUser || isAdminOrOwner;
+  const auth = useAuthPermissions();
+  const roles = auth.user?.roles ?? [];
+  const isOwner = auth.isOwner;
+  const isAdminOrOwner = auth.isAdmin;
+  const hasResolvedUser = Boolean(auth.user);
 
   return {
-    user,
+    user: auth.user ?? null,
     roles,
+    hasResolvedUser,
     isOwner,
     isAdminOrOwner,
-    canWriteSettings,
-    canManageInvites,
-    canManageApiKeys,
-    isLoadingUser: canQueryMe && meQuery.isLoading,
+    canWriteSettings: isAdminOrOwner,
+    canManageInvites: isAdminOrOwner,
+    canManageApiKeys: isAdminOrOwner,
+    isLoadingUser: auth.isLoading,
   };
 }

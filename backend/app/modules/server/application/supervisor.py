@@ -257,6 +257,24 @@ class RuntimeSupervisor:
                 )
                 await self._repo_save(server)
                 self._running_persisted = True
+                if server.deployment and server.deployment.root_path:
+                    try:
+                        from pathlib import Path
+
+                        from app.modules.backup.application.two_tier_restore import (
+                            cleanup_pre_restore_backups,
+                        )
+
+                        srv_dir = Path(server.deployment.server_directory())
+                        await asyncio.to_thread(
+                            cleanup_pre_restore_backups, str(server.id), srv_dir
+                        )
+                        if srv_dir.name != str(server.id):
+                            await asyncio.to_thread(
+                                cleanup_pre_restore_backups, srv_dir.name, srv_dir
+                            )
+                    except Exception:
+                        pass
                 add_timeline_milestone(
                     None,
                     f"Server marked running{f' ({ready_reason})' if ready_reason else ''}",

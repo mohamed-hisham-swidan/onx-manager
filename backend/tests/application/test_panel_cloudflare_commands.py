@@ -689,3 +689,203 @@ class TestPanelCloudflareModernModes:
         assert res.data["security_advisory"] is None
         assert supervisor.quick_starts == ["http://127.0.0.1:8000"]
         assert client.create_attempts == 0
+
+    async def test_quick_tunnel_restart_does_not_get_stuck_stopped_and_captures_new_url(
+        self, monkeypatch
+    ) -> None:
+        """Regression: restarting Quick Tunnel with real CloudflaredSupervisor must not
+        let the prior run's stop/exit overwrite DB status to STOPPED, and must capture
+        the new trycloudflare.com URL & set status=ACTIVE."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.modules.exposure.application import commands as exposure_commands
+        from app.modules.exposure.infrastructure.cloudflared import (
+            CloudflaredSupervisor,
+            reset_cloudflared_supervisor,
+        )
+
+        reset_cloudflared_supervisor()
+        supervisor = CloudflaredSupervisor(health_interval=0.05, backoff_base=0.01)
+        client = FakeCloudflareClient()
+        monkeypatch.setattr(exposure_commands, "CloudflareClient", lambda _t: client)
+        monkeypatch.setattr(exposure_commands, "get_cloudflared_supervisor", lambda: supervisor)
+
+        procs: list[MagicMock] = []
+
+        def _make_proc(pid: int, url: str, delay: float = 0.0):
+            proc = AsyncMock()
+            proc.pid = pid
+            proc.returncode = None
+            stopped_ev = asyncio.Event()
+
+            async def _wait():
+                await stopped_ev.wait()
+                return proc.returncode if proc.returncode is not None else 0
+
+            def _kill_or_term():
+                proc.returncode = -15
+                stopped_ev.set()
+
+            proc.wait = AsyncMock(side_effect=_wait)
+            proc.terminate = MagicMock(side_effect=_kill_or_term)
+            proc.kill = MagicMock(side_effect=_kill_or_term)
+
+            out_lines = [b""]
+            err_lines = [
+                b"INF Requesting new quick Tunnel on trycloudflare.com...\n",
+                f"INF |  {url}  |\n".encode(),
+            ]
+
+            async def _readline_out():
+                await stopped_ev.wait()
+                return out_lines[0]
+
+            async def _readline_err():
+                if err_lines:
+                    if delay and len(err_lines) == 1:
+                        await asyncio.sleep(delay)
+                    return err_lines.pop(0)
+                await stopped_ev.wait()
+                return b""
+
+            proc.stdout = AsyncMock()
+            proc.stdout.readline = AsyncMock(side_effect=_readline_out)
+            proc.stderr = AsyncMock()
+            proc.stderr.readline = AsyncMock(side_effect=_readline_err)
+            proc._stop_ev = stopped_ev
+            procs.append(proc)
+            return proc
+
+        run_idx = 0
+
+        async def _fake_create_subprocess(*_args, **_kwargs):
+            nonlocal run_idx
+            run_idx += 1
+            if run_idx == 1:
+                return _make_proc(101, "https://first-quick-101.trycloudflare.com", delay=0.0)
+            return _make_proc(202, "https://second-quick-202.trycloudflare.com", delay=0.1)
+
+        handler = SetPanelExposureHandler(event_bus=EventBus())
+
+        try:
+            with (
+                patch(
+                    "app.modules.exposure.infrastructure.cloudflared.os.killpg",
+                    side_effect=lambda pgid, _sig: [
+                        p.terminate() for p in procs if p.pid == pgid
+                    ],
+                ),
+                patch(
+                    "app.modules.exposure.infrastructure.cloudflared.os.getpgid",
+                    side_effect=lambda pid: pid,
+                ),
+                patch(
+                    "asyncio.create_subprocess_exec",
+                    new=AsyncMock(side_effect=_fake_create_subprocess),
+                ),
+            ):
+                try:
+                    first = await handler.handle(
+                        SetPanelExposureCommand(
+                            method="cloudflare_tunnel",
+                            desired_state="ENABLED",
+                            cloudflare_mode="quick",
+                        )
+                    )
+                    assert first.data["status"] == "ACTIVE"
+                    assert (
+                        first.data["public_address"]
+                        == "https://first-quick-101.trycloudflare.com"
+                    )
+
+                    restarted = await handler.handle(
+                        SetPanelExposureCommand(
+                            method="cloudflare_tunnel",
+                            desired_state="ENABLED",
+                            cloudflare_mode="quick",
+                        )
+                    )
+                    assert restarted.data["status"] == "ACTIVE"
+                    assert (
+                        restarted.data["public_address"]
+                        == "https://second-quick-202.trycloudflare.com"
+                    )
+
+                    # Give background event loop tasks a chance to run; status must remain ACTIVE
+                    await asyncio.sleep(0.1)
+                    panel = await _load_panel()
+                    assert panel.status == ExposureStatus.ACTIVE
+                    assert panel.public_address == "https://second-quick-202.trycloudflare.com"
+                    assert procs[0].returncode is not None
+
+                    from app.core.persistence.unit_of_work import UnitOfWork
+                    from app.modules.auth.domain.aggregate import AccessMode
+                    from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
+
+                    async with UnitOfWork() as check_uow:
+                        sys_state = await SQLSystemStateRepository(check_uow.session).get()
+                        assert sys_state.access_mode == AccessMode.GLOBAL
+                finally:
+                    await supervisor.stop()
+        finally:
+            reset_cloudflared_supervisor()
+
+    async def test_quick_tunnel_early_exit_sets_error_not_stopped(self, monkeypatch) -> None:
+        """If cloudflared exits early without emitting a URL, DB status becomes ERROR
+        with a clear error_message (never silently stuck on STOPPED)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.modules.exposure.application import commands as exposure_commands
+        from app.modules.exposure.infrastructure.cloudflared import (
+            CloudflaredSupervisor,
+            reset_cloudflared_supervisor,
+        )
+
+        reset_cloudflared_supervisor()
+        supervisor = CloudflaredSupervisor(health_interval=0.05, backoff_base=0.01)
+        client = FakeCloudflareClient()
+        monkeypatch.setattr(exposure_commands, "CloudflareClient", lambda _t: client)
+        monkeypatch.setattr(exposure_commands, "get_cloudflared_supervisor", lambda: supervisor)
+
+        proc = AsyncMock()
+        proc.pid = 303
+        proc.returncode = 1
+        proc.wait = AsyncMock(return_value=1)
+        proc.terminate = MagicMock()
+        proc.kill = MagicMock()
+
+        err_lines = [b"ERR failed to register quick tunnel: edge unreachable\n"]
+
+        async def _readline_err():
+            if err_lines:
+                return err_lines.pop(0)
+            return b""
+
+        proc.stdout = AsyncMock()
+        proc.stdout.readline = AsyncMock(return_value=b"")
+        proc.stderr = AsyncMock()
+        proc.stderr.readline = AsyncMock(side_effect=_readline_err)
+
+        handler = SetPanelExposureHandler(event_bus=EventBus())
+        try:
+            with patch(
+                "asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=proc),
+            ):
+                res = await handler.handle(
+                    SetPanelExposureCommand(
+                        method="cloudflare_tunnel",
+                        desired_state="ENABLED",
+                        cloudflare_mode="quick",
+                    )
+                )
+            assert res.data["status"] == "ERROR"
+            assert res.data["public_address"] is None
+            assert res.data["error_message"]
+            panel = await _load_panel()
+            assert panel.status == ExposureStatus.ERROR
+            assert panel.error_message
+        finally:
+            await supervisor.stop()
+            reset_cloudflared_supervisor()

@@ -790,7 +790,7 @@ export interface GetActivityParams {
   to_date?: number;
   branch?: string;
 }
-// P3-4 / P3-5 types
+// Live refresh, snapshots & secret vault types
 
 export interface MergeCommitsRequest {
   target_branch_name: string;
@@ -948,7 +948,7 @@ export interface LiveStateWriteResponse {
   reload_command: string | null;
 }
 
-// P4-3 / P4-4 Branch Runs, Port Sets & Data Templates types
+// Branch Runs, Port Sets & Data Templates types
 
 export type DataTemplateStatus = "cloning" | "ready" | "failed";
 export type DataTemplateSource = "live" | "branch";
@@ -1115,7 +1115,7 @@ export interface BranchConsoleCommandResponse {
   output: string;
 }
 
-// P5-3 / P5-4 GitHub Sync types
+// GitHub Sync types
 
 export type GitHubAuthMethod = "pat" | "ssh_deploy_key";
 
@@ -1269,7 +1269,7 @@ export interface GitHubWebhookDeliveryResponse {
   processed_at: string | null;
 }
 
-// ── P5.5 Modpacks, 1-Click Safe Upgrades, LEC & CurseForge Integration ──────
+// ── Modpacks, 1-Click Safe Upgrades, Loader Cache & CurseForge Integration ───
 
 export type P55LoaderId =
   | "fabric"

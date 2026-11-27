@@ -1,36 +1,57 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 import { ServerVersioningPage } from "./ServerVersioningPage";
-import type { GitHubConnectionStatusResponse } from "@/server_manager/types";
+import type {
+  GitHubConnectionStatusResponse,
+  ServerMode,
+} from "@/server_manager/types";
+
+const mockAuthState = {
+  canViewVersioning: true,
+  canVersioning: true,
+};
+
+vi.mock("@/hooks/useAuthPermissions", () => ({
+  useAuthPermissions: () => ({
+    canViewVersioning: () => mockAuthState.canViewVersioning,
+    canVersioning: () => mockAuthState.canVersioning,
+  }),
+}));
+
 const mockApi = {
+  getServer: vi.fn(),
   getServerBranches: vi.fn(),
   createServerBranch: vi.fn(),
+  deleteServerBranch: vi.fn(),
+  archiveBranch: vi.fn(),
   getServerCommits: vi.fn(),
   createServerCommit: vi.fn(),
-  getServerTestRuns: vi.fn(),
-  runIsolatedTest: vi.fn(),
-  getTestStatus: vi.fn(),
-  discardTest: vi.fn(),
+  diffCommits: vi.fn(),
   getBotSettings: vi.fn(),
   updateBotSettings: vi.fn(),
-  getPreflightStatus: vi.fn(),
   getServerTags: vi.fn().mockResolvedValue([]),
-  getLiveChanges: vi.fn().mockResolvedValue(null),
+  createTag: vi.fn(),
+  getLiveChanges: vi.fn().mockResolvedValue({ changes: [], auto_commit: null }),
   getBranchProtection: vi.fn().mockResolvedValue({ is_protected: false, policy: null }),
-  getTestDefinitions: vi.fn().mockResolvedValue([]),
-  getMaterializations: vi.fn().mockResolvedValue([]),
-  getRefreshState: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", active_journal: null, latest_journal: { journal_id: "j1", class_c_snapshot_id: "snap1", phase: "done" }, can_confirm_upgrade: true, can_rollback: true, previous_tree_retention: "until_health_gate" }),
-  refreshServer: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "done", status: "ok" }),
-  rollbackRefresh: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "rolled_back", status: "ok" }),
-  confirmUpgrade: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "confirmed", status: "ok" }),
-  releaseRefreshPins: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "done", status: "ok" }),
-  listClassCSnapshots: vi.fn().mockResolvedValue([{ snapshot_id: "snap1", server_id: "srv-vers-1", created_at: "2024", manifest_sha256: "abcd", pinned: false, entry_count: 1, archive_size_bytes: 10 }]),
-  listDynamicClassC: vi.fn().mockResolvedValue([{ server_id: "srv-vers-1", relpath: "whitelist.json", promoted_at: "2024", main_commit_sha: "sha" }]),
-  listSecrets: vi.fn().mockResolvedValue([{ server_id: "srv-vers-1", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", kek_version: 1, created_at: "2024", updated_at: "2024" }]),
-  mergeServerCommits: vi.fn().mockResolvedValue({ commit_id: "m1", server_id: "srv-vers-1", branch_name: "main", parent_commit_ids: [], warnings: ["lossy"] }),
-  extractSecret: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", branch: "dev", path: "config.yml", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", replaced_occurrences: 1, remaining_findings: [] }),
+  getRefreshState: vi.fn(),
+  refreshServer: vi.fn(),
+  rollbackRefresh: vi.fn(),
+  confirmUpgrade: vi.fn(),
+  releaseRefreshPins: vi.fn(),
+  listClassCSnapshots: vi.fn().mockResolvedValue([]),
+  createClassCSnapshot: vi.fn(),
+  restoreClassCSnapshot: vi.fn(),
+  deleteClassCSnapshot: vi.fn(),
+  listDynamicClassC: vi.fn().mockResolvedValue([]),
+  resetDynamicClassC: vi.fn(),
+  listSecrets: vi.fn().mockResolvedValue([]),
+  extractSecret: vi.fn(),
+  deleteSecret: vi.fn(),
+  mergeServerCommits: vi.fn(),
   listDataTemplates: vi.fn(),
   createDataTemplate: vi.fn(),
   deleteDataTemplate: vi.fn(),
@@ -40,6 +61,7 @@ const mockApi = {
   getBranchRuntime: vi.fn(),
   startBranchRun: vi.fn(),
   stopBranchRun: vi.fn(),
+  destroyBranchRun: vi.fn(),
   getBranchConsole: vi.fn(),
   sendBranchConsoleCommand: vi.fn(),
   getGitHubStatus: vi.fn(),
@@ -63,15 +85,42 @@ const mockBranches = [
     id: "b-main",
     server_id: "srv-vers-1",
     name: "main",
-    head_commit_id: "c-111",
+    head_commit_id: "c-111222333",
     created_at: "2026-09-14T10:00:00Z",
+    status: "active",
+    is_protected: true,
   },
   {
     id: "b-trial",
     server_id: "srv-vers-1",
     name: "feat-trial",
-    head_commit_id: null,
+    head_commit_id: "c-444555666",
     created_at: "2026-09-14T11:00:00Z",
+    status: "active",
+    is_protected: false,
+    runtime_status: "running",
+    container_provisioned: true,
+    active_commit_sha: "abcdef1234567890",
+    port_set: {
+      game_port: 25610,
+      rcon_port: 25611,
+      query_port: 25612,
+      plugin_ports: {},
+    },
+    worktree_locked: true,
+  },
+  {
+    id: "b-cleanup",
+    server_id: "srv-vers-1",
+    name: "feat-cleanup",
+    head_commit_id: "c-777888999",
+    created_at: "2026-09-14T11:30:00Z",
+    status: "active",
+    is_protected: false,
+    runtime_status: "stopped",
+    container_provisioned: false,
+    port_set: null,
+    worktree_locked: false,
   },
 ];
 
@@ -80,31 +129,41 @@ const mockCommits = [
     id: "c-111222333",
     server_id: "srv-vers-1",
     branch_id: "b-main",
-    parent_commit_id: null,
+    parent_commit_id: "c-000111222",
+    parent_commit_ids: ["c-000111222"],
     author_id: "admin",
     message: "Initial baseline configuration",
     manifest: {
-      server_type: "paper",
+      server_type: "ServerType.PURPUR",
       minecraft_version: "1.21.1",
-      configs: { "server.properties": "online-mode=true\n" },
-      mods: [{ filename: "plugins/EssentialsX.jar", sha256: "abc", source: "custom" }],
+      configs: {},
+      mods: [],
       env_vars: {},
       java_args: "-Xmx4G",
     },
-    world_snapshot_id: "snap-1",
+    world_snapshot_id: null,
     created_at: "2026-09-14T10:05:00Z",
   },
+  {
+    id: "c-000111222",
+    server_id: "srv-vers-1",
+    branch_id: "b-other-branch",
+    parent_commit_id: null,
+    parent_commit_ids: [],
+    author_id: "123e4567-e89b-12d3-a456-426614174000",
+    message: "Merged ancestor commit",
+    manifest: {
+      server_type: "purpur",
+      minecraft_version: "1.21.1",
+      configs: {},
+      mods: [],
+      env_vars: {},
+      java_args: "",
+    },
+    world_snapshot_id: null,
+    created_at: "2026-09-14T09:05:00Z",
+  },
 ];
-
-const mockPreflight = {
-  reflink_supported: true,
-  available_ram_mb: 16384,
-  available_cores: 8,
-  min_required_ram_mb: 4096,
-  min_required_cores: 2,
-  passed: true,
-  error: null,
-};
 
 const mockBotSettings = {
   server_id: "srv-vers-1",
@@ -116,7 +175,7 @@ const mockBotSettings = {
   effective_duration_minutes: 15,
   effective_bot_tech: "fakeplayer_next",
   effective_placement_mode: "sidecar",
-  previous_tree_retention: "until_health_gate",
+  previous_tree_retention: "until_confirm",
 };
 
 function buildGitHubStatus(
@@ -167,21 +226,94 @@ function buildGitHubStatus(
 describe("ServerVersioningPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(mockApi.getServerBranches).mockResolvedValue(mockBranches);
-    vi.mocked(mockApi.getServerCommits).mockResolvedValue(mockCommits);
-    vi.mocked(mockApi.getBotSettings).mockResolvedValue(mockBotSettings);
-    vi.mocked(mockApi.getPreflightStatus).mockResolvedValue(mockPreflight);
-    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue([]);
-    vi.mocked(mockApi.listDataTemplates).mockResolvedValue([]);
-    vi.mocked(mockApi.getBranchRuntime).mockResolvedValue(null);
-    vi.mocked(mockApi.getBranchConsole).mockResolvedValue({
+    mockAuthState.canViewVersioning = true;
+    mockAuthState.canVersioning = true;
+    mockApi.getServer.mockResolvedValue({
+      server_id: "srv-vers-1",
+      name: "Purpur Main",
+      server_type: "purpur",
+      minecraft_version: "1.21.1",
+      mode: "advanced",
+    });
+    mockApi.getServerBranches.mockResolvedValue(mockBranches);
+    mockApi.getServerCommits.mockResolvedValue(mockCommits);
+    mockApi.getBotSettings.mockResolvedValue(mockBotSettings);
+    mockApi.listDataTemplates.mockResolvedValue([]);
+    mockApi.getBranchRuntime.mockResolvedValue(null);
+    mockApi.diffCommits.mockResolvedValue({
+      from_commit_id: "main",
+      to_commit_id: "feat-trial",
+      has_changes: true,
+      configs: { added: ["config/new.yml"], modified: ["server.properties"], removed: [] },
+      mods: { added: [], removed: [], modified: [] },
+      env_vars: { added: {}, removed: {}, modified: {} },
+      server_type: null,
+      minecraft_version: null,
+      java_args: null,
+    });
+    mockApi.getRefreshState.mockResolvedValue({
+      server_id: "srv-vers-1",
+      active_journal: null,
+      latest_journal: {
+        journal_id: "j1",
+        server_id: "srv-vers-1",
+        phase: "COMPLETED",
+        terminal: true,
+        target_main_sha: "c-111222333",
+        previous_main_sha: "c-000111222",
+        class_c_snapshot_id: "snap1",
+        previous_dir: "/tmp/prev",
+        retention_policy: "until_confirm",
+        retain_until: null,
+        rollback_reason: null,
+        error_detail: null,
+        created_at: "2026-09-14T10:00:00Z",
+        updated_at: "2026-09-14T10:01:00Z",
+      },
+      can_confirm_upgrade: true,
+      can_rollback: true,
+      previous_tree_retention: "until_confirm",
+    });
+    mockApi.refreshServer.mockResolvedValue({
+      server_id: "srv-vers-1",
+      journal_id: "j2",
+      phase: "COMPLETED",
+      status: "ok",
+    });
+    mockApi.rollbackRefresh.mockResolvedValue({
+      server_id: "srv-vers-1",
+      journal_id: "j1",
+      phase: "ROLLED_BACK",
+      status: "ok",
+    });
+    mockApi.confirmUpgrade.mockResolvedValue({
+      server_id: "srv-vers-1",
+      journal_id: "j1",
+      phase: "UPGRADE_CONFIRMED",
+      status: "ok",
+    });
+    mockApi.releaseRefreshPins.mockResolvedValue({
+      server_id: "srv-vers-1",
+      journal_id: "j1",
+      phase: "ROLLED_BACK",
+      status: "ok",
+    });
+    mockApi.deleteServerBranch.mockResolvedValue({ deleted: true });
+    mockApi.mergeServerCommits.mockResolvedValue({
+      commit_id: "m1",
+      server_id: "srv-vers-1",
+      branch_name: "main",
+      parent_commit_ids: ["c-111222333", "c-444555666"],
+      warnings: [],
+    });
+    mockApi.getBranchConsole.mockResolvedValue({
       server_id: "srv-vers-1",
       branch_name: "feat-trial",
       runtime_id: "rt-1",
       container_name: "onx-feat-trial",
       lines: ["[INFO] Branch container ready"],
     });
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(
+    mockApi.getGitHubStatus.mockResolvedValue(
       buildGitHubStatus({
         connected: false,
         remote_url: null,
@@ -193,626 +325,327 @@ describe("ServerVersioningPage", () => {
         branches: [],
       }),
     );
-    vi.mocked(mockApi.listGitHubWebhookDeliveries).mockResolvedValue([]);
+    mockApi.listGitHubWebhookDeliveries.mockResolvedValue([]);
+    mockApi.listClassCSnapshots.mockResolvedValue([
+      {
+        snapshot_id: "snap1",
+        server_id: "srv-vers-1",
+        created_at: "2026-09-14T10:00:00Z",
+        manifest_sha256: "abcd1234",
+        pinned: false,
+        entry_count: 1,
+        archive_size_bytes: 2048,
+      },
+    ]);
+    mockApi.listDynamicClassC.mockResolvedValue([
+      {
+        server_id: "srv-vers-1",
+        relpath: "whitelist.json",
+        promoted_at: "2026-09-14T10:00:00Z",
+        main_commit_sha: "c-111222333",
+      },
+    ]);
+    mockApi.listSecrets.mockResolvedValue([
+      {
+        server_id: "srv-vers-1",
+        key_name: "DB_PASSWORD",
+        placeholder: "${ONX_SECRET_DB_PASSWORD}",
+        kek_version: 1,
+        created_at: "2026-09-14T10:00:00Z",
+        updated_at: "2026-09-14T10:00:00Z",
+      },
+    ]);
+    mockApi.extractSecret.mockResolvedValue({
+      server_id: "srv-vers-1",
+      branch: "feat-trial",
+      path: "config.yml",
+      key_name: "DB_PASSWORD",
+      placeholder: "${ONX_SECRET_DB_PASSWORD}",
+      replaced_occurrences: 1,
+      remaining_findings: [],
+    });
   });
 
-  const SettingsRouteProbe = () => {
-    const loc = useLocation();
-    return <div data-testid="settings-route-target">{`${loc.pathname}${loc.search}`}</div>;
+  const renderPage = (
+    initialUrl = "/servers/srv-vers-1/versioning",
+    options?: { serverMode?: ServerMode; initialBranch?: string },
+  ) => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const setBranch = vi.fn();
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[initialUrl]}>
+          <ServerBranchContext.Provider
+            value={{
+              branch: options?.initialBranch ?? "main",
+              setBranch,
+              gitBacked: true,
+              serverMode: options?.serverMode ?? "advanced",
+            }}
+          >
+            <Routes>
+              <Route
+                path="/servers/:serverId/versioning"
+                element={<ServerVersioningPage />}
+              />
+              <Route
+                path="/servers/:serverId/settings"
+                element={<div data-testid="settings-route">Settings</div>}
+              />
+              <Route
+                path="/servers/:serverId/files"
+                element={<div data-testid="files-route">Files</div>}
+              />
+              <Route
+                path="/servers/:serverId/console"
+                element={<div data-testid="console-route">Console</div>}
+              />
+            </Routes>
+          </ServerBranchContext.Provider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
   };
 
-  const renderPage = () =>
-    render(
-      <MemoryRouter initialEntries={["/servers/srv-vers-1/versioning"]}>
-        <Routes>
-          <Route path="/servers/:serverId/versioning" element={<ServerVersioningPage />} />
-          <Route path="/servers/:serverId/settings" element={<SettingsRouteProbe />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-  it("renders branches and commit timeline without legacy Btrfs storage banner or bot test list", async () => {
+  it("renders the clean 3-tab cockpit with branches & sandboxes visible immediately on landing", async () => {
     renderPage();
 
-    expect(await screen.findByText("Versions & Sandboxes")).toBeInTheDocument();
-    expect(screen.queryByText(/Instant storage cloning/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Run Isolated Test/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Verification Defaults/i)).not.toBeInTheDocument();
+    expect(await screen.findByTestId("production-branch-card")).toBeInTheDocument();
+    expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument();
+    expect(screen.getByTestId("branch-card-feat-trial")).toBeInTheDocument();
+    expect(screen.getByText("Game: 25610")).toBeInTheDocument();
+    expect(screen.getByText("RCON: 25611")).toBeInTheDocument();
+    expect(screen.queryByText(/3-Step Safe Testing/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Uncommitted Live Server Changes/i)).not.toBeInTheDocument();
+  });
+
+  it("enforces Simple Mode guard and fires zero versioning API calls", async () => {
+    renderPage("/servers/srv-vers-1/versioning", { serverMode: "simple" });
+
+    expect(
+      await screen.findByTestId("versioning-simple-mode-guard"),
+    ).toBeInTheDocument();
+    expect(mockApi.getServerBranches).not.toHaveBeenCalled();
+    expect(mockApi.getServerCommits).not.toHaveBeenCalled();
+    expect(mockApi.getRefreshState).not.toHaveBeenCalled();
+  });
+
+  it("enforces RBAC v2 read-only mode when canVersioning is false", async () => {
+    mockAuthState.canVersioning = false;
+    renderPage();
+
+    expect(
+      await screen.findByTestId("versioning-readonly-badge"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Branch" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Deploy main to Live" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Merge to main" })).not.toBeInTheDocument();
+  });
+
+  it("deploys main to live with until_confirm default and supports Undo Last Deploy", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Deploy main to Live" }));
+    const deployDialog = await screen.findByRole("dialog", {
+      name: "Deploy main to Live Server",
+    });
+    await user.click(within(deployDialog).getByRole("button", { name: "Deploy to Live" }));
+
+    await waitFor(() => {
+      expect(mockApi.refreshServer).toHaveBeenCalledWith("srv-vers-1", {
+        retention_policy: "until_confirm",
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Undo Last Deploy" }));
+    const undoDialog = await screen.findByRole("dialog", {
+      name: "Undo Last Live Deployment?",
+    });
+    await user.click(within(undoDialog).getByRole("button", { name: "Undo Last Deploy" }));
+    await waitFor(() => {
+      expect(mockApi.rollbackRefresh).toHaveBeenCalledWith("srv-vers-1", {
+        journal_id: "j1",
+        reason: "operator_requested",
+      });
+    });
+  });
+
+  it("shows all commits without stripping ancestor commits and formats ServerType.PURPUR cleanly", async () => {
+    const user = userEvent.setup();
+    renderPage("/servers/srv-vers-1/versioning?tab=snapshots");
+
     expect(await screen.findByText("Initial baseline configuration")).toBeInTheDocument();
-    expect(screen.getByText("c-111222")).toBeInTheDocument();
-  });
-
-  it("renders active P3 controls", async () => {
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "Live Refresh" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Rollback" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm Upgrade" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Live Data & Secret Vault" })).toBeInTheDocument();
-    expect(screen.getByText("Merge Branch")).toBeInTheDocument();
-  });
-
-  it("clicking Live Refresh calls refreshServer", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Live Refresh" }));
-    await waitFor(() => expect(mockApi.refreshServer).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ retention_policy: "until_health_gate" })));
-  });
-
-  it("clicking Rollback calls rollbackRefresh when can_rollback", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    const rollbackBtn = await screen.findByRole("button", { name: "Rollback" });
-    await waitFor(() => expect(rollbackBtn).toBeEnabled());
-    await user.click(rollbackBtn);
-    await waitFor(() => expect(mockApi.rollbackRefresh).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ journal_id: "j1", reason: "operator_requested" })));
-  });
-
-  it("clicking Confirm Upgrade calls confirmUpgrade", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    const confirmBtn = await screen.findByRole("button", { name: "Confirm Upgrade" });
-    await waitFor(() => expect(confirmBtn).toBeEnabled());
-    await user.click(confirmBtn);
-    await waitFor(() => expect(mockApi.confirmUpgrade).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ journal_id: "j1" })));
-  });
-
-  it("Merge Branch modal submits and shows warnings/conflicts", async () => {
-    const user = userEvent.setup();
-    mockApi.mergeServerCommits.mockRejectedValueOnce(Object.assign(new Error("conflict"), { detail: { conflicts: [{ path: "a", key_path: "k", base: "b", ours: "o", theirs: "t" }], findings: [{ x: 1 }] } }));
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
-    await user.click(screen.getByText("Merge Branch"));
-    const modal = await screen.findByRole("dialog", { name: "Merge Branch" });
-    expect(modal).toBeInTheDocument();
-    // submit
-    await user.click(screen.getByRole("button", { name: "Merge" }));
-    await waitFor(() => expect(mockApi.mergeServerCommits).toHaveBeenCalled());
-    expect(screen.getByText(/a k b o t/)).toBeInTheDocument();
-    expect(screen.getByText(/\{"x":1\}/)).toBeInTheDocument();
-  });
-
-  it("Live Data & Secret Vault modal lists and extracts secret clearing password", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Live Data & Secret Vault" }));
-    expect(await screen.findByText("snap1")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Live Runtime" }));
-    expect(await screen.findByRole("button", { name: "Track in Git (from main)" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Secrets" }));
-    expect(await screen.findByText(/\$\{ONX_SECRET_DB_PASSWORD\}/)).toBeInTheDocument();
-    const pwd = screen.getByPlaceholderText("Secret Plaintext Value") as HTMLInputElement;
-    await user.type(pwd, "secret");
-    expect(pwd.value).toBe("secret");
-    await user.click(screen.getByRole("button", { name: "Extract Secret" }));
-    await waitFor(() => expect(pwd.value).toBe(""));
-    expect(mockApi.extractSecret).toHaveBeenCalled();
-  });
-
-  it("opens create branch dialog and creates a new branch", async () => {
-    vi.mocked(mockApi.createServerBranch).mockResolvedValue({ success: true });
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getAllByText("New Branch")[0]).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getAllByText("New Branch")[0]);
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Create New Branch")).toBeInTheDocument();
-
-    const input = screen.getByLabelText("Branch Name");
-    fireEvent.change(input, { target: { value: "feat-speed-test" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Create Branch" }));
-
-    await waitFor(() => {
-      expect(mockApi.createServerBranch).toHaveBeenCalledWith("srv-vers-1", {
-        name: "feat-speed-test",
-      });
-    });
-  });
-
-  it("opens create commit dialog and saves a snapshot commit", async () => {
-    vi.mocked(mockApi.createServerCommit).mockResolvedValue({ success: true, commit_id: "c-new" });
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("Create Snapshot Commit")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Create Snapshot Commit"));
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    const input = screen.getByLabelText("Commit Message");
-    fireEvent.change(input, { target: { value: "Pre-patch backup" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Commit Snapshot" }));
-
-    await waitFor(() => {
-      expect(mockApi.createServerCommit).toHaveBeenCalledWith("srv-vers-1", {
-        message: "Pre-patch backup",
-        branch_name: "main",
-      });
-    });
-  });
-
-  it("renders semantic surface classes on empty commit timeline when branch has no commits", async () => {
-    vi.mocked(mockApi.getServerCommits).mockResolvedValue([]);
-    renderPage();
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/No snapshot commits yet on branch/i)
-      ).toBeInTheDocument();
-    });
-
-    const emptyCommitMsg = screen.getByText(/No snapshot commits yet on branch/i);
-    const commitPanel = emptyCommitMsg.closest(".rounded-xl");
-    expect(commitPanel).not.toBeNull();
-    expect(commitPanel).toHaveClass("bg-surface-card");
-    expect(screen.queryByText(/No isolated test runs active or recorded/i)).not.toBeInTheDocument();
-  });
-
-  it("renders 3-step visual workflow guide banner collapsed by default and allows expanding and collapsing", async () => {
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("3-Step Safe Testing & Promotion Workflow")).toBeInTheDocument();
-    });
-
-    // Collapsed by default: steps not visible
-    expect(screen.queryByText("Step 1: Snapshot World (Commit)")).not.toBeInTheDocument();
-    const expandBtn = screen.getByRole("button", { name: /Expand Guide/i });
-    expect(expandBtn).toBeInTheDocument();
-
-    // Toggle expand: steps are visible as documentation
-    fireEvent.click(expandBtn);
-    expect(screen.getByText("Step 1: Snapshot World (Commit)")).toBeInTheDocument();
-    expect(screen.getByText("Step 2: Isolate (Branch / Worktree)")).toBeInTheDocument();
-    expect(screen.getByText("Step 3: Branch Sandbox & Live Promotion")).toBeInTheDocument();
-
-    // No duplicate action buttons inside guide
-    expect(screen.queryByRole("button", { name: "Create Snapshot" })).not.toBeInTheDocument();
-
-    // Toggle collapse
-    const collapseBtn = screen.getByRole("button", { name: /Collapse Guide/i });
-    fireEvent.click(collapseBtn);
-    expect(screen.queryByText("Step 1: Snapshot World (Commit)")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Expand Guide/i })).toBeInTheDocument();
-  });
-
-  it("groups secondary commit actions in More commit actions menu without legacy bot test button", async () => {
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("Initial baseline configuration")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByRole("button", { name: "Run Isolated Test" })).not.toBeInTheDocument();
-
-    // Secondary actions initially not in DOM
-    expect(screen.queryByRole("button", { name: "Tag" })).not.toBeInTheDocument();
+    expect(screen.getByText("Merged ancestor commit")).toBeInTheDocument();
+    expect(screen.queryByText(/ServerType\.PURPUR/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Purpur 1.21.1").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/123e4567-e89b/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Inspect Manifest" })).not.toBeInTheDocument();
 
-    // Open More commit actions menu
-    const moreBtn = screen.getByRole("button", { name: "More commit actions" });
-    fireEvent.click(moreBtn);
+    // Restore to Live on non-live ancestor commit passes target_main_sha + until_confirm
+    await user.click(screen.getByRole("button", { name: "Restore to Live" }));
+    const restoreDialog = await screen.findByRole("dialog", {
+      name: "Restore Snapshot to Live Server",
+    });
+    await user.click(within(restoreDialog).getByRole("button", { name: "Restore to Live" }));
 
-    // Secondary actions now visible
-    expect(screen.getByRole("button", { name: "Tag" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Inspect Manifest" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockApi.refreshServer).toHaveBeenCalledWith("srv-vers-1", {
+        retention_policy: "until_confirm",
+        target_main_sha: "c-000111222",
+      });
+    });
   });
 
-  const switchToTrialBranch = async () => {
-    const branchSelect = await screen.findByDisplayValue("main");
-    fireEvent.change(branchSelect, { target: { value: "feat-trial" } });
-    return screen.findByTestId("branch-run-panel");
-  };
+  it("opens Test in Sandbox with commit_sha on non-main branches", async () => {
+    const user = userEvent.setup();
+    renderPage("/servers/srv-vers-1/versioning?tab=snapshots", {
+      initialBranch: "feat-trial",
+    });
 
-  it("hides the Branch Run Panel on main and shows it after switching to feat-trial", async () => {
-    renderPage();
+    const testBtns = await screen.findAllByRole("button", { name: "Test in Sandbox" });
+    await user.click(testBtns[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Start Branch Run" });
+    expect(within(dialog).getByText(/Testing historical snapshot/i)).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
-    expect(screen.queryByTestId("branch-run-panel")).not.toBeInTheDocument();
-
-    const panel = await switchToTrialBranch();
-
-    expect(panel).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start Branch Run" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Branch Console" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Branch Activity" })).toBeInTheDocument();
-  });
-
-  it("shows the Spec K uncommitted changes warning after starting a branch run and refreshes runtime", async () => {
-    mockApi.startBranchRun.mockResolvedValue({
-      runtime_id: "rt-1",
+    mockApi.startBranchRun.mockResolvedValueOnce({
+      runtime_id: "rt-2",
       server_id: "srv-vers-1",
       branch_name: "feat-trial",
-      commit_sha: "deadbeef12345678",
+      commit_sha: "c-111222333",
       container_name: "onx-feat-trial",
-      container_id: "c-1",
+      container_id: "c-2",
       port_set: { game_port: 25610, rcon_port: 25611 },
       data_template_id: null,
       allow_public_test_join: false,
-      uncommitted_changes_warning: true,
+      uncommitted_changes_warning: false,
       memory_max_mb: 2048,
       cpu_cores: 2,
     });
-
-    renderPage();
-    await switchToTrialBranch();
-    const callsBeforeStart = mockApi.getBranchRuntime.mock.calls.length;
-
-    fireEvent.click(screen.getByRole("button", { name: "Start Branch Run" }));
-    const dialog = await screen.findByRole("dialog", { name: "Start Branch Run" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Start Branch Run" }));
+    await user.click(within(dialog).getByRole("button", { name: "Start Branch Run" }));
 
     await waitFor(() => {
       expect(mockApi.startBranchRun).toHaveBeenCalledWith(
         "srv-vers-1",
         "feat-trial",
-        expect.objectContaining({ allow_public_test_join: false }),
+        expect.objectContaining({ commit_sha: "c-111222333" }),
       );
     });
+  });
 
-    const warning = await screen.findByTestId("uncommitted-changes-warning");
-    expect(warning).toHaveTextContent("Uncommitted changes in worktree were not included");
-    expect(warning).toHaveTextContent("deadbeef");
+  it("previews merge diff, renders structured conflicts, and prompts to deploy after merge", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const mergeBtns = await screen.findAllByRole("button", { name: "Merge to main" });
+    await user.click(mergeBtns[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Merge Branch" });
+
     await waitFor(() => {
-      expect(mockApi.getBranchRuntime.mock.calls.length).toBeGreaterThan(callsBeforeStart);
+      expect(mockApi.diffCommits).toHaveBeenCalledWith("srv-vers-1", "main", "feat-trial");
     });
-  });
+    expect(within(dialog).getByText(/config files changed/i)).toBeInTheDocument();
 
-  it("renders running status, pinned commit, worktree lock, and copyable port set", async () => {
-    mockApi.getBranchRuntime.mockResolvedValue({
-      server_id: "srv-vers-1",
-      branch_name: "feat-trial",
-      runtime_status: "running",
-      runtime_id: "rt-1",
-      active_commit_sha: "abcdef1234567890",
-      data_template_id: null,
-      allow_public_test_join: false,
-      container_liveness: true,
-      port_set: {
-        game_port: 25610,
-        rcon_port: 25611,
-        query_port: 25612,
-        plugin_ports: { dynmap: 25613 },
-      },
-      worktree_locked: true,
-      worktree_lock_reason: "Active branch runtime",
-    });
-
-    renderPage();
-    await switchToTrialBranch();
-
-    expect(await screen.findByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("Commit abcdef12")).toBeInTheDocument();
-    expect(screen.getByTestId("worktree-lock-badge")).toBeInTheDocument();
-    expect(screen.getByText("Game: 25610")).toBeInTheDocument();
-    expect(screen.getByText("RCON: 25611")).toBeInTheDocument();
-    expect(screen.getByText("Query: 25612")).toBeInTheDocument();
-    expect(screen.getByText("dynmap: 25613")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy join port" })).toBeInTheDocument();
-  });
-
-  it("opens the Data Templates modal from the P4 toolbar and lists templates", async () => {
-    vi.mocked(mockApi.listDataTemplates).mockResolvedValue([
-      {
-        id: "tpl-1",
-        server_id: "srv-vers-1",
-        name: "seed-1",
-        description: "Known good world",
-        source_branch_name: null,
-        source_commit_sha: null,
-        file_count: 12,
-        total_bytes: 1024,
-        status: "ready",
-        operation_id: null,
-        created_at: "2026-09-14T10:00:00Z",
-        updated_at: "2026-09-14T10:00:00Z",
-      },
-    ]);
-
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Versions & Sandboxes")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "Data Templates" }));
-
-    expect(await screen.findByRole("dialog", { name: "Data Templates" })).toBeInTheDocument();
-    expect(await screen.findByText("seed-1")).toBeInTheDocument();
-    expect(screen.getByText("12 files")).toBeInTheDocument();
-  });
-
-  it("opens the Branch Console & Activity modal scoped to feat-trial", async () => {
-    mockApi.getBranchRuntime.mockResolvedValue({
-      server_id: "srv-vers-1",
-      branch_name: "feat-trial",
-      runtime_status: "running",
-      runtime_id: "rt-1",
-      active_commit_sha: "abcdef1234567890",
-      data_template_id: null,
-      allow_public_test_join: false,
-      container_liveness: true,
-      port_set: null,
-      worktree_locked: false,
-      worktree_lock_reason: null,
-    });
-
-    renderPage();
-    await switchToTrialBranch();
-    await screen.findByText("Running");
-
-    fireEvent.click(screen.getByRole("button", { name: "Branch Console" }));
-
-    expect(
-      await screen.findByRole("dialog", { name: "Branch Console & Activity" }),
-    ).toBeInTheDocument();
-    await waitFor(() => {
-      expect(mockApi.getBranchConsole).toHaveBeenCalledWith("srv-vers-1", "feat-trial", 200);
-    });
-    expect(await screen.findByTestId("branch-console-output")).toHaveTextContent(
-      "[INFO] Branch container ready",
-    );
-  });
-
-  it("renders the disconnected GitHub sync panel and opens the connect modal", async () => {
-    renderPage();
-
-    const panel = await screen.findByTestId("github-sync-panel");
-    expect(within(panel).getByTestId("github-sync-status-badge")).toHaveTextContent(
-      "Not Connected",
-    );
-    fireEvent.click(within(panel).getByRole("button", { name: "Connect GitHub" }));
-
-    expect(
-      await screen.findByRole("dialog", { name: "Connect GitHub Repository" }),
-    ).toBeInTheDocument();
-  });
-
-  it("renders connected GitHub sync state, 1:1 branch indicator, and toolbar pill on branch switch", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-
-    renderPage();
-
-    const strip = await screen.findByTestId("github-branch-sync-strip");
-    const panel = screen.getByTestId("github-sync-panel");
-    expect(within(panel).getByTestId("github-sync-status-badge")).toHaveTextContent(
-      "Synced",
-    );
-    expect(
-      within(panel).getByText("https://github.com/owner/repo.git"),
-    ).toBeInTheDocument();
-
-    expect(strip).toHaveTextContent("Selected Branch (1:1 Sync)");
-    expect(strip).toHaveTextContent("main");
-    expect(strip).toHaveTextContent("Local aaaa1111");
-    expect(screen.getByTestId("branch-github-sync-pill")).toHaveTextContent(
-      "GitHub: Synced",
-    );
-
-    await switchToTrialBranch();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("branch-github-sync-pill")).toHaveTextContent(
-        "GitHub: 2 ahead",
-      ),
-    );
-  });
-
-  it("clicking Fetch Now calls fetchGitHubSync and shows success feedback", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-    vi.mocked(mockApi.fetchGitHubSync).mockResolvedValue({
-      server_id: "srv-vers-1",
-      sync_status: "synced",
-      trigger: "manual",
-      main_fast_forwarded: true,
-      previous_main_sha: "aaaa1111bbbb2222",
-      main_sha: "bbbb2222cccc3333",
-      remote_default_branch: "main",
-      remote_head_sha: "bbbb2222cccc3333",
-      branches: [],
-      fetched_at: "2026-09-14T10:10:00Z",
-    });
-
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Fetch Now" }));
-
-    await waitFor(() =>
-      expect(mockApi.fetchGitHubSync).toHaveBeenCalledWith("srv-vers-1"),
-    );
-    expect(
-      await screen.findByText("Fetched from GitHub and fast-forwarded 'main'."),
-    ).toBeInTheDocument();
-  });
-
-  it("clicking Push main calls pushGitHubBranch without a force key", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-    vi.mocked(mockApi.pushGitHubBranch).mockResolvedValue({
-      server_id: "srv-vers-1",
-      branch_name: "main",
-      commit_sha: "abcdef1234567890",
-      remote_url: "https://github.com/owner/repo.git",
-      sync_status: "synced",
-      branches: [],
-      pushed_at: "2026-09-14T10:15:00Z",
-    });
-
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
-
-    await waitFor(() =>
-      expect(mockApi.pushGitHubBranch).toHaveBeenCalledWith("srv-vers-1", {
-        branch_name: "main",
-      }),
-    );
-    expect(mockApi.pushGitHubBranch.mock.calls[0][1]).toEqual({
-      branch_name: "main",
-    });
-    expect(
-      await screen.findByText(
-        "Pushed branch 'main' (abcdef12) to GitHub.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("renders the non-fast-forward main conflict alert with short SHAs", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-    vi.mocked(mockApi.pushGitHubBranch).mockRejectedValue(
-      Object.assign(new Error("Non-fast-forward update rejected"), {
-        code: "GITHUB_NON_FAST_FORWARD_MAIN",
-        status: 409,
+    // First attempt: conflict + finding
+    mockApi.mergeServerCommits.mockRejectedValueOnce(
+      Object.assign(new Error("Merge conflict"), {
         detail: {
-          local_sha: "aaaa1111bbbb2222",
-          remote_sha: "cccc3333dddd4444",
+          conflicts: [{ path: "server.properties", key_path: "motd", base: "b", ours: "o", theirs: "t" }],
+          findings: [{ path: "config.yml", pattern: "api_key", message: "Exposed secret" }],
         },
       }),
     );
+    await user.click(within(dialog).getByRole("button", { name: "Merge Branch" }));
 
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
+    expect(await within(dialog).findByText(/Merge Conflicts Detected/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Secret Scan Blocked Merge/i)).toBeInTheDocument();
 
-    const alert = await screen.findByTestId("github-nff-conflict-alert");
-    expect(alert).toHaveTextContent("Local: aaaa1111");
-    expect(alert).toHaveTextContent("Remote: cccc3333");
-    expect(alert).toHaveTextContent("Force-push is disabled to protect server history.");
-  });
-
-  it("renders the reauth banner whose CTA opens the rotate credentials modal", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-    vi.mocked(mockApi.pushGitHubBranch).mockRejectedValue(
-      Object.assign(new Error("GitHub authentication failed"), {
-        code: "GITHUB_AUTH_FAILED",
-        status: 409,
-        detail: { needs_reauth: true },
-      }),
-    );
-
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
-
-    const banner = await screen.findByTestId("github-reauth-banner");
-    expect(banner).toHaveTextContent("GitHub authentication failed");
-    fireEvent.click(
-      within(banner).getByRole("button", {
-        name: "Reconnect / Rotate Credentials",
-      }),
-    );
-
+    // Second attempt: success -> offers Deploy main to Live Now
+    await user.click(within(dialog).getByRole("button", { name: "Merge Branch" }));
     expect(
-      await screen.findByRole("dialog", {
-        name: "Rotate GitHub Credentials & Webhook",
-      }),
+      await within(dialog).findByRole("button", { name: "Deploy main to Live Now" }),
     ).toBeInTheDocument();
   });
 
-  it("renders the plain .jar push rejection alert with forbidden paths", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-    vi.mocked(mockApi.pushGitHubBranch).mockRejectedValue(
-      Object.assign(new Error("Push rejected"), {
-        code: "GITHUB_PUSH_REJECTED",
-        status: 409,
-        detail: {
-          branch: "main",
-          reason: "plain_jar_blob_forbidden",
-          forbidden_paths: ["plugins/Test.jar"],
-        },
-      }),
-    );
-
+  it("supports Delete Branch from branch overflow menu while blocking active sandboxes", async () => {
+    const user = userEvent.setup();
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Push main" }));
 
-    const alert = await screen.findByTestId("github-push-rejected-alert");
-    expect(alert).toHaveTextContent(
-      "Push rejected: plain .jar binaries cannot be pushed to GitHub.",
+    // Running sandbox branch disables Delete Branch
+    await user.click(
+      await screen.findByRole("button", { name: "More actions for feat-trial" }),
     );
-    expect(alert).toHaveTextContent("plugins/Test.jar");
-  });
+    expect(screen.getByRole("button", { name: "Delete Branch" })).toBeDisabled();
 
-  it("opens disconnect and webhook deliveries modals, preserving local history feedback", async () => {
-    vi.mocked(mockApi.getGitHubStatus).mockResolvedValue(buildGitHubStatus());
-    vi.mocked(mockApi.disconnectGitHub).mockResolvedValue({
-      server_id: "srv-vers-1",
-      disconnected: true,
-      remote_url: "https://github.com/owner/repo.git",
-      local_history_preserved: true,
-      purged_deliveries: 0,
-    });
-
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Webhook Deliveries" }));
-    const deliveriesDialog = await screen.findByRole("dialog", {
-      name: "GitHub Webhook Deliveries",
-    });
-    expect(deliveriesDialog).toBeInTheDocument();
-    fireEvent.click(
-      within(deliveriesDialog).getByRole("button", { name: "Close" }),
+    // Stopped branch allows Delete Branch
+    await user.click(
+      screen.getByRole("button", { name: "More actions for feat-cleanup" }),
     );
+    await user.click(screen.getByRole("button", { name: "Delete Branch" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
-    const disconnectDialog = await screen.findByRole("dialog", {
-      name: "Disconnect GitHub Repository",
+    const confirmDialog = await screen.findByRole("dialog", {
+      name: 'Delete branch "feat-cleanup"?',
     });
-    expect(
-      within(disconnectDialog).getByText(/Local Git history is preserved/i),
-    ).toBeInTheDocument();
+    await user.click(within(confirmDialog).getByRole("button", { name: "Delete Branch" }));
 
-    fireEvent.click(
-      within(disconnectDialog).getByRole("button", {
-        name: "Disconnect GitHub",
-      }),
-    );
-
-    await waitFor(() =>
-      expect(mockApi.disconnectGitHub).toHaveBeenCalledWith(
+    await waitFor(() => {
+      expect(mockApi.deleteServerBranch).toHaveBeenCalledWith(
         "srv-vers-1",
-        false,
-      ),
-    );
-    expect(
-      await screen.findByText(
-        "Disconnected from GitHub (local Git history preserved).",
-      ),
-    ).toBeInTheDocument();
+        "feat-cleanup",
+      );
+    });
   });
 
-  it("gates Install Modpack action on server loader type (hidden on Paper, visible on Fabric)", async () => {
-    renderPage();
-    await waitFor(() =>
-      expect(screen.getByTestId("versioning-open-safe-upgrade-wizard-btn")).toBeInTheDocument(),
-    );
-    expect(screen.queryByTestId("versioning-open-modpack-wizard-btn")).not.toBeInTheDocument();
+  it("exposes Retention Policy, GitHub Sync, and formatted Vault in Sync & Vault tab", async () => {
+    const user = userEvent.setup();
+    mockApi.getGitHubStatus.mockResolvedValue(buildGitHubStatus());
+    mockApi.updateBotSettings.mockResolvedValue({
+      ...mockBotSettings,
+      previous_tree_retention: "24h",
+    });
 
-    mockApi.getServerCommits.mockResolvedValue([
-      {
-        ...mockCommits[0],
-        manifest: { ...mockCommits[0].manifest, server_type: "fabric" },
-      },
-    ]);
-    renderPage();
-    expect(
-      await screen.findByTestId("versioning-open-modpack-wizard-btn"),
-    ).toBeInTheDocument();
+    renderPage("/servers/srv-vers-1/versioning?tab=sync");
+
+    expect(await screen.findByTestId("sync-and-vault-tab")).toBeInTheDocument();
+    expect(await screen.findByText("https://github.com/owner/repo.git")).toBeInTheDocument();
+    expect(await screen.findByText(/2\.0 KB/)).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText(/Keep for 24 hours/i));
+    await user.click(screen.getByRole("button", { name: "Save Policy" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateBotSettings).toHaveBeenCalledWith("srv-vers-1", {
+        previous_tree_retention: "24h",
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: /Secret Vault/i }));
+    expect(await screen.findByText("${ONX_SECRET_DB_PASSWORD}")).toBeInTheDocument();
   });
 
-  it("navigates to Settings Change Version drawer when Change Version is clicked", async () => {
+  it("validates branch names client-side in CreateBranchModal", async () => {
+    const user = userEvent.setup();
     renderPage();
-    const btn = await screen.findByTestId("versioning-open-safe-upgrade-wizard-btn");
-    expect(btn).toHaveTextContent("Change Version");
-    fireEvent.click(btn);
-    expect(await screen.findByTestId("settings-route-target")).toHaveTextContent(
-      "/servers/srv-vers-1/settings?tab=lifecycle&action=change-version",
-    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "New Branch" }));
+    const input = screen.getByLabelText("Branch Name");
+    await user.type(input, "bad branch name");
+    expect(
+      screen.getByText(/Use 1–63 characters/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Branch" })).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "feat-valid-1");
+    mockApi.createServerBranch.mockResolvedValueOnce({ success: true });
+    await user.click(screen.getByRole("button", { name: "Create Branch" }));
+
+    await waitFor(() => {
+      expect(mockApi.createServerBranch).toHaveBeenCalledWith("srv-vers-1", {
+        name: "feat-valid-1",
+      });
+    });
   });
 });

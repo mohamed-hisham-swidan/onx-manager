@@ -158,17 +158,17 @@ async def mcs_error_handler(request: Request, exc: MCSError) -> JSONResponse:
         status=exc.http_status,
         error=exc.message,
         code=exc.code,
-        detail=exc.details,
+        detail=jsonable_encoder(exc.details) if exc.details is not None else None,
         request=request,
     )
 
 
 async def validation_error_handler(request: Request, exc: ValidationError) -> JSONResponse:
     return _error_response(
-        status=422,
+        status=exc.http_status or 422,
         error=exc.message,
         code=exc.code,
-        detail=exc.details,
+        detail=jsonable_encoder(exc.details) if exc.details is not None else None,
         request=request,
     )
 
@@ -187,7 +187,7 @@ async def not_found_handler(request: Request, exc: NotFoundError) -> JSONRespons
 
 async def conflict_error_handler(request: Request, exc: ConflictError) -> JSONResponse:
     return _error_response(
-        status=409,
+        status=exc.http_status or 409,
         error=exc.message,
         code=exc.code,
         detail=jsonable_encoder(exc.details or None),
@@ -218,7 +218,12 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 async def infrastructure_error_handler(request: Request, exc: InfrastructureError) -> JSONResponse:
     logger.error("InfrastructureError: code=%s path=%s", exc.code, request.url.path)
     return _error_response(
-        status=503, error=exc.message, code=exc.code, request=request, retryable=True
+        status=exc.http_status or 503,
+        error=exc.message,
+        code=exc.code,
+        detail=jsonable_encoder(exc.details) if exc.details is not None else None,
+        request=request,
+        retryable=True,
     )
 
 

@@ -505,10 +505,6 @@ async def test_b4_class_a_step_failure_downgrades_to_smoke(
 
 CLASS_B_STEPS = [
     (
-        "StorageCapabilityProbe",
-        "app.modules.versioning.infrastructure.storage_probe.StorageCapabilityProbe.assert_supports_reflink",
-    ),
-    (
         "ResourcePreflightProbe",
         "app.modules.versioning.infrastructure.resource_probe.ResourcePreflightProbe.assert_sufficient_resources",
     ),
@@ -731,7 +727,9 @@ async def test_b4_cancelled_error_propagates_unswallowed(tmp_path: Path) -> None
     spec_b, _ = _create_test_spec(tmp_path, "t-cancel-b")
     with (
         patch.object(
-            StorageCapabilityProbe, "assert_supports_reflink", side_effect=asyncio.CancelledError()
+            ResourcePreflightProbe,
+            "assert_sufficient_resources",
+            side_effect=asyncio.CancelledError(),
         ),
         pytest.raises(asyncio.CancelledError),
     ):

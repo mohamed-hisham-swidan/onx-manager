@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,10 +9,11 @@ from app.api.deps import (
     get_current_user,
     get_db,
     get_query_bus,
-    require_permission,
+    require_alert_rule_permission,
     require_server_permission,
 )
 from app.api.errors import check_command_result
+from app.core.authorization import authorize_server_action, is_admin_or_owner_context
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
 from app.core.resource_budget import ResourceBudgetService
@@ -87,13 +88,23 @@ async def create_alert_rule(
 async def list_alerts(
     server_id: str | None = None,
     session: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> list[dict]:
     repo = SQLAlertRuleRepository(session)
     if server_id:
+        if not is_admin_or_owner_context(current_user) and not authorize_server_action(
+            current_user, server_id, "view"
+        ):
+            raise HTTPException(status_code=403, detail="Permission denied")
         rules = await repo.list_by_server(ServerId(server_id))
     else:
         rules = await repo.list_all()
+        if not is_admin_or_owner_context(current_user):
+            rules = [
+                r
+                for r in rules
+                if authorize_server_action(current_user, str(r.server_id), "view")
+            ]
     return [
         {
             "id": r._alert_rule_id,
@@ -115,8 +126,20 @@ async def list_alerts(
 @router.get("/host-resources", response_model=dict)
 async def get_host_resources(
     session: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
+    global_role = str(current_user.get("global_role") or "").lower()
+    raw_roles = {str(r).lower() for r in current_user.get("roles", [])}
+    if (
+        not is_admin_or_owner_context(current_user)
+        and global_role != "server_admin"
+        and "server_admin" not in raw_roles
+        and "dev" not in raw_roles
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: host resources require admin, owner, or server_admin role",
+        )
     budget = await ResourceBudgetService.get_budget(session)
     return budget.to_dict()
 
@@ -125,7 +148,7 @@ async def get_host_resources(
 async def delete_alert_rule(
     alert_rule_id: str,
     session: AsyncSession = Depends(get_db),
-    _current_user: dict = Depends(require_permission("settings:write")),
+    _current_user: dict = Depends(require_alert_rule_permission("settings:write")),
 ) -> None:
     repo = SQLAlertRuleRepository(session)
     await repo.delete(alert_rule_id)

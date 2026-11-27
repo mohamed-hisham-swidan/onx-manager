@@ -22,7 +22,14 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
 
     async def handle(self, command: UpdateAccessModeCommand) -> CommandResult:
         # Enforce Owner-only authorization in handler
-        is_owner = "owner" in command.requester_roles or "global.*" in command.requester_permissions
+        requester_roles = {str(r).lower() for r in command.requester_roles}
+        is_owner = "owner" in requester_roles or (
+            not requester_roles
+            and (
+                "global.*" in command.requester_permissions
+                or "global:*" in command.requester_permissions
+            )
+        )
         if not is_owner:
             raise PermissionDenied("Only the instance Owner can change the Access Mode")
 

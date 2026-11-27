@@ -22,7 +22,11 @@ from app.modules.versioning.domain.dag import check_cycle
 from app.modules.versioning.domain.entities import BranchProtectionPolicy, ServerCommit
 from app.modules.versioning.domain.events import CommitCreatedEvent, MergeCommitCreatedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
-from app.modules.versioning.domain.value_objects import BranchStatus, CommitManifest
+from app.modules.versioning.domain.value_objects import (
+    BranchStatus,
+    CommitManifest,
+    normalize_server_type_str,
+)
 from app.modules.versioning.infrastructure.dynamic_class_c import DynamicClassCService
 from app.modules.versioning.infrastructure.git_merge import GitMergeService
 
@@ -141,10 +145,12 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
         if branch.status == BranchStatus.ARCHIVED:
             raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
 
-        # main is system-protected even when is_protected is False in the DB.
-        effective_protected = branch.is_protected or branch.name == "main"
+        # Merging a working branch into 'main' is the intended promotion path;
+        # branch protection on custom non-main branches still gates merges when
+        # allow_direct_commit is disabled.
+        effective_protected = branch.is_protected and branch.name != "main"
         policy = branch.protection_policy or BranchProtectionPolicy()
-        if effective_protected and (branch.name == "main" or not branch.can_commit_directly()):
+        if effective_protected and not branch.can_commit_directly():
             if not command.force:
                 raise BranchProtectedError(
                     f"Direct merge commit into protected branch '{branch.name}' is forbidden."
@@ -275,15 +281,17 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
         if branch is not None and branch.status == BranchStatus.ARCHIVED:
             raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
 
+        # Merging into 'main' is the normal workflow (direct commits to main are blocked).
+        # Custom non-main protected branches still enforce allow_direct_commit / force bypass.
         effective_protected = (
             branch.is_protected if branch is not None else False
-        ) or command.target_branch_name == "main"  # noqa: E501
+        ) and command.target_branch_name != "main"
         policy = (
             branch.protection_policy if branch is not None else None
-        ) or BranchProtectionPolicy()  # noqa: E501
+        ) or BranchProtectionPolicy()
         can_direct = branch.can_commit_directly() if branch is not None else False
         _bypass = False
-        if effective_protected and (command.target_branch_name == "main" or not can_direct):
+        if effective_protected and not can_direct:
             if not command.force:
                 raise BranchProtectedError(
                     f"Direct merge commit into protected branch '{command.target_branch_name}' is forbidden."  # noqa: E501
@@ -339,7 +347,7 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
                     server_id=command.server_id,
                     message=command.message,
                     manifest=CommitManifest(
-                        server_type=str(server.server_type),
+                        server_type=normalize_server_type_str(server.server_type),
                         minecraft_version=str(server.minecraft_version),
                     ),
                     branch_id=branch.id,

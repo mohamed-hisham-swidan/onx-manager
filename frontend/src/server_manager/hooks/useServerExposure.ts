@@ -42,7 +42,7 @@ export function useServerExposure(
       try {
         return await api.getServerExposure(serverId, branch);
       } catch (err) {
-        if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
+        if (err instanceof ApiError && err.status === 404) {
           return {
             server_id: serverId,
             branch_name: branch || "main",
@@ -116,6 +116,33 @@ export function useServerExposure(
       if (updated.method === "playit") {
         queryClient.invalidateQueries({ queryKey: queryKeys.exposure.agent() });
       }
+      if (updated.aggregate_status === "ERROR") {
+        toast(
+          "error",
+          "Exposure Configuration Error",
+          updated.error_message || `Exposure failed (${updated.error_code || "ERROR"}).`,
+        );
+        return;
+      }
+      if (
+        updated.aggregate_status === "CLAIM_REQUIRED" ||
+        updated.aggregate_status === "RECLAIM_REQUIRED"
+      ) {
+        toast(
+          "info",
+          "Action Required",
+          updated.error_message || "Authorization or token replacement is required to continue.",
+        );
+        return;
+      }
+      if (updated.aggregate_status === "STARTING") {
+        toast(
+          "info",
+          "Exposure Starting",
+          "Exposure starting — waiting for public address...",
+        );
+        return;
+      }
       const action = updated.desired_state === "ENABLED" ? "enabled" : "disabled";
       toast(
         "success",
@@ -133,6 +160,33 @@ export function useServerExposure(
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.exposure.server(serverId, branch), updated);
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId, branch) });
+      if (updated.aggregate_status === "ERROR") {
+        toast(
+          "error",
+          "Exposure Configuration Error",
+          updated.error_message || `Exposure failed (${updated.error_code || "ERROR"}).`,
+        );
+        return;
+      }
+      if (
+        updated.aggregate_status === "CLAIM_REQUIRED" ||
+        updated.aggregate_status === "RECLAIM_REQUIRED"
+      ) {
+        toast(
+          "info",
+          "Action Required",
+          updated.error_message || "Authorization or token replacement is required to continue.",
+        );
+        return;
+      }
+      if (updated.aggregate_status === "STARTING") {
+        toast(
+          "info",
+          "Exposure Starting",
+          "Exposure starting — waiting for public address...",
+        );
+        return;
+      }
       const action = updated.desired_state === "ENABLED" ? "enabled" : "disabled";
       toast(
         "success",
@@ -166,8 +220,10 @@ export function useServerExposure(
             port: body.local_port ?? SERVICE_METADATA[body.service_type].defaultPort,
             name: `${body.service_type.toUpperCase()} Port`,
           });
-        } catch {
-          // Ignore if already registered
+        } catch (err) {
+          if (!(err instanceof ApiError && err.status === 409)) {
+            throw err;
+          }
         }
       }
       return api.createExposureTarget(serverId, body, branch);

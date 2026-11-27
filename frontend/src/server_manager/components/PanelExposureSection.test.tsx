@@ -99,11 +99,37 @@ describe("PanelExposureSection Component", () => {
     renderPanelExposureSection();
 
     expect(await screen.findByText("Panel Remote Access")).toBeInTheDocument();
-    expect(screen.getByText("Local Only")).toBeInTheDocument();
-    expect(screen.getByText("Cloudflare")).toBeInTheDocument();
-    expect(screen.getByText("playit.gg")).toBeInTheDocument();
-    expect(screen.getByText("Port Forward")).toBeInTheDocument();
-    expect(screen.getByText("Selected")).toBeInTheDocument();
+    const localCard = screen.getByRole("button", { name: /Local Only\s*Reachable/i });
+    const cloudflareCard = screen.getByRole("button", { name: /Cloudflare/i });
+    const playitCard = screen.getByRole("button", { name: /playit\.gg/i });
+    const portForwardCard = screen.getByRole("button", { name: /Port Forward/i });
+
+    expect(localCard).toHaveAttribute("aria-pressed", "true");
+    expect(cloudflareCard).toHaveAttribute("aria-pressed", "false");
+    expect(playitCard).toHaveAttribute("aria-pressed", "false");
+    expect(portForwardCard).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
+  });
+
+  it("renders Cloudflare card with Recommended badge, overflow protection, and checkmark selection without clipping Selected text", async () => {
+    mockGetPanelExposure.mockResolvedValue({
+      ...defaultPanelResponse,
+      method: "cloudflare_tunnel",
+      desired_state: "ENABLED",
+      cloudflare_mode: "quick",
+      ephemeral: true,
+      status: "ACTIVE",
+      public_address: "https://card-check.trycloudflare.com",
+    });
+
+    renderPanelExposureSection();
+
+    const cloudflareCard = await screen.findByRole("button", { name: /Cloudflare/i });
+    expect(cloudflareCard).toHaveAttribute("aria-pressed", "true");
+    expect(cloudflareCard).toHaveClass("overflow-hidden", "min-w-0");
+    expect(screen.getByText("Recommended")).toBeInTheDocument();
+    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
+    expect(cloudflareCard.querySelector("svg")).toBeInTheDocument();
   });
 
   it("T-74-02: switching to cloudflare displays modern token/quick toggle without auto-saving", async () => {
@@ -479,6 +505,89 @@ describe("PanelExposureSection Component", () => {
         cloudflare_mode: "quick",
       });
     });
+  });
+
+  it("restarting Quick Tunnel shows inline loading state, honest info toast, polls while STARTING, and renders new trycloudflare URL", async () => {
+    mockGetPanelExposure.mockResolvedValue({
+      ...defaultPanelResponse,
+      method: "cloudflare_tunnel",
+      desired_state: "ENABLED",
+      cloudflare_mode: "quick",
+      ephemeral: true,
+      status: "ACTIVE",
+      public_address: "https://old-preview.trycloudflare.com",
+      tls: true,
+      protocol: "https",
+    });
+
+    mockSetPanelExposure.mockResolvedValueOnce({
+      ...defaultPanelResponse,
+      method: "cloudflare_tunnel",
+      desired_state: "ENABLED",
+      cloudflare_mode: "quick",
+      ephemeral: true,
+      status: "STARTING",
+      public_address: null,
+      tls: true,
+      protocol: "https",
+    });
+
+    const { queryClient } = renderPanelExposureSection();
+
+    const restartBtn = await screen.findByRole("button", { name: /Restart Quick Tunnel/i });
+    expect(screen.getAllByText("https://old-preview.trycloudflare.com").length).toBeGreaterThanOrEqual(1);
+
+    // Next background/invalidated refetch returns STARTING, then subsequent poll resolves ACTIVE with new URL
+    mockGetPanelExposure.mockResolvedValueOnce({
+      ...defaultPanelResponse,
+      method: "cloudflare_tunnel",
+      desired_state: "ENABLED",
+      cloudflare_mode: "quick",
+      ephemeral: true,
+      status: "STARTING",
+      public_address: null,
+      tls: true,
+      protocol: "https",
+    });
+
+    fireEvent.click(restartBtn);
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        "info",
+        "Quick Tunnel Starting",
+        "Quick Tunnel starting — waiting for public URL...",
+      );
+    });
+
+    expect(screen.getByTestId("quick-tunnel-starting-row")).toHaveTextContent(
+      /Starting Quick Tunnel & waiting for trycloudflare\.com URL/i,
+    );
+    expect(screen.getByRole("button", { name: /Starting Quick Tunnel\.\.\./i })).toBeDisabled();
+
+    // Simulate poll resolving with the new trycloudflare.com URL
+    mockGetPanelExposure.mockResolvedValue({
+      ...defaultPanelResponse,
+      method: "cloudflare_tunnel",
+      desired_state: "ENABLED",
+      cloudflare_mode: "quick",
+      ephemeral: true,
+      status: "ACTIVE",
+      public_address: "https://new-preview.trycloudflare.com",
+      tls: true,
+      protocol: "https",
+    });
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: queryKeys.exposure.panel() });
+    });
+
+    expect(await screen.findByRole("link", { name: /https:\/\/new-preview\.trycloudflare\.com/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Copy$/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Open$/i })).toHaveAttribute(
+      "href",
+      "https://new-preview.trycloudflare.com",
+    );
   });
 
   it("Port forward input sanitizes non-digits, blocks e/E/+/-/., and disables submit on out-of-range port", async () => {

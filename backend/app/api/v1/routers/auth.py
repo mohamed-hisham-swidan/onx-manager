@@ -129,13 +129,20 @@ async def create_api_key(
     current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> ApiKeyResponse:
+    from app.core.authorization import is_owner_context
+
+    caller_roles = (
+        ["owner"]
+        if is_owner_context(current_user)
+        else list(current_user.get("roles", []))
+    )
     result = await command_bus.send(
         CreateApiKeyCommand(
             user_id=current_user["user_id"],
             name=body.name,
             permissions=body.permissions,
             caller_permissions=list(current_user.get("permissions", [])),
-            caller_roles=list(current_user.get("roles", [])),
+            caller_roles=caller_roles,
         )
     )
     data = check_command_result(result)

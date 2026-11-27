@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import type { ServerMode } from "@/server_manager/types";
+import type { CurrentUserResponse } from "@/types";
 
 function renderSidebar() {
   return render(
@@ -336,6 +338,112 @@ describe("Sidebar", () => {
         </MemoryRouter>,
       );
 
+      expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("RBAC v2 navigation gating", () => {
+    function renderWithUser(user: CurrentUserResponse) {
+      const qc = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      qc.setQueryData(["currentUser"], user);
+      return render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/servers"]}>
+            <Sidebar />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    }
+
+    it("shows all global nav links to Owner and Admin", () => {
+      renderWithUser({
+        user_id: "u-admin",
+        email: "admin@example.com",
+        display_name: "Admin",
+        is_active: true,
+        roles: ["admin"],
+        global_role: "admin",
+        all_servers_access: true,
+        denied_permissions: [],
+        created_at: "2026-01-01T00:00:00Z",
+        last_login_at: null,
+      });
+
+      expect(screen.getByRole("link", { name: /^Dashboard$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Servers$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Backups$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Marketplace$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Settings$/i })).toBeInTheDocument();
+    });
+
+    it("hides Settings & Marketplace for Viewer and hides Backups when denied", () => {
+      const { unmount } = renderWithUser({
+        user_id: "u-view-1",
+        email: "viewer@example.com",
+        display_name: "Viewer",
+        is_active: true,
+        roles: ["viewer"],
+        global_role: "viewer",
+        assigned_server_ids: ["srv-1"],
+        denied_permissions: [],
+        created_at: "2026-01-01T00:00:00Z",
+        last_login_at: null,
+      });
+
+      expect(screen.getByRole("link", { name: /^Dashboard$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Servers$/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Backups$/i })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Marketplace$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Settings$/i })).not.toBeInTheDocument();
+      unmount();
+
+      renderWithUser({
+        user_id: "u-view-2",
+        email: "viewer2@example.com",
+        display_name: "Viewer Restricted",
+        is_active: true,
+        roles: ["viewer"],
+        global_role: "viewer",
+        assigned_server_ids: ["srv-1"],
+        denied_permissions: ["backups"],
+        created_at: "2026-01-01T00:00:00Z",
+        last_login_at: null,
+      });
+
+      expect(screen.queryByRole("link", { name: /^Backups$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Marketplace$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Settings$/i })).not.toBeInTheDocument();
+    });
+
+    it("hides restricted server sidebar links according to serverContext capability flags", () => {
+      render(
+        <MemoryRouter initialEntries={["/servers/srv-1"]}>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-1",
+              serverName: "Scoped Server",
+              supportsPlugins: true,
+              mode: "advanced",
+              canConsoleView: true,
+              canFiles: false,
+              canSettings: false,
+              canPluginsView: false,
+              canExposureView: false,
+              canBackupsView: true,
+              canVersioningView: false,
+            }}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByRole("link", { name: /Console/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Backups/i })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Files/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Settings/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Plugins/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Network & Exposure/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /Versions & Sandboxes/i })).not.toBeInTheDocument();
     });
   });

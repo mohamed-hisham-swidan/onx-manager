@@ -289,3 +289,36 @@ class SQLServerMembershipRepository:
         membership.role = role
         await self._session.flush()
         return membership
+
+    async def replace_memberships_for_user(
+        self, user_id: str, server_ids: list[str], role: str
+    ) -> list[ServerMembershipModel]:
+        """Synchronize all server memberships for a user to the exact target set & role."""
+        import uuid
+
+        unique_ids = list(dict.fromkeys([str(s) for s in server_ids if s]))
+        target_set = set(unique_ids)
+        existing = await self.list_memberships_for_user(user_id)
+        by_server: dict[str, ServerMembershipModel] = {}
+
+        for row in existing:
+            if row.server_id not in target_set:
+                await self._session.delete(row)
+            else:
+                if row.role != role:
+                    row.role = role
+                by_server[row.server_id] = row
+
+        for sid in unique_ids:
+            if sid not in by_server:
+                model = ServerMembershipModel(
+                    id=uuid.uuid4().hex,
+                    server_id=sid,
+                    user_id=user_id,
+                    role=role,
+                )
+                self._session.add(model)
+                by_server[sid] = model
+
+        await self._session.flush()
+        return list(by_server.values())

@@ -14,7 +14,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select
 
-from app.api.deps import get_command_bus, get_event_bus, get_query_bus, require_permission
+from app.api.deps import (
+    get_command_bus,
+    get_event_bus,
+    get_query_bus,
+    require_versioning_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.dependencies.server_mode import require_advanced_mode
 from app.api.v1.schemas.versioning import (
@@ -728,7 +733,7 @@ async def _execute_data_template_clone(
 async def list_branches(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[BranchResponse]:
     branches = await query_bus.ask(GetServerBranchesQuery(server_id=server_id))
     return [BranchResponse(**b) for b in branches]
@@ -739,7 +744,7 @@ async def create_branch(
     server_id: str,
     body: CreateBranchRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = CreateBranchCommand(
         server_id=server_id,
@@ -755,7 +760,7 @@ async def archive_branch(
     server_id: str,
     name: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = ArchiveBranchCommand(server_id=server_id, name=name)
     res = await command_bus.send(cmd)
@@ -767,7 +772,7 @@ async def delete_branch(
     server_id: str,
     name: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = DeleteBranchCommand(server_id=server_id, name=name)
     res = await command_bus.send(cmd)
@@ -779,7 +784,7 @@ async def get_branch_protection(
     server_id: str,
     name: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> BranchProtectionResponse:
     res = await query_bus.ask(GetBranchProtectionQuery(server_id=server_id, branch_name=name))
     return BranchProtectionResponse(**res)
@@ -791,7 +796,7 @@ async def set_branch_protection(
     name: str,
     body: SetBranchProtectionRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:branch:protect"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:branch:protect"))],
 ) -> BranchProtectionResponse:
     policy_dict = body.policy.model_dump() if body.policy else None
     cmd = SetBranchProtectionCommand(
@@ -814,7 +819,7 @@ async def remove_branch_protection(
     server_id: str,
     name: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:branch:protect"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:branch:protect"))],
 ) -> BranchProtectionResponse:
     cmd = RemoveBranchProtectionCommand(server_id=server_id, branch_name=name)
     res = await command_bus.send(cmd)
@@ -832,7 +837,7 @@ async def get_branch_history(
     server_id: str,
     name: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[CommitResponse]:
     commits = await query_bus.ask(
@@ -845,7 +850,7 @@ async def get_branch_history(
 async def list_commits(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     branch: str | None = Query(default=None),
     branch_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -862,7 +867,7 @@ async def list_commits(
 async def diff_commits_endpoint(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     from_commit_id: str = Query(..., alias="from"),
     to_commit_id: str = Query(..., alias="to"),
 ) -> DiffResponse:
@@ -876,12 +881,25 @@ async def diff_commits_endpoint(
     return DiffResponse(**diff)
 
 
+def _effective_commit_permissions(current_user: dict[str, Any]) -> list[str]:
+    """Forward caller permissions with RBAC v2 bypass alignment for DB-resolved admins."""
+    from app.core.authorization import is_admin_or_owner_context
+
+    perms = list(current_user.get("permissions", []))
+    if (
+        (current_user.get("db_resolved") or is_admin_or_owner_context(current_user))
+        and "server:version:branch:bypass_protection" not in perms
+    ):
+        perms.append("server:version:branch:bypass_protection")
+    return perms
+
+
 @router.post("/commits", response_model=dict[str, Any], status_code=201)
 async def create_commit(
     server_id: str,
     body: CreateCommitRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     author_id = body.author_id or _current_user.get("sub")
     cmd = CreateCommitCommand(
@@ -891,7 +909,7 @@ async def create_commit(
         author_id=author_id,
         force=body.force,
         force_reason=body.force_reason,
-        caller_permissions=_current_user.get("permissions", []),
+        caller_permissions=_effective_commit_permissions(_current_user),
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)
@@ -902,7 +920,7 @@ async def merge_commits_endpoint(
     server_id: str,
     body: MergeCommitsRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     author_id = body.author_id or _current_user.get("sub")
     cmd = MergeCommitsCommand(
@@ -914,7 +932,7 @@ async def merge_commits_endpoint(
         manifest=body.manifest,
         force=body.force or body.force_bypass_protection,
         force_reason=body.force_reason,
-        caller_permissions=_current_user.get("permissions", []),
+        caller_permissions=_effective_commit_permissions(_current_user),
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)
@@ -925,7 +943,7 @@ async def create_tag(
     server_id: str,
     body: CreateTagRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = CreateTagCommand(
         server_id=server_id,
@@ -940,7 +958,7 @@ async def create_tag(
 async def list_tags(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[TagResponse]:
     tags = await query_bus.ask(GetServerTagsQuery(server_id=server_id))
     return [TagResponse(**t) for t in tags]
@@ -951,7 +969,7 @@ async def get_tag(
     server_id: str,
     name: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> TagResponse:
     tag = await query_bus.ask(GetServerTagQuery(server_id=server_id, name=name))
     if tag is None:
@@ -964,7 +982,7 @@ async def run_isolated_test(
     server_id: str,
     body: RunIsolatedTestRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:test:execute"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:test:execute"))],
 ) -> dict[str, Any]:
     cmd = RunIsolatedTestCommand(
         server_id=server_id,
@@ -983,7 +1001,7 @@ async def run_isolated_test(
 async def list_test_runs(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     limit: int = Query(default=50, ge=1, le=100),
 ) -> list[TestRunResponse]:
     data = await query_bus.ask(GetServerTestRunsQuery(server_id=server_id, limit=limit))
@@ -995,7 +1013,7 @@ async def get_test_status(
     server_id: str,
     test_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> TestRunResponse:
     data = await query_bus.ask(GetTestStatusQuery(server_id=server_id, test_id=test_id))
     return TestRunResponse(**data)
@@ -1006,7 +1024,7 @@ async def get_test_run_evidence(
     server_id: str,
     test_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> EvidenceBundleResponse:
     data = await query_bus.ask(GetTestRunEvidenceQuery(server_id=server_id, test_id=test_id))
     return EvidenceBundleResponse(**data)
@@ -1017,7 +1035,7 @@ async def discard_test(
     server_id: str,
     test_id: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:test:execute"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:test:execute"))],
 ) -> dict[str, Any]:
     cmd = DiscardTestCommand(server_id=server_id, test_id=test_id)
     res = await command_bus.send(cmd)
@@ -1028,7 +1046,7 @@ async def discard_test(
 async def list_test_definitions(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[TestDefinitionResponse]:
     data = await query_bus.ask(ListTestDefinitionsQuery(server_id=server_id))
     return [TestDefinitionResponse(**item) for item in data]
@@ -1039,7 +1057,7 @@ async def create_test_definition(
     server_id: str,
     body: TestDefinitionCreateRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:test:configure"))],
 ) -> dict[str, Any]:
     cmd = CreateTestDefinitionCommand(
         server_id=server_id,
@@ -1064,7 +1082,7 @@ async def get_test_definition(
     server_id: str,
     id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> TestDefinitionResponse:
     data = await query_bus.ask(GetTestDefinitionQuery(server_id=server_id, definition_id=id))
     if data is None:
@@ -1078,7 +1096,7 @@ async def update_test_definition(
     id: str,
     body: TestDefinitionUpdateRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:test:configure"))],
 ) -> dict[str, Any]:
     cmd = UpdateTestDefinitionCommand(
         server_id=server_id,
@@ -1104,7 +1122,7 @@ async def delete_test_definition(
     server_id: str,
     id: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:test:configure"))],
 ) -> dict[str, Any]:
     cmd = DeleteTestDefinitionCommand(server_id=server_id, definition_id=id)
     res = await command_bus.send(cmd)
@@ -1114,7 +1132,7 @@ async def delete_test_definition(
 @router.get("/settings", response_model=BotSettingsResponse)
 async def get_bot_settings(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> BotSettingsResponse:
     async with database.session_factory() as session:
         server = await session.get(ServerModel, server_id)
@@ -1161,7 +1179,7 @@ async def get_bot_settings(
 async def update_bot_settings(
     server_id: str,
     body: BotSettingsRequest,
-    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:test:configure"))],
 ) -> BotSettingsResponse:
     async with database.session_factory() as session:
         server = await session.get(ServerModel, server_id)
@@ -1231,7 +1249,7 @@ async def update_bot_settings(
 @router.get("/preflight", response_model=PreflightResponse)
 async def get_preflight_status(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     bot_count: int = Query(default=10, ge=0),
 ) -> PreflightResponse:
     async with database.session_factory() as session:
@@ -1271,7 +1289,7 @@ async def create_materialization(
     server_id: str,
     body: CreateMaterializationRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> MaterializationCreateResponse:
     cmd = CreateMaterializationCommand(
         server_id=server_id,
@@ -1288,7 +1306,7 @@ async def create_materialization(
 async def list_materializations(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[MaterializationListItemResponse]:
     query = GetMaterializationsQuery(server_id=server_id)
     items = await query_bus.ask(query)
@@ -1300,7 +1318,7 @@ async def get_materialization_tree(
     server_id: str,
     mat_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     path: str = "",
 ) -> MaterializationTreeResponse:
     query = GetMaterializationTreeQuery(
@@ -1318,7 +1336,7 @@ async def get_materialization_file(
     mat_id: str,
     path: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> MaterializationFileResponse:
     query = GetMaterializationFileQuery(
         materialization_id=mat_id,
@@ -1338,7 +1356,7 @@ async def set_materialization_edit_mode(
     mat_id: str,
     body: SetEditModeRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> SetEditModeResponse:
     cmd = SetMaterializationEditModeCommand(
         materialization_id=mat_id,
@@ -1356,7 +1374,7 @@ async def write_materialized_file(
     mat_id: str,
     body: WriteMaterializedFileRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> WriteMaterializedFileResponse:
     cmd = WriteMaterializedFileCommand(
         materialization_id=mat_id,
@@ -1374,7 +1392,7 @@ async def remove_materialization(
     server_id: str,
     mat_id: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = RemoveMaterializationCommand(
         materialization_id=mat_id,
@@ -1389,7 +1407,7 @@ async def scan_live_changes(
     server_id: str,
     body: ScanLiveChangesRequest,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> ScanLiveChangesResponse:
     query = ScanLiveChangesQuery(
         server_id=server_id,
@@ -1408,7 +1426,7 @@ async def auto_commit_live_changes(
     server_id: str,
     body: AutoCommitLiveChangesRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> AutoCommitLiveChangesResponse:
     cmd = AutoCommitLiveChangesCommand(
         server_id=server_id,
@@ -1427,7 +1445,7 @@ async def confirm_import_review(
     server_id: str,
     review_id: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ImportReviewActionResponse:
     cmd = ConfirmImportReviewCommand(
         review_id=review_id,
@@ -1446,7 +1464,7 @@ async def dismiss_import_review(
     server_id: str,
     review_id: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ImportReviewActionResponse:
     cmd = DismissImportReviewCommand(
         review_id=review_id,
@@ -1465,7 +1483,7 @@ async def revert_import_review(
     server_id: str,
     review_id: str,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ImportReviewActionResponse:
     cmd = RevertImportReviewCommand(
         review_id=review_id,
@@ -1482,7 +1500,7 @@ async def revert_import_review(
 @router.get("/refresh", response_model=RefreshStateResponse)
 async def get_refresh_state(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> RefreshStateResponse:
     from app.core.persistence.db import database
     from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -1535,7 +1553,7 @@ async def get_refresh_state(
 
     can_confirm = bool(
         latest
-        and latest.phase in ("COMPLETED", "ROLLED_BACK")
+        and latest.phase == "COMPLETED"
         and (
             bool(latest.class_c_snapshot_id)
             or bool(_prev_dir(latest) and Path(_prev_dir(latest)).exists())
@@ -1566,7 +1584,7 @@ async def post_refresh(
     server_id: str,
     body: RefreshServerHttpRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> RefreshServerResponse:
     from app.core.host_state import resolve_host_state_layout
     from app.core.persistence.db import database
@@ -1603,6 +1621,8 @@ async def post_refresh(
 
     target_main_sha = body.target_main_sha
     if target_main_sha:
+        if target_main_sha.startswith("-") or "\x00" in target_main_sha:
+            raise HTTPException(status_code=422, detail="Invalid target ref")
         if repo_dir.is_dir():
             r = await asyncio.to_thread(
                 _sp.run,
@@ -1617,6 +1637,7 @@ async def post_refresh(
                 ],
                 capture_output=True,
                 text=True,
+                timeout=15,
             )
             if r.returncode != 0:
                 raise HTTPException(status_code=404, detail="Target ref not found")  # noqa: B904
@@ -1743,7 +1764,7 @@ async def post_rollback(
     server_id: str,
     body: RollbackRefreshHttpRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> RollbackRefreshResponse:
     cmd = RollbackRefreshCommand(
         server_id=server_id, journal_id=body.journal_id, reason=body.reason
@@ -1765,7 +1786,7 @@ async def post_confirm_upgrade(
     server_id: str,
     body: ConfirmUpgradeHttpRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ConfirmUpgradeResponse:
     cmd = ConfirmUpgradeCommand(server_id=server_id, journal_id=body.journal_id)
     res = await command_bus.send(cmd)
@@ -1783,7 +1804,7 @@ async def post_release_pins(
     server_id: str,
     body: ConfirmUpgradeHttpRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ConfirmUpgradeResponse:
     cmd = ReleaseRefreshPinsCommand(server_id=server_id, journal_id=body.journal_id)
     res = await command_bus.send(cmd)
@@ -1802,7 +1823,7 @@ async def post_release_pins(
 @router.get("/class-c/snapshots", response_model=list[ClassCSnapshotResponse])
 async def list_class_c_snapshots(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[ClassCSnapshotResponse]:
     from app.core.host_state import resolve_host_state_layout
     from app.modules.versioning.infrastructure.class_c_snapshot import ClassCSnapshotService
@@ -1830,7 +1851,7 @@ async def list_class_c_snapshots(
 async def create_class_c_snapshot(
     server_id: str,
     body: CreateClassCSnapshotRequest,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ClassCSnapshotResponse:
     from pathlib import Path
 
@@ -1880,7 +1901,7 @@ async def create_class_c_snapshot(
 async def restore_class_c_snapshot(
     server_id: str,
     snapshot_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ClassCSnapshotRestoreResponse:
     from pathlib import Path
 
@@ -1900,7 +1921,8 @@ async def restore_class_c_snapshot(
             status = str(getattr(server.status, "value", server.status)).upper()
             if status in {"RUNNING", "STARTING", "STOPPING"}:
                 raise HTTPException(  # noqa: B904
-                    status_code=409, detail="Server must be stopped before restoring a Class-C snapshot"  # noqa: E501
+                    status_code=409,
+                    detail="Server must be stopped before restoring a live-data snapshot",
                 )
             root_path = (
                 getattr(getattr(server, "deployment", None), "root_path", None)
@@ -1923,7 +1945,7 @@ async def restore_class_c_snapshot(
 async def delete_class_c_snapshot(
     server_id: str,
     snapshot_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ClassCSnapshotDeleteResponse:
     from app.core.host_state import resolve_host_state_layout
     from app.modules.versioning.application.repo_lease import RepoLeaseManager
@@ -1945,7 +1967,7 @@ async def delete_class_c_snapshot(
 @router.get("/class-c/dynamic", response_model=list[DynamicClassCEntryResponse])
 async def list_dynamic_class_c(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[DynamicClassCEntryResponse]:
     from app.core.host_state import resolve_host_state_layout
     from app.modules.versioning.infrastructure.dynamic_class_c import DynamicClassCService
@@ -1971,7 +1993,7 @@ async def list_dynamic_class_c(
 async def reset_dynamic_class_c(
     server_id: str,
     body: DynamicClassCResetRequest,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> DynamicClassCResetResponse:
     from app.core.allowlist import validate_canonical_relpath
     from app.core.host_state import resolve_host_state_layout
@@ -1992,7 +2014,7 @@ async def reset_dynamic_class_c(
 @router.get("/secrets", response_model=list[SecretMetadataResponse])
 async def list_secrets(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[SecretMetadataResponse]:
 
     from app.core.persistence.db import database
@@ -2030,7 +2052,7 @@ async def list_secrets(
 async def extract_secret(
     server_id: str,
     body: ExtractSecretHttpRequest,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> ExtractSecretResponse:
     from pathlib import Path
 
@@ -2045,7 +2067,7 @@ async def extract_secret(
 
     if body.branch == "main":
         raise HTTPException(status_code=403, detail="Direct writes to 'main' are forbidden")  # noqa: B904
-    if "/" in body.branch or ".." in body.branch:
+    if "/" in body.branch or "\\" in body.branch or ".." in body.branch or "\x00" in body.branch:
         raise HTTPException(status_code=422, detail="Invalid branch name")  # noqa: B904
     try:
         relpath = validate_canonical_relpath(body.path)
@@ -2053,7 +2075,7 @@ async def extract_secret(
         raise HTTPException(status_code=422, detail=str(exc)) from exc  # noqa: B904
     if classify(relpath) != "B":
         raise HTTPException(  # noqa: B904
-            status_code=403, detail="Secrets can only be extracted from Class B config files"
+            status_code=403, detail="Secrets can only be extracted from tracked configuration files"
         )
 
     # ensure branch worktree
@@ -2082,17 +2104,14 @@ async def extract_secret(
         )
 
         vault = ServerSecretVault(layout)
-        # read file
-        import os as _os
-
         try:
-            fd = open_safe_path_fd(str(worktree_root), relpath, flags=_os.O_RDONLY)
+            fd = open_safe_path_fd(str(worktree_root), relpath, flags=os.O_RDONLY)
         except Exception:
             raise HTTPException(status_code=404, detail="File not found")  # noqa: B904
-        import os as _os2
-
-        raw = _os2.read(fd, 10 * 1024 * 1024)
-        _os2.close(fd)
+        try:
+            raw = os.read(fd, 10 * 1024 * 1024)
+        finally:
+            os.close(fd)
         extraction = vault.extract_secret_from_bytes(
             server_id,
             relpath,
@@ -2100,8 +2119,10 @@ async def extract_secret(
             secret_value=body.secret_value,
             key_name=body.key_name,
         )
-        # write back
-        target = resolve_safe_disk_path(str(worktree_root), relpath, allow_create_parents=True)
+        try:
+            target = resolve_safe_disk_path(str(worktree_root), relpath, allow_create_parents=True)
+        except Exception as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         from app.modules.versioning.infrastructure.fs_atomic import atomic_write_private
 
         atomic_write_private(target, extraction.content)
@@ -2121,7 +2142,7 @@ async def extract_secret(
 async def delete_secret(
     server_id: str,
     key_name: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> DeleteSecretResponse:
     from app.core.host_state import resolve_host_state_layout
     from app.modules.versioning.application.repo_lease import RepoLeaseManager
@@ -2141,7 +2162,7 @@ async def delete_secret(
 @router.get("/data-templates", response_model=list[DataTemplateResponse])
 async def list_data_templates(
     server_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> list[DataTemplateResponse]:
     from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
 
@@ -2167,7 +2188,7 @@ async def create_data_template(
     response: Response,
     event_bus: Annotated[EventBus, Depends(get_event_bus)],
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> DataTemplateResponse:
     from app.modules.operations.application.services.operation_service import (
         get_operation_service,
@@ -2284,7 +2305,7 @@ async def create_data_template(
 async def delete_data_template(
     server_id: str,
     template_id: str,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> DeleteDataTemplateResponse:
     from app.core.host_state import check_not_symlink_or_reparse, resolve_host_state_layout
     from app.modules.versioning.infrastructure.models import (
@@ -2426,7 +2447,7 @@ async def allocate_branch_port_set(
     server_id: str,
     name: str,
     body: AllocatePortSetRequest,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> BranchPortSetResponse:
     from app.modules.versioning.domain.port_sets import HostPortSet
     from app.modules.versioning.infrastructure.port_allocator import (
@@ -2471,7 +2492,7 @@ async def set_branch_port_set(
     server_id: str,
     name: str,
     body: SetPortSetRequest,
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> BranchPortSetResponse:
     from app.modules.versioning.domain.port_sets import HostPortSet
     from app.modules.versioning.infrastructure.port_allocator import (
@@ -2516,7 +2537,7 @@ async def get_branch_runtime(
     server_id: str,
     name: str,
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> BranchRuntimeStatusResponse:
     async with database.session_factory() as session:
         server = await _load_server(session, server_id)
@@ -2550,10 +2571,10 @@ async def get_branch_runtime(
 async def start_branch_run(
     server_id: str,
     name: str,
-    body: StartBranchRunRequest | None,
     event_bus: Annotated[EventBus, Depends(get_event_bus)],
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
+    body: StartBranchRunRequest | None = None,
 ) -> StartBranchRunResponse:
     from app.modules.versioning.domain.events import BranchRuntimeStartedEvent
     from app.modules.versioning.domain.port_sets import HostPortSet
@@ -2685,10 +2706,10 @@ async def start_branch_run(
 async def stop_branch_run(
     server_id: str,
     name: str,
-    body: StopBranchRunRequest | None,
     event_bus: Annotated[EventBus, Depends(get_event_bus)],
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
+    body: StopBranchRunRequest | None = None,
 ) -> StopBranchRunResponse:
     from app.modules.versioning.domain.events import (
         BranchRuntimeStoppedEvent,
@@ -2756,7 +2777,7 @@ async def destroy_branch_run(
     name: str,
     event_bus: Annotated[EventBus, Depends(get_event_bus)],
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
     body: DestroyBranchRunRequest | None = None,
 ) -> DestroyBranchRunResponse:
     from app.modules.versioning.domain.events import BranchRuntimeDestroyedEvent
@@ -2811,7 +2832,7 @@ async def save_branch_data_template(
     body: SaveBranchDataTemplateRequest,
     event_bus: Annotated[EventBus, Depends(get_event_bus)],
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> DataTemplateResponse:
     from app.modules.versioning.domain.events import DataTemplateSavedEvent
     from app.modules.versioning.infrastructure.models import ServerDataTemplateModel
@@ -2864,7 +2885,7 @@ async def get_branch_console(
     server_id: str,
     name: str,
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     tail: int = Query(default=200, ge=1, le=5000),
 ) -> BranchConsoleLogsResponse:
     payload = await runtime_service.get_branch_console_logs(
@@ -2882,7 +2903,7 @@ async def send_branch_console_command(
     name: str,
     body: BranchConsoleCommandRequest,
     runtime_service: Annotated[Any, Depends(get_branch_runtime_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> BranchConsoleCommandResponse:
     payload = await runtime_service.send_branch_console_command(
         server_id, name, body.command
@@ -2897,7 +2918,7 @@ async def send_branch_console_command(
 async def get_github_connection_status(
     server_id: str,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
 ) -> GitHubConnectionStatusResponse:
     return _github_status_response(await service.get_status(server_id))
 
@@ -2910,7 +2931,7 @@ async def get_github_connection_status(
 async def generate_github_deploy_key(
     server_id: str,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
     body: GenerateGitHubDeployKeyRequest | None = None,
 ) -> GenerateGitHubDeployKeyResponse:
     result = await service.generate_deploy_key(
@@ -2933,7 +2954,7 @@ async def connect_github(
     server_id: str,
     body: ConnectGitHubRequest,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> GitHubConnectionStatusResponse:
     status = await service.connect(
         server_id,
@@ -2956,7 +2977,7 @@ async def rotate_github_credentials(
     server_id: str,
     body: RotateGitHubCredentialsRequest,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> GitHubConnectionStatusResponse:
     status = await service.rotate_credentials(
         server_id,
@@ -2976,7 +2997,7 @@ async def rotate_github_credentials(
 async def disconnect_github(
     server_id: str,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
     purge_deliveries: bool = Query(default=False),
 ) -> GitHubDisconnectResponse:
     result = await service.disconnect(
@@ -2997,7 +3018,7 @@ async def disconnect_github(
 async def fetch_github_first_sync(
     server_id: str,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> GitHubSyncResponse:
     result = await service.fetch_first_sync(
         server_id,
@@ -3023,7 +3044,7 @@ async def push_github_branch(
     server_id: str,
     body: PushGitHubBranchRequest,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> GitHubPushResponse:
     result = await service.push_branch(
         server_id,
@@ -3049,7 +3070,7 @@ async def push_github_branch(
 async def list_github_webhook_deliveries(
     server_id: str,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:read"))],
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[GitHubWebhookDeliveryResponse]:
     records = await service.list_deliveries(server_id, limit=limit)
@@ -3065,7 +3086,7 @@ async def redeliver_github_webhook(
     server_id: str,
     delivery_id: str,
     service: Annotated[Any, Depends(get_github_sync_service)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+    _current_user: Annotated[dict, Depends(require_versioning_permission("server:version:commit"))],
 ) -> GitHubWebhookIngestResponse:
     result = await service.redeliver_webhook(
         server_id,

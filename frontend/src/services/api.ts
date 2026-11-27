@@ -1,4 +1,5 @@
 import type {
+  AdminCreateUserRequest,
   ApiKeyCreateRequest,
   ApiKeyResponse,
   BackupResponse,
@@ -22,6 +23,7 @@ import type {
   SettingsUpdateRequest,
   SettingsUpdateResponse,
   HostResourceBudget,
+  UpdateUserAccessRequest,
   UpdateUserRequest,
   UserResponse,
   VerifyBackupResponse,
@@ -424,10 +426,14 @@ export function createApiClient(
       request<UserResponse[]>("/api/v1/users"),
     createUser: (body: CreateUserRequest) =>
       request<UserResponse>("/api/v1/users", { method: "POST", body }),
+    adminCreateUser: (body: AdminCreateUserRequest) =>
+      request<UserResponse>("/api/v1/users/manage", { method: "POST", body }),
     getUser: (userId: string) =>
       request<UserResponse>(`/api/v1/users/${userId}`),
     updateUser: (userId: string, body: UpdateUserRequest) =>
       request<UserResponse>(`/api/v1/users/${userId}`, { method: "PATCH", body }),
+    updateUserAccess: (userId: string, body: UpdateUserAccessRequest) =>
+      request<UserResponse>(`/api/v1/users/${userId}/access`, { method: "PUT", body }),
     deleteUser: (userId: string) =>
       request<void>(`/api/v1/users/${userId}`, { method: "DELETE" }),
 
@@ -540,7 +546,7 @@ export function createApiClient(
         params: { bot_count: botCount?.toString() },
       }),
 
-    // P3-4 / P3-5
+    // Live refresh, snapshots & secret vault
     mergeServerCommits: (serverId: string, body: MergeCommitsRequest) =>
       request<MergeCommitsResponse>(`/api/v1/servers/${serverId}/versioning/commits/merge`, {
         method: "POST",
@@ -605,7 +611,7 @@ export function createApiClient(
         { method: "DELETE" },
       ),
 
-    // P4-3 / P4-4 Branch Runs, Port Sets & Data Templates
+    // Branch Runs, Port Sets & Data Templates
     listDataTemplates: (serverId: string) =>
       request<DataTemplate[]>(`/api/v1/servers/${serverId}/versioning/data-templates`),
     createDataTemplate: (serverId: string, body: CreateDataTemplateRequest) =>
@@ -691,7 +697,7 @@ export function createApiClient(
         { method: "POST", body },
       ),
 
-    // P5-3 / P5-4 GitHub Sync
+    // GitHub Sync
     getGitHubStatus: (serverId: string) =>
       request<GitHubConnectionStatusResponse>(
         `/api/v1/servers/${encodeURIComponent(serverId)}/versioning/github`,
@@ -802,7 +808,7 @@ export function createApiClient(
         },
       ),
 
-    // Test Definitions & Evidence (Stage F)
+    // Test Definitions & Evidence
     getTestDefinitions: (serverId: string) =>
       request<TestDefinition[]>(`/api/v1/servers/${serverId}/versioning/test-definitions`),
     createTestDefinition: (serverId: string, body: CreateTestDefinitionRequest) =>
@@ -832,7 +838,7 @@ export function createApiClient(
     getTestEvidence: (serverId: string, testId: string) =>
       request<EvidenceBundle>(`/api/v1/servers/${serverId}/versioning/tests/${testId}/evidence`),
 
-    // Materializations & Import Reviews (Stage C)
+    // Materializations & Import Reviews
     getMaterializations: (serverId: string) =>
       request<MaterializationListItemResponse[]>(
         `/api/v1/servers/${serverId}/versioning/materializations`,
@@ -922,7 +928,7 @@ export function createApiClient(
         },
       ),
 
-    // Branch Management, Tags & Diffing (Stage B)
+    // Branch Management, Tags & Diffing
     archiveBranch: (serverId: string, branchName: string) =>
       request<Record<string, unknown>>(
         `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/archive`,
@@ -1290,7 +1296,7 @@ export function createApiClient(
         method: "POST",
       }),
 
-    // Server Exposure & Targets (Phase 7.5)
+    // Server Exposure & Targets
     getServerExposure: (serverId: string, branch?: string, probe?: boolean) => {
       const params: Record<string, string | undefined> = {};
       if (branch && branch !== "main") params.branch = branch;
@@ -1358,7 +1364,7 @@ export function createApiClient(
         method: "POST",
       }),
 
-    // P5.5 Panel CurseForge Integration
+    // Panel CurseForge Integration
     getCurseForgeIntegrationStatus: () =>
       request<CurseForgeIntegrationStatusResponse>(
         "/api/v1/settings/integrations/curseforge",
@@ -1374,7 +1380,7 @@ export function createApiClient(
         { method: "DELETE" },
       ),
 
-    // P5.5 Host Loader Environment Cache (LEC)
+    // Host Loader Environment Cache
     listLecEntries: () =>
       request<LecEntryResponse[]>("/api/v1/lec/entries"),
     prewarmLecEntry: (body: LecPrewarmRequest) =>
@@ -1385,7 +1391,7 @@ export function createApiClient(
     gcLecEntries: (body: LecGcRequest = { min_age_days: 7 }) =>
       request<LecGcResponse>("/api/v1/lec/gc", { method: "POST", body }),
 
-    // P5.5 Per-server settings
+    // Per-server upgrade & modpack settings
     getServerP55Settings: (serverId: string) =>
       request<ServerP55SettingsResponse>(
         `/api/v1/servers/${serverId}/p55-settings`,
@@ -1399,7 +1405,7 @@ export function createApiClient(
         { method: "PUT", body },
       ),
 
-    // P5.5 Modpack inspect & install
+    // Modpack inspect & install
     inspectModpack: (
       serverId: string,
       file: File,
@@ -1432,7 +1438,7 @@ export function createApiClient(
         { method: "POST", body },
       ),
 
-    // P5.5 1-Click Safe Upgrade lifecycle
+    // 1-Click Safe Upgrade lifecycle
     listServerUpgrades: (serverId: string) =>
       request<ServerUpgradeListResponse>(
         `/api/v1/servers/${serverId}/upgrades`,
@@ -1496,7 +1502,7 @@ export function createApiClient(
         { method: "POST", body },
       ),
 
-    // Operations (Phase 5.5 Stage A)
+    // Operations
     createOperation: (body: CreateOperationRequest, idempotencyKey?: string) =>
       request<OperationDetail>("/api/v1/operations", {
         method: "POST",

@@ -23,7 +23,7 @@ const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 const secondaryButtonClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 const primaryButtonClass =
-  "inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 
 function extractErrorInfo(
   err: unknown,
@@ -104,6 +104,7 @@ export interface StartBranchRunModalProps {
   isOpen: boolean;
   serverId: string;
   branchName: string;
+  commitSha?: string | null;
   dataTemplates: DataTemplate[];
   portSet: PortSet | null;
   onStarted: (result: StartBranchRunResponse) => void;
@@ -114,46 +115,32 @@ export function StartBranchRunModal({
   isOpen,
   serverId,
   branchName,
+  commitSha,
   dataTemplates,
   portSet,
   onStarted,
   onClose,
 }: StartBranchRunModalProps) {
-  const [isPending, setIsPending] = useState(false);
+  if (!isOpen) return null;
   return (
-    <Modal
-      open={isOpen}
+    <StartBranchRunBody
+      serverId={serverId}
+      branchName={branchName}
+      commitSha={commitSha}
+      dataTemplates={dataTemplates}
+      portSet={portSet}
+      onStarted={onStarted}
       onClose={onClose}
-      title="Start Branch Run"
-      description={`Launch an isolated container for branch '${branchName}' from its last committed SHA.`}
-      size="lg"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      {isOpen && (
-        <StartBranchRunBody
-          serverId={serverId}
-          branchName={branchName}
-          dataTemplates={dataTemplates}
-          portSet={portSet}
-          isPending={isPending}
-          onPendingChange={setIsPending}
-          onStarted={onStarted}
-          onClose={onClose}
-        />
-      )}
-    </Modal>
+    />
   );
 }
 
 interface StartBranchRunBodyProps {
   serverId: string;
   branchName: string;
+  commitSha?: string | null;
   dataTemplates: DataTemplate[];
   portSet: PortSet | null;
-  isPending: boolean;
-  onPendingChange: (pending: boolean) => void;
   onStarted: (result: StartBranchRunResponse) => void;
   onClose: () => void;
 }
@@ -161,15 +148,15 @@ interface StartBranchRunBodyProps {
 function StartBranchRunBody({
   serverId,
   branchName,
+  commitSha,
   dataTemplates,
   portSet,
-  isPending,
-  onPendingChange,
   onStarted,
   onClose,
 }: StartBranchRunBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { data: hostBudget } = useHostResources();
+  const [isPending, setIsPending] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [allowPublicTestJoin, setAllowPublicTestJoin] = useState(false);
   const [includeQuery, setIncludeQuery] = useState(false);
@@ -183,12 +170,12 @@ function StartBranchRunBody({
 
   const readyTemplates = dataTemplates.filter((t) => t.status === "ready");
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitStart = async () => {
     if (isPending) return;
     setError(null);
 
     const payload: StartBranchRunRequest = {
+      ...(commitSha ? { commit_sha: commitSha } : {}),
       data_template_id: selectedTemplateId || null,
       allow_public_test_join: allowPublicTestJoin,
       include_query: includeQuery,
@@ -227,7 +214,7 @@ function StartBranchRunBody({
     }
     if (cpuValue !== null) payload.requested_cpu_cores = cpuValue;
 
-    onPendingChange(true);
+    setIsPending(true);
     try {
       const result = await api.startBranchRun(serverId, branchName, payload);
       onStarted(result);
@@ -235,12 +222,61 @@ function StartBranchRunBody({
     } catch (err: unknown) {
       setError(describeError(err, "Failed to start the branch run."));
     } finally {
-      onPendingChange(false);
+      setIsPending(false);
     }
   };
 
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitStart();
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Start Branch Run"
+      description={
+        commitSha
+          ? `Launch an isolated sandbox for branch '${branchName}' pinned to snapshot ${commitSha.slice(0, 8)}.`
+          : `Launch an isolated container for branch '${branchName}' from its last committed SHA.`
+      }
+      size="lg"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      closeOnEscape={!isPending}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPending}
+            className={secondaryButtonClass}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitStart()}
+            disabled={isPending}
+            className={primaryButtonClass}
+          >
+            <Icon name="play" size={13} />
+            {isPending ? "Starting..." : "Start Branch Run"}
+          </button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {commitSha && (
+          <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-3 py-2 text-xs text-text-primary flex items-center gap-2">
+            <Icon name="backup" size={13} className="text-accent-primary shrink-0" />
+            <span>
+              Testing historical snapshot{" "}
+              <code className="font-mono font-semibold">{commitSha.slice(0, 8)}</code>
+            </span>
+          </div>
+        )}
       {error && (
         <div
           role="alert"
@@ -422,22 +458,8 @@ function StartBranchRunBody({
           />
         </div>
       </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={isPending}
-          className={secondaryButtonClass}
-        >
-          Cancel
-        </button>
-        <button type="submit" disabled={isPending} className={primaryButtonClass}>
-          <Icon name="play" size={13} />
-          {isPending ? "Starting..." : "Start Branch Run"}
-        </button>
-      </div>
     </form>
+    </Modal>
   );
 }
 
@@ -461,30 +483,15 @@ export function StopBranchRunModal({
   onStopped,
   onClose,
 }: StopBranchRunModalProps) {
-  const [isPending, setIsPending] = useState(false);
+  if (!isOpen) return null;
   return (
-    <Modal
-      open={isOpen}
+    <StopBranchRunBody
+      serverId={serverId}
+      branchName={branchName}
+      runtimeId={runtimeId}
+      onStopped={onStopped}
       onClose={onClose}
-      title="Stop Branch Run"
-      description={`Stop the active runtime for branch '${branchName}'.`}
-      size="md"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      {isOpen && (
-        <StopBranchRunBody
-          serverId={serverId}
-          branchName={branchName}
-          runtimeId={runtimeId}
-          isPending={isPending}
-          onPendingChange={setIsPending}
-          onStopped={onStopped}
-          onClose={onClose}
-        />
-      )}
-    </Modal>
+    />
   );
 }
 
@@ -492,8 +499,6 @@ interface StopBranchRunBodyProps {
   serverId: string;
   branchName: string;
   runtimeId?: string | null;
-  isPending: boolean;
-  onPendingChange: (pending: boolean) => void;
   onStopped: (result: StopBranchRunResponse) => void;
   onClose: () => void;
 }
@@ -502,12 +507,11 @@ function StopBranchRunBody({
   serverId,
   branchName,
   runtimeId,
-  isPending,
-  onPendingChange,
   onStopped,
   onClose,
 }: StopBranchRunBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const [isPending, setIsPending] = useState(false);
   const [keepPortAssignment, setKeepPortAssignment] = useState(false);
   const [saveTemplate, setSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -516,11 +520,10 @@ function StopBranchRunBody({
 
   const submitDisabled = isPending || (saveTemplate && !templateName.trim());
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitStop = async () => {
     if (submitDisabled) return;
     setError(null);
-    onPendingChange(true);
+    setIsPending(true);
     try {
       const result = await api.stopBranchRun(serverId, branchName, {
         runtime_id: runtimeId ?? undefined,
@@ -537,12 +540,48 @@ function StopBranchRunBody({
     } catch (err: unknown) {
       setError(describeError(err, "Failed to stop the branch run."));
     } finally {
-      onPendingChange(false);
+      setIsPending(false);
     }
   };
 
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitStop();
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Stop Branch Run"
+      description={`Stop the active runtime for branch '${branchName}'.`}
+      size="md"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      closeOnEscape={!isPending}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPending}
+            className={secondaryButtonClass}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitStop()}
+            disabled={submitDisabled}
+            className={primaryButtonClass}
+          >
+            <Icon name="stop" size={13} />
+            {isPending ? "Stopping..." : "Stop Branch Run"}
+          </button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
         <div
           role="alert"
@@ -615,22 +654,8 @@ function StopBranchRunBody({
           </div>
         )}
       </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={isPending}
-          className={secondaryButtonClass}
-        >
-          Cancel
-        </button>
-        <button type="submit" disabled={submitDisabled} className={primaryButtonClass}>
-          <Icon name="stop" size={13} />
-          {isPending ? "Stopping..." : "Stop Branch Run"}
-        </button>
-      </div>
     </form>
+    </Modal>
   );
 }
 
@@ -654,29 +679,15 @@ export function BranchPortSetModal({
   onUpdated,
   onClose,
 }: BranchPortSetModalProps) {
-  const [isPending, setIsPending] = useState(false);
+  if (!isOpen) return null;
   return (
-    <Modal
-      open={isOpen}
+    <BranchPortSetBody
+      serverId={serverId}
+      branchName={branchName}
+      portSet={portSet}
+      onUpdated={onUpdated}
       onClose={onClose}
-      title="Branch Port Set Configuration"
-      description={`Reserve host ports for branch '${branchName}'.`}
-      size="lg"
-      showCloseButton={false}
-      closeOnBackdrop={false}
-      closeOnEscape={!isPending}
-    >
-      {isOpen && (
-        <BranchPortSetBody
-          serverId={serverId}
-          branchName={branchName}
-          portSet={portSet}
-          onPendingChange={setIsPending}
-          onUpdated={onUpdated}
-          onClose={onClose}
-        />
-      )}
-    </Modal>
+    />
   );
 }
 
@@ -690,7 +701,6 @@ interface BranchPortSetBodyProps {
   serverId: string;
   branchName: string;
   portSet: PortSet | null;
-  onPendingChange: (pending: boolean) => void;
   onUpdated: (portSet: PortSet) => void;
   onClose: () => void;
 }
@@ -699,7 +709,6 @@ function BranchPortSetBody({
   serverId,
   branchName,
   portSet,
-  onPendingChange,
   onUpdated,
   onClose,
 }: BranchPortSetBodyProps) {
@@ -745,7 +754,6 @@ function BranchPortSetBody({
   const handleAllocate = async () => {
     setError(null);
     setIsAllocating(true);
-    onPendingChange(true);
     try {
       const names = pluginPortNames
         .split(",")
@@ -762,12 +770,10 @@ function BranchPortSetBody({
       setError(describePortError(err));
     } finally {
       setIsAllocating(false);
-      onPendingChange(false);
     }
   };
 
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitPortSet = async () => {
     setError(null);
 
     const parsedGamePort = parseOptionalInteger(gamePort);
@@ -806,7 +812,6 @@ function BranchPortSetBody({
     };
 
     setIsSaving(true);
-    onPendingChange(true);
     try {
       const result = await api.setBranchPortSet(serverId, branchName, payload);
       applyPortSet(result.port_set);
@@ -815,11 +820,46 @@ function BranchPortSetBody({
       setError(describePortError(err));
     } finally {
       setIsSaving(false);
-      onPendingChange(false);
     }
   };
 
+  const handleSave = (e: FormEvent) => {
+    e.preventDefault();
+    void submitPortSet();
+  };
+
   return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Branch Port Set Configuration"
+      description={`Reserve host ports for branch '${branchName}'.`}
+      size="lg"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      closeOnEscape={!isSaving && !isAllocating}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving || isAllocating}
+            className={secondaryButtonClass}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitPortSet()}
+            disabled={isSaving || isAllocating}
+            className={primaryButtonClass}
+          >
+            <Icon name="check" size={13} />
+            {isSaving ? "Saving..." : "Save Port Set"}
+          </button>
+        </div>
+      }
+    >
     <div className="space-y-4">
       {error && (
         <div
@@ -1003,22 +1043,9 @@ function BranchPortSetBody({
           </button>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSaving || isAllocating}
-            className={secondaryButtonClass}
-          >
-            Cancel
-          </button>
-          <button type="submit" disabled={isSaving || isAllocating} className={primaryButtonClass}>
-            <Icon name="check" size={13} />
-            {isSaving ? "Saving..." : "Save Port Set"}
-          </button>
-        </div>
       </form>
     </div>
+    </Modal>
   );
 }
 
@@ -1218,23 +1245,23 @@ function DataTemplatesBody({
           aria-selected={activeTab === "list"}
           onClick={() => setActiveTab("list")}
           className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === "list"
-              ? "bg-accent-primary text-white"
-              : "text-text-secondary hover:bg-surface-hover"
-          }`}
-        >
-          Saved Templates
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "create"}
-          onClick={() => setActiveTab("create")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === "create"
-              ? "bg-accent-primary text-white"
-              : "text-text-secondary hover:bg-surface-hover"
-          }`}
+              activeTab === "list"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover"
+            }`}
+          >
+            Saved Templates
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "create"}
+            onClick={() => setActiveTab("create")}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === "create"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover"
+            }`}
         >
           Create Template
         </button>
@@ -1439,6 +1466,13 @@ export function BranchConsoleActivityModal({
       showCloseButton
       closeOnBackdrop={false}
       closeOnEscape={!isPending}
+      footer={
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className={secondaryButtonClass}>
+            Close
+          </button>
+        </div>
+      }
     >
       {isOpen && (
         <BranchConsoleActivityBody
@@ -1474,7 +1508,7 @@ function BranchConsoleActivityBody({
   isRuntimeActive,
   initialTab,
   onPendingChange,
-  onClose,
+  onClose: _onClose,
 }: BranchConsoleActivityBodyProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const [activeTab, setActiveTab] = useState<"console" | "activity">(initialTab);
@@ -1591,7 +1625,7 @@ function BranchConsoleActivityBody({
           onClick={() => setActiveTab("console")}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
             activeTab === "console"
-              ? "bg-accent-primary text-white"
+              ? "bg-accent-primary text-accent-contrast-text"
               : "text-text-secondary hover:bg-surface-hover"
           }`}
         >
@@ -1605,7 +1639,7 @@ function BranchConsoleActivityBody({
           onClick={() => setActiveTab("activity")}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
             activeTab === "activity"
-              ? "bg-accent-primary text-white"
+              ? "bg-accent-primary text-accent-contrast-text"
               : "text-text-secondary hover:bg-surface-hover"
           }`}
         >
@@ -1763,11 +1797,6 @@ function BranchConsoleActivityBody({
         </div>
       )}
 
-      <div className="flex justify-end border-t border-border-subtle pt-3">
-        <button type="button" onClick={onClose} className={secondaryButtonClass}>
-          Close
-        </button>
-      </div>
     </div>
   );
 }

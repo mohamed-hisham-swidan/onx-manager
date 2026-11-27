@@ -6,16 +6,20 @@ Get ONX Manager up and running in under 5 minutes.
 
 ## Choose Your Installation Path
 
-### Option A: Docker Compose (VPS / Home Server)
+### Option A: Docker Compose (Containerized Panel + DooD)
+
+Because ONX Manager launches Minecraft servers inside Docker containers, use the **Docker-outside-of-Docker (`docker-compose.dood.yml`)** override so a containerized panel can spawn sibling Minecraft containers on the host Docker daemon:
 
 ```bash
 git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
 cp .env.example .env
-docker compose up -d
+export ONX_HOST_DATA_DIR="$(pwd)/backend/data/servers"
+export ONX_HOST_STATE_HOST_DIR="$(pwd)/backend/data/host-state"
+docker compose -f docker-compose.yml -f docker-compose.dood.yml up -d
 ```
 
-Open `http://<your-server-ip>/` (or `http://localhost/`). If you want a containerized ONX Manager to orchestrate isolated sibling Minecraft containers via the host Docker daemon, see the DooD guide in [Deployment Guide](DEPLOYMENT.md).
+Open `http://<your-server-ip>/` (or `http://localhost/`). See the [Deployment Guide](DEPLOYMENT.md) for the DooD security model and bare-metal alternatives.
 
 ---
 
@@ -102,11 +106,11 @@ A fresh instance starts **uninitialized** — no terminal registration step is n
 1. Open the panel URL in your browser (or launch the Desktop App):
    - In **`local`** profile on loopback (`127.0.0.1` / `::1`), the dashboard opens directly without a login screen; you will be prompted to set a **Username** and **Password** before enabling any external tunnel or binding to `0.0.0.0`.
    - In **`vps`** profile (or once credentials are configured), you are redirected to **`/setup`** to create the **Owner** account (**Username** and **Password**; email is optional).
-3. Choose the **Access Mode** (or keep the default **`LOCAL`** in Local Desktop profile):
-   - **`LOCAL`**: Home-lab / LAN. Open registration stays available (`/register`).
+2. Choose the **Access Mode** (or keep the default **`LOCAL`** in Local Desktop profile):
+   - **`LOCAL`**: Home-lab / LAN.
    - **`GLOBAL`**: Public VPS. Registration is invite-only via `/invite/:token` links created by the Owner under **Settings → Invitations**.
-4. **Create a server** — go to **Servers → Create Server**, pick software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Quilt, or Modpack), and click **Create**.
-5. **Start & share** — start the server from the dashboard, open the live console, or configure **Playit.gg** / **Cloudflare Tunnel** under **Network & Exposure**.
+3. **Create a server** — go to **Servers → Create Server**, pick software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Quilt, or Modpack), and click **Create**.
+4. **Start & share** — start the server from the dashboard, open the live console, or configure **Playit.gg** / **Cloudflare Tunnel** under **Network & Exposure**.
 
 ---
 

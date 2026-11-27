@@ -35,6 +35,7 @@ export function tryChunkReloadOnce(): boolean {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React.lazy requires ComponentType<any>
 export function lazyWithReload<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
 ): LazyExoticComponent<T> {

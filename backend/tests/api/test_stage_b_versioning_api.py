@@ -14,7 +14,7 @@ from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.main import app
 from app.modules.auth.infrastructure.jwt import create_access_token
-from app.modules.server.infrastructure.models import ServerModel
+from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 from app.modules.versioning.domain.entities import ServerBranch, ServerCommit
 from app.modules.versioning.domain.value_objects import BranchStatus, CommitManifest
 from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
@@ -66,14 +66,26 @@ async def seed_server():
             mode="advanced",
         )
         session.add(server)
+        session.add(
+            ServerMembershipModel(
+                id="mem-b-admin", server_id="srv-b-api", user_id="usr-test", role="server_admin"
+            )
+        )
+        session.add(
+            ServerMembershipModel(
+                id="mem-b-viewer", server_id="srv-b-api", user_id="usr-viewer", role="viewer"
+            )
+        )
         await session.commit()
     return "srv-b-api"
 
 
 def auth_headers(permissions: list[str]) -> dict[str, str]:
+    user_id = "usr-viewer" if permissions == ["server:version:read"] else "usr-test"
+    roles = ["viewer"] if user_id == "usr-viewer" else ["server_admin"]
     token = create_access_token(
-        user_id="usr-test",
-        roles=["operator"],
+        user_id=user_id,
+        roles=roles,
         permissions=permissions,
     )
     return {"Authorization": f"Bearer {token}"}

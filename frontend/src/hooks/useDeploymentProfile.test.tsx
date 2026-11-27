@@ -125,6 +125,17 @@ function renderWithQuery(ui: React.ReactElement, prefill?: SystemStatusResponse)
   if (prefill) {
     qc.setQueryData(["systemStatus"], prefill);
   }
+  qc.setQueryData(["currentUser"], {
+    user_id: "u-1",
+    email: "owner@example.com",
+    display_name: "Owner",
+    is_active: true,
+    roles: ["owner"],
+    global_role: "owner",
+    permissions: ["global:*"],
+    created_at: "2026-01-01T00:00:00Z",
+    last_login_at: null,
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>{ui}</MemoryRouter>
@@ -154,14 +165,14 @@ describe("Deployment Profile UX adaptation (local vs vps)", () => {
     expect(screen.getAllByText("General").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Appearance").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Modpacks & Cache").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Invitations")).not.toBeInTheDocument();
+    expect(screen.queryByText("Users & Invitations")).not.toBeInTheDocument();
     expect(screen.queryByText("Remote & Access")).not.toBeInTheDocument();
     expect(screen.queryByText("API Keys")).not.toBeInTheDocument();
 
     const toggleSwitch = screen.getByRole("switch", { name: /VPS & Team Controls/i });
     fireEvent.click(toggleSwitch);
 
-    expect((await screen.findAllByText("Invitations")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Users & Invitations")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Remote & Access").length).toBeGreaterThan(0);
     expect(screen.getAllByText("API Keys").length).toBeGreaterThan(0);
   });
@@ -178,7 +189,7 @@ describe("Deployment Profile UX adaptation (local vs vps)", () => {
 
     renderWithQuery(<SettingsPage />, vpsStatus);
 
-    expect(screen.getAllByText("Invitations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Users & Invitations").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Remote & Access").length).toBeGreaterThan(0);
     expect(screen.getAllByText("API Keys").length).toBeGreaterThan(0);
     expect(

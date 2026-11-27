@@ -470,22 +470,31 @@ class CleanExportStageAdapter:
         # Advanced upgrades always materialize the upgraded lockfile rather than a
         # stale pre-upgrade snapshot captured before the merge.
         try:
-            from app.modules.versioning.domain.lockfile import LOCKFILE_RELPATH, load_lockfile
+            from app.modules.versioning.domain.lockfile import parse_lockfile
+            from app.modules.versioning.infrastructure.git_repository import LOCKFILE_RELPATH
             from app.modules.versioning.infrastructure.git_runner import GitRunner
 
-            repo_dir = self._layout.repo_git_dir(self._server_id)
-            if commit_sha and repo_dir.exists():
-                git_out = GitRunner().run(
-                    ["--git-dir", str(repo_dir), "show", f"{commit_sha}:{LOCKFILE_RELPATH}"],
-                    cwd=repo_dir.parent,
+            repo_base = self._layout.repo_dir(self._server_id)
+            repo_git = repo_base / "repo.git"
+            config_path = repo_base / "gitconfig"
+            if commit_sha and repo_git.exists():
+                runner = GitRunner(repo_path=repo_git, config_path=config_path)
+                git_out = runner.run(
+                    "show",
+                    f"{commit_sha}:{LOCKFILE_RELPATH}",
                     check=False,
                 )
                 if git_out.returncode == 0 and git_out.stdout.strip():
-                    effective_lockfile = load_lockfile(git_out.stdout)
-        except Exception:
-            pass
+                    effective_lockfile = parse_lockfile(git_out.stdout)
+        except Exception as exc:
+            logger.warning(
+                "Could not re-read lockfile from commit %s for server %s: %s",
+                commit_sha,
+                self._server_id,
+                exc,
+            )
         if effective_lockfile is None:
-            from app.modules.versioning.infrastructure.lockfile_service import LockfileService
+            from app.modules.versioning.application.lockfile_service import LockfileService
 
             effective_lockfile = LockfileService(self._layout).read(self._server_id)
         if effective_lockfile is None:

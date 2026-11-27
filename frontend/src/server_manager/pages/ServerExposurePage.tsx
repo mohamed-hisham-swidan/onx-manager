@@ -12,8 +12,8 @@ import { Modal } from "@/components/ui/Modal";
 import { ConfigureCredentialsModal } from "@/components/auth/ConfigureCredentialsModal";
 import { Skeleton } from "@/components/Skeleton";
 import { Icon } from "@/components/ui/Icon";
-import { useQuery } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
+import { useAuthPermissions } from "@/hooks/useAuthPermissions";
 import { toast } from "@/stores/toastStore";
 import { useDeploymentProfile } from "@/hooks/useDeploymentProfile";
 import type {
@@ -32,18 +32,10 @@ export function ServerExposurePage() {
   const { serverId } = useParams<{ serverId: string }>();
   const api = useMemo(() => createAuthenticatedApi(), []);
   const { isLocal, isLocalZeroLogin, showFullControls, toggleShowFullVpsControls } = useDeploymentProfile();
+  const auth = useAuthPermissions();
 
-  // 1. Fetch Current User Identity for RBAC (Spec §7, F-75-09)
-  const { data: currentUser } = useQuery({
-    queryKey: ["currentUser"],
-    queryFn: () => api.getMe(),
-  });
-
-  const isOwner = Boolean(currentUser?.roles?.includes("owner"));
-  const isAdmin = Boolean(currentUser?.roles?.includes("admin"));
-  const isMember = Boolean(currentUser?.roles?.includes("member"));
-  const hasManagerPerm = isOwner || isAdmin || isMember;
-  const isReadOnly = Boolean(currentUser && !hasManagerPerm);
+  const hasManagerPerm = auth.canManageExposure(serverId);
+  const isReadOnly = !hasManagerPerm;
 
   const branchCtx = useServerBranchContext();
   const gitBacked = Boolean(branchCtx?.gitBacked);
@@ -61,6 +53,16 @@ export function ServerExposurePage() {
   const [pendingAction, setPendingAction] = useState<(() => Promise<void> | void) | null>(null);
   const [isProbingReachability, setIsProbingReachability] = useState(false);
   const [reachabilityResult, setReachabilityResult] = useState<ReachabilityProbeResult | null>(null);
+
+  const scopeKey = `${serverId ?? ""}::${activeBranch ?? ""}`;
+  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
+  if (scopeKey !== prevScopeKey) {
+    setPrevScopeKey(scopeKey);
+    setReachabilityResult(null);
+    setClaimData(null);
+    setPendingAction(null);
+    setIsConfirmDisableOpen(false);
+  }
 
   const { data: server, isLoading: isServerLoading } = useServerDetail(
     serverId ?? "",

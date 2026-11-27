@@ -240,16 +240,21 @@ def init_settings_store(path: Path | None = None) -> None:
         raw["app_name"] = IDENTITY.project_name  # "onx-manager"
         migrated = True
 
+    import copy
+
     kwargs: dict[str, Any] = {}
     for field, default in _DEFAULTS.items():
         if field in raw:
             kwargs[field] = _coerce(field, raw[field])
-        elif field == "panel_bind_host":
-            kwargs[field] = os.environ.get("ONX_PANEL_BIND_HOST") or os.environ.get(
-                "MCS_PANEL_BIND_HOST", default
-            )
         else:
-            kwargs[field] = default
+            env_key = field.upper()
+            env_val = os.environ.get(f"ONX_{env_key}")
+            if env_val is None:
+                env_val = os.environ.get(f"MCS_{env_key}")
+            if env_val is not None:
+                kwargs[field] = _coerce(field, env_val)
+            else:
+                kwargs[field] = copy.deepcopy(default)
 
     _live = LiveSettings(**kwargs)
 

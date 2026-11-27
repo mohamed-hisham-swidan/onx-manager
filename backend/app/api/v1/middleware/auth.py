@@ -4,8 +4,28 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from app.core.auth_utils import _is_api_key, _resolve_api_key
+from app.core.auth_utils import _is_api_key, _resolve_api_key, resolve_bearer_token
+from app.core.authorization import is_admin_or_owner_context
+from app.core.config import ConfigFactory
+from app.core.exceptions import AuthenticationError
+from app.core.local_auth import has_proxy_forwarding_headers, is_loopback_client_ip
+from app.core.settings_store import get_live_settings
 from app.modules.auth.infrastructure.jwt import verify_access_token
+
+
+def _is_docs_path(path: str) -> bool:
+    return (
+        path in ("/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc")
+        or path.startswith("/docs/")
+        or path.startswith("/redoc/")
+    )
+
+
+def _is_debug_enabled() -> bool:
+    try:
+        return bool(get_live_settings().debug)
+    except RuntimeError:
+        return bool(ConfigFactory.global_settings().debug)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -13,10 +33,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._public_routes: set[str] = {
             "/health",
-            "/metrics",
-            "/docs",
-            "/openapi.json",
-            "/redoc",
             "/.well-known/jwks.json",
             "/api/v1/auth/login",
             "/api/v1/auth/refresh",
@@ -25,7 +41,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/invites/accept",
             "/api/v1/invites/verify",
         }
-        self._public_prefixes: set[str] = set()
         self._public_post_only: set[str] = {
             "/api/v1/users",
         }
@@ -38,11 +53,24 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
+        client_host = request.client.host if request.client else None
+        is_direct_loopback = (
+            is_loopback_client_ip(client_host)
+            and not has_proxy_forwarding_headers(request.headers)
+        )
+
+        if _is_docs_path(path):
+            settings = ConfigFactory.global_settings()
+            if not _is_debug_enabled() and (
+                settings.deployment_profile == "vps" or not is_direct_loopback
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+            return await call_next(request)
+
+        if path == "/metrics" and is_direct_loopback:
+            return await call_next(request)
+
         if path in self._public_routes:
-            return await call_next(request)
-        if any(path.startswith(r) for r in ("/docs", "/openapi.json", "/redoc")):
-            return await call_next(request)
-        if any(path.startswith(prefix) for prefix in self._public_prefixes):
             return await call_next(request)
         if request.method == "POST" and path in self._public_post_only:
             return await call_next(request)
@@ -61,7 +89,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if request.method in ("POST", "PUT", "PATCH") and path not in self._public_routes:
-            ct = request.headers.get("content-type", "")
+            ct = request.headers.get("content-type", "").lower()
             if ct and "application/json" not in ct and "multipart/form-data" not in ct:
                 return JSONResponse(
                     status_code=415,
@@ -113,28 +141,73 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if _is_api_key(token):
             from app.core.persistence.db import database
 
+            if database._session_factory is None:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": "Database not initialized",
+                        "error_code": "SERVICE_UNAVAILABLE",
+                    },
+                )
             async with database.session_factory() as db:
                 try:
                     claims = await _resolve_api_key(token, db)
                     request.state.user_id = claims["user_id"]
                     request.state.roles = claims["roles"]
                     request.state.permissions = claims["permissions"]
-                except Exception as e:
+                    request.state.auth_type = "api_key"
+                except AuthenticationError as e:
                     return JSONResponse(
                         status_code=401,
-                        content={"error": str(e), "error_code": "AUTHENTICATION_ERROR"},
+                        content={"error": e.message, "error_code": "AUTHENTICATION_ERROR"},
+                    )
+                except Exception:
+                    return JSONResponse(
+                        status_code=401,
+                        content={
+                            "error": "Authentication failed",
+                            "error_code": "AUTHENTICATION_ERROR",
+                        },
                     )
         else:
+            from app.core.persistence.db import database
+
             try:
-                claims = verify_access_token(token)
-                request.state.user_id = claims["sub"]
-                request.state.roles = claims.get("roles", [])
-                request.state.permissions = claims.get("permissions", [])
-            except Exception as e:
+                if database._session_factory is not None:
+                    async with database.session_factory() as db:
+                        claims = await resolve_bearer_token(token, db)
+                    request.state.user_id = claims["user_id"]
+                    request.state.roles = claims.get("roles", [])
+                    request.state.permissions = claims.get("permissions", [])
+                    request.state.denied_permissions = claims.get("denied_permissions", [])
+                    request.state.all_servers_access = claims.get("all_servers_access", False)
+                else:
+                    claims = verify_access_token(token)
+                    request.state.user_id = claims["sub"]
+                    request.state.roles = claims.get("roles", [])
+                    request.state.permissions = claims.get("permissions", [])
+            except AuthenticationError as e:
                 return JSONResponse(
                     status_code=401,
-                    content={"error": str(e), "error_code": "AUTHENTICATION_ERROR"},
+                    content={"error": e.message, "error_code": "AUTHENTICATION_ERROR"},
                 )
+            except Exception:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "Invalid or expired token",
+                        "error_code": "AUTHENTICATION_ERROR",
+                    },
+                )
+
+        if path == "/metrics" and not is_admin_or_owner_context(claims):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": "Admin or Owner access required for /metrics",
+                    "error_code": "PERMISSION_DENIED",
+                },
+            )
 
         response = await call_next(request)
         return response

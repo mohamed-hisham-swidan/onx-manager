@@ -33,10 +33,19 @@ STATUS_SCORE_MAP: list[tuple[float, HealthStatusEnum]] = [
     (WARNING_SCORE, HealthStatusEnum.WARNING),
 ]
 
-NON_SKIPPABLE: dict[HealthStatusEnum, set[HealthStatusEnum]] = {
-    HealthStatusEnum.HEALTHY: {HealthStatusEnum.WARNING, HealthStatusEnum.CRITICAL},
-    HealthStatusEnum.WARNING: {HealthStatusEnum.CRITICAL, HealthStatusEnum.BROKEN},
+NON_SKIPPABLE: dict[HealthStatusEnum, tuple[HealthStatusEnum, ...]] = {
+    HealthStatusEnum.HEALTHY: (HealthStatusEnum.WARNING, HealthStatusEnum.CRITICAL),
+    HealthStatusEnum.WARNING: (HealthStatusEnum.CRITICAL, HealthStatusEnum.BROKEN),
 }
+
+
+def _utc_timestamp(ts: object) -> float:
+    from datetime import UTC, datetime
+
+    if isinstance(ts, datetime):
+        aware = ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts.astimezone(UTC)
+        return aware.timestamp()
+    return float(ts)  # type: ignore[arg-type]
 
 TREND_DELTA: float = 0.3
 
@@ -77,14 +86,14 @@ class SignalHealthCalculator(HealthCalculatorService):
         return final_status, factors, confidence, trend.value
 
     def _in_window(self, signal: HealthSignal, now: float) -> bool:
-        age = now - signal.timestamp.timestamp()
+        age = now - _utc_timestamp(signal.timestamp)
         return 0 <= age <= WINDOW_SECONDS
 
     def _compute_weighted_score(self, signals: list[HealthSignal], now: float) -> float:
         total = 0.0
         for s in signals:
             base = SEVERITY_WEIGHT.get(s.severity.value, 1)
-            age = now - s.timestamp.timestamp()
+            age = now - _utc_timestamp(s.timestamp)
             if age <= RECENT_THRESHOLD:
                 base *= 1.5
             total += base
@@ -154,8 +163,8 @@ class SignalHealthCalculator(HealthCalculatorService):
         return factors[:5]
 
     def _detect_trend(self, signals: list[HealthSignal], now: float) -> HealthTrend:
-        recent = [s for s in signals if now - s.timestamp.timestamp() <= RECENT_THRESHOLD]
-        older = [s for s in signals if now - s.timestamp.timestamp() > RECENT_THRESHOLD]
+        recent = [s for s in signals if now - _utc_timestamp(s.timestamp) <= RECENT_THRESHOLD]
+        older = [s for s in signals if now - _utc_timestamp(s.timestamp) > RECENT_THRESHOLD]
 
         if not recent and not older:
             return HealthTrend.STABLE

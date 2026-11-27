@@ -221,10 +221,47 @@ async def _seed_plugin(
 
 
 @pytest.fixture
-async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str, str]:
+async def privileged_header(client: AsyncClient) -> dict[str, str]:
+    from app.core.persistence.db import database
+    from app.core.security import hash_password
+    from app.modules.auth.infrastructure.models import RoleModel, UserModel, UserRoleModel
+
+    async with database._session_factory() as session:
+        priv_id = "u-priv-operator"
+        if await session.get(UserModel, priv_id) is None:
+            session.add(
+                UserModel(
+                    id=priv_id,
+                    username="privop",
+                    email="privop@test.com",
+                    password_hash=hash_password("priv-password-123"),
+                    display_name="Privileged Operator",
+                    is_active=True,
+                    all_servers_access=True,
+                )
+            )
+            role_row = await session.get(RoleModel, "r-priv-admin")
+            if role_row is None:
+                from sqlalchemy import select
+
+                role_row = (
+                    await session.execute(select(RoleModel).where(RoleModel.name == "admin"))
+                ).scalar_one_or_none()
+            if role_row is None:
+                role_row = RoleModel(
+                    id="r-priv-admin",
+                    name="admin",
+                    description="Admin role",
+                    permissions='["admin:full"]',
+                )
+                session.add(role_row)
+            await session.flush()
+            session.add(UserRoleModel(user_id=priv_id, role_id=role_row.id))
+            await session.commit()
+
     return await _seed_api_key_header(
         client,
-        created_user["user_id"],
+        "u-priv-operator",
         [
             "server:create",
             "server:delete",
@@ -243,8 +280,43 @@ async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str
 
 
 @pytest.fixture
-async def admin_header(client: AsyncClient, created_user: dict) -> dict[str, str]:
-    return await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+async def admin_header(client: AsyncClient) -> dict[str, str]:
+    from sqlalchemy import select
+
+    from app.core.persistence.db import database
+    from app.core.security import hash_password
+    from app.modules.auth.infrastructure.models import RoleModel, UserModel, UserRoleModel
+
+    admin_id = "u-test-admin"
+    async with database._session_factory() as session:
+        if await session.get(UserModel, admin_id) is None:
+            session.add(
+                UserModel(
+                    id=admin_id,
+                    username="testadmin",
+                    email="testadmin@test.com",
+                    password_hash=hash_password("admin-password-123"),
+                    display_name="Test Admin",
+                    is_active=True,
+                    all_servers_access=True,
+                )
+            )
+            role_row = (
+                await session.execute(select(RoleModel).where(RoleModel.name == "admin"))
+            ).scalar_one_or_none()
+            if role_row is None:
+                role_row = RoleModel(
+                    id="r-test-admin",
+                    name="admin",
+                    description="Admin role",
+                    permissions='["admin:full"]',
+                )
+                session.add(role_row)
+            await session.flush()
+            session.add(UserRoleModel(user_id=admin_id, role_id=role_row.id))
+            await session.commit()
+
+    return await _seed_api_key_header(client, admin_id, ["admin:full"])
 
 
 @pytest.fixture
@@ -755,7 +827,11 @@ class TestBackups:
         assert "backup_id" in resp.json()
 
     async def test_list_backups_includes_server_name_and_deleted_flag(
-        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        admin_header: dict[str, str],
+        created_server: dict,
     ) -> None:
         from app.core.persistence.db import database
         from app.modules.backup.domain.aggregate import BackupJob
@@ -781,7 +857,7 @@ class TestBackups:
             await repo.save_job(orphan)
             await session.commit()
 
-        list_resp = await client.get("/api/v1/backups", headers=privileged_header)
+        list_resp = await client.get("/api/v1/backups", headers=admin_header)
         assert list_resp.status_code == 200
         rows = list_resp.json()
         live_row = next(r for r in rows if r["server_id"] == server_id)
@@ -878,10 +954,12 @@ class TestBackups:
 
 class TestPlugins:
     async def test_list_plugins_empty(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
-        resp = await client.get(f"/api/v1/servers/{server_id}/plugins", headers=auth_header)
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/plugins", headers=privileged_header
+        )
         assert resp.status_code == 200
         assert resp.json() == []
 
@@ -1560,9 +1638,15 @@ class TestPluginMarketplace:
 
 class TestUsers:
     async def test_list_users(
-        self, client: AsyncClient, auth_header: dict[str, str], created_user: dict
+        self,
+        client: AsyncClient,
+        auth_header: dict[str, str],
+        admin_header: dict[str, str],
+        created_user: dict,
     ) -> None:
-        resp = await client.get("/api/v1/users", headers=auth_header)
+        forbidden = await client.get("/api/v1/users", headers=auth_header)
+        assert forbidden.status_code == 403
+        resp = await client.get("/api/v1/users", headers=admin_header)
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) >= 1
@@ -1620,17 +1704,17 @@ class TestUsers:
 
 class TestMonitoring:
     async def test_get_metrics(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
         resp = await client.get(
-            f"/api/v1/monitoring/metrics?server_id={server_id}", headers=auth_header
+            f"/api/v1/monitoring/metrics?server_id={server_id}", headers=privileged_header
         )
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
     async def test_get_metrics_with_nullable_tps(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
     ) -> None:
         from app.core.persistence.db import database
         from app.modules.monitoring.domain.aggregate import MetricPoint
@@ -1647,7 +1731,7 @@ class TestMonitoring:
             await session.commit()
 
         resp = await client.get(
-            f"/api/v1/monitoring/metrics?server_id={server_id}&limit=5", headers=auth_header
+            f"/api/v1/monitoring/metrics?server_id={server_id}&limit=5", headers=privileged_header
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -1797,7 +1881,7 @@ class TestSchedules:
         assert dup_resp.status_code == 400
         assert "already exists" in dup_resp.json()["detail"]
 
-        list_after = await client.get("/api/v1/schedules", headers=auth_header)
+        list_after = await client.get("/api/v1/schedules", headers=admin_header)
         assert list_after.status_code == 200
         jobs = list_after.json()
         assert len(jobs) == initial_count + 1
@@ -1809,10 +1893,15 @@ class TestSchedules:
         assert matched["params"] == {"backup_type": "full"}
         assert matched["enabled"] is True
 
+        # Viewer must not see unscoped global backup schedules
+        viewer_list = await client.get("/api/v1/schedules", headers=auth_header)
+        assert viewer_list.status_code == 200
+        assert not any(j["id"] == sched_id for j in viewer_list.json())
+
         del_resp = await client.delete(f"/api/v1/schedules/{sched_id}", headers=admin_header)
         assert del_resp.status_code == 204
 
-        list_final = await client.get("/api/v1/schedules", headers=auth_header)
+        list_final = await client.get("/api/v1/schedules", headers=admin_header)
         assert list_final.status_code == 200
         final_jobs = list_final.json()
         assert len(final_jobs) == initial_count
@@ -1874,8 +1963,10 @@ class TestEdgeCases:
 
 class TestRuntimeOwnershipAPI:
     async def test_runtime_ownership_empty(
-        self, client: AsyncClient, auth_header: dict[str, str]
+        self, client: AsyncClient, auth_header: dict[str, str], admin_header: dict[str, str]
     ) -> None:
+        forbidden = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
+        assert forbidden.status_code == 403
         with (
             patch(
                 "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
@@ -1886,14 +1977,14 @@ class TestRuntimeOwnershipAPI:
                 return_value=[],
             ),
         ):
-            resp = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
+            resp = await client.get("/api/v1/servers/runtime/ownership", headers=admin_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_orphans"] == 0
         assert len(data["active_servers"]) == 0
 
     async def test_runtime_ownership_with_orphan(
-        self, client: AsyncClient, auth_header: dict[str, str]
+        self, client: AsyncClient, admin_header: dict[str, str]
     ) -> None:
         with (
             patch(
@@ -1909,7 +2000,7 @@ class TestRuntimeOwnershipAPI:
                 return_value=[12345],
             ),
         ):
-            resp = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
+            resp = await client.get("/api/v1/servers/runtime/ownership", headers=admin_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_orphans"] >= 1

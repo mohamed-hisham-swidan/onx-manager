@@ -18,14 +18,31 @@ export function usePanelExposure(draftMethod?: string) {
     queryFn: () => api.getPanelExposure(),
     staleTime: 5_000,
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      if (!status) return 10_000;
-      // Fast polling during active asynchronous state transitions
-      if (["STARTING", "CLAIM_REQUIRED", "STOPPING"].includes(status)) {
+      const data = query.state.data;
+      if (!data) return 10_000;
+      const isQuick =
+        data.method === "cloudflare_tunnel" &&
+        (data.cloudflare_mode === "quick" ||
+          data.ephemeral ||
+          data.cloudflare_tunnel_id === "quick");
+      const awaitingQuickUrl =
+        data.desired_state === "ENABLED" &&
+        isQuick &&
+        !data.public_address &&
+        data.status !== "ERROR";
+
+      // Fast polling (1500ms) while STARTING or waiting for Quick Tunnel URL
+      if (
+        (data.desired_state === "ENABLED" && data.status === "STARTING") ||
+        awaitingQuickUrl
+      ) {
+        return 1_500;
+      }
+      if (["CLAIM_REQUIRED", "STOPPING"].includes(data.status)) {
         return 2_500;
       }
       // Disable background polling when completely disabled or stopped
-      if (["DISABLED", "STOPPED"].includes(status)) {
+      if (["DISABLED", "STOPPED"].includes(data.status)) {
         return false;
       }
       // Steady-state health poll for ACTIVE / DEGRADED / ERROR / RECLAIM_REQUIRED
@@ -54,6 +71,36 @@ export function usePanelExposure(draftMethod?: string) {
   // 3. Set Panel Exposure Mutation
   const updateMutation = useMutation({
     mutationFn: (body: PanelExposureUpdateRequest) => api.setPanelExposure(body),
+    onMutate: async (variables) => {
+      if (
+        variables.method === "cloudflare_tunnel" &&
+        variables.cloudflare_mode === "quick" &&
+        variables.desired_state === "ENABLED"
+      ) {
+        await queryClient.cancelQueries({ queryKey: queryKeys.exposure.panel() });
+        const previous = queryClient.getQueryData<PanelExposureResponse>(
+          queryKeys.exposure.panel(),
+        );
+        if (previous) {
+          queryClient.setQueryData<PanelExposureResponse>(
+            queryKeys.exposure.panel(),
+            {
+              ...previous,
+              method: "cloudflare_tunnel",
+              desired_state: "ENABLED",
+              cloudflare_mode: "quick",
+              ephemeral: true,
+              status: "STARTING",
+              public_address: null,
+              error_code: null,
+              error_message: null,
+            },
+          );
+        }
+        return { previous };
+      }
+      return undefined;
+    },
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.exposure.panel(), updated);
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.panel() });
@@ -88,6 +135,21 @@ export function usePanelExposure(draftMethod?: string) {
         );
         return;
       }
+      if (updated.status === "STARTING") {
+        const isQuickResponse =
+          updated.method === "cloudflare_tunnel" &&
+          (updated.cloudflare_mode === "quick" ||
+            updated.ephemeral ||
+            updated.cloudflare_tunnel_id === "quick");
+        toast(
+          "info",
+          isQuickResponse ? "Quick Tunnel Starting" : "Panel Exposure Starting",
+          isQuickResponse
+            ? "Quick Tunnel starting — waiting for public URL..."
+            : `Panel exposure starting (${updated.method}) — waiting for connection...`,
+        );
+        return;
+      }
       const action = updated.desired_state === "ENABLED" ? "enabled" : "disabled";
       toast(
         "success",
@@ -95,7 +157,10 @@ export function usePanelExposure(draftMethod?: string) {
         `Panel exposure successfully ${action} (${updated.method}).`,
       );
     },
-    onError: (err: Error) => {
+    onError: (err: Error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.exposure.panel(), context.previous);
+      }
       // Non-blocking error handling: fires toast and leaves form inputs editable for immediate user retry
       toast("error", "Exposure Update Failed", err.message?.trim() || "Failed to update panel exposure");
     },

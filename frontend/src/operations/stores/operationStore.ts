@@ -19,6 +19,7 @@ export interface OperationStoreState {
   removeOperation: (operationId: string) => void;
   appendLog: (operationId: string, level: string, line: string, timestamp?: number) => void;
   clearGap: (operationId: string) => void;
+  reset: () => void;
   handleWsEvent: (event: OperationEvent, onGapDetected?: (operationId: string) => void) => void;
 }
 
@@ -32,6 +33,7 @@ export const useOperationStore = create<OperationStoreState>((set, get) => ({
 
   openDrawer: (operationId: string) => set({ activeDrawerId: operationId }),
   closeDrawer: () => set({ activeDrawerId: null }),
+  reset: () => set({ operations: {}, activeDrawerId: null, logs: {}, gapDetectedOperations: {} }),
 
   setOperation: (operation: OperationDetail) =>
     set((state) => {

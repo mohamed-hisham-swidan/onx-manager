@@ -843,10 +843,12 @@ async def test_aggregate_status_fold_multi_target(monkeypatch):
     assert res.data["aggregate_status"] == ExposureStatus.ERROR.value
 
 
-async def test_single_method_per_server_enforced():
+async def test_single_method_per_server_enforced(monkeypatch):
     """Test 22: Changing server exposure method switches all targets to the new method."""
     await _create_test_server("srv-1", 25565)
     bus = EventBus()
+    fake_upnp = FakeUPnPService()
+    monkeypatch.setattr(exposure_commands, "AsyncUPnPService", lambda: fake_upnp)
 
     await RegisterServerPortHandler(bus).handle(
         RegisterServerPortCommand(
@@ -864,11 +866,11 @@ async def test_single_method_per_server_enforced():
     exp = await GetServerExposureHandler().handle(GetServerExposureQuery(server_id="srv-1"))
     assert exp["method"] == ExposureMethod.PLAYIT.value
 
-    # Switch method to port_forward
+    # Switch method to port_forward (DISABLED reports "none" in payload)
     res = await SetServerExposureHandler(bus).handle(
         SetServerExposureCommand(server_id="srv-1", method="port_forward", desired_state="DISABLED")
     )
-    assert res.data["method"] == ExposureMethod.PORT_FORWARD.value
+    assert res.data["method"] == "none"
 
 
 async def test_stop_all_exposures_cleans_multi_targets(monkeypatch):

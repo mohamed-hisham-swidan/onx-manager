@@ -66,6 +66,7 @@ export function ConfigureCredentialsModal({
       login(res.access_token, res.refresh_token, res.expires_in);
       await queryClient.invalidateQueries({ queryKey: ["systemStatus"] });
       await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
 
       toast(
         "success",

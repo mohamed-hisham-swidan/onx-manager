@@ -36,28 +36,28 @@ function renderComponent() {
   return render(
     <QueryClientProvider client={qc}>
       <InvitationsSection />
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
 async function renderAndOpenModal() {
   renderComponent();
-  // Wait for initial queries to settle
   await waitFor(() => expect(mockListInvites).toHaveBeenCalled());
   const btn = await screen.findByRole("button", { name: /new invite/i });
   fireEvent.click(btn);
 }
 
-describe("InvitationsSection", () => {
+describe("InvitationsSection (RBAC v2)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListInvites.mockResolvedValue([]);
     mockGetMe.mockResolvedValue({
       user_id: "u1",
-      email: "user@example.com",
-      display_name: "Test User",
+      email: "owner@example.com",
+      display_name: "Owner",
       is_active: true,
       roles: ["owner"],
+      global_role: "owner",
       created_at: "2026-01-01T00:00:00Z",
       last_login_at: null,
     });
@@ -66,11 +66,13 @@ describe("InvitationsSection", () => {
         server_id: "srv-1",
         name: "Survival Server",
         status: "RUNNING",
+        minecraft_version: "1.21.1",
       },
       {
         server_id: "srv-2",
         name: "Creative Server",
         status: "STOPPED",
+        minecraft_version: "1.20.4",
       },
     ]);
     mockCreateInvite.mockResolvedValue({
@@ -78,76 +80,61 @@ describe("InvitationsSection", () => {
       token: "mcis_secret_token_123",
       token_prefix: "mcis_secre",
       email: null,
-      global_role: "member",
+      role: "viewer",
+      global_role: "viewer",
       server_id: null,
-      server_role: null,
+      server_ids: [],
+      server_role: "viewer",
       status: "ACTIVE",
       max_uses: 1,
       expires_at: null,
     });
   });
 
-  describe("Global roles UX filtering", () => {
-    it("1. Owner sees all 4 global roles (Owner, Administrator, Member, Viewer)", async () => {
-      mockGetMe.mockResolvedValue({
-        user_id: "u1",
-        roles: ["owner"],
-      });
+  describe("4-Tier role selector", () => {
+    it("1. Owner sees all 4 canonical roles and defaults to Viewer", async () => {
       await renderAndOpenModal();
 
-      const select = await screen.findByLabelText(/global access role/i);
-      await waitFor(() => {
-        const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
-        expect(options).toEqual([
-          "Owner",
-          "Administrator",
-          "Member (Standard)",
-          "Viewer (Limited)",
-        ]);
-      });
+      const radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.textContent)).toEqual([
+        expect.stringContaining("Viewer"),
+        expect.stringContaining("Server Admin"),
+        expect.stringContaining("Administrator"),
+        expect.stringContaining("Owner"),
+      ]);
+      expect(radios[0]).toHaveAttribute("aria-checked", "true");
     });
 
-    it("2. Admin sees 3 global roles (Administrator, Member, Viewer)", async () => {
+    it("2. Admin sees 3 roles (Viewer, Server Admin, Administrator — no Owner)", async () => {
       mockGetMe.mockResolvedValue({
         user_id: "u2",
         roles: ["admin"],
+        global_role: "admin",
       });
       await renderAndOpenModal();
 
-      const select = await screen.findByLabelText(/global access role/i);
-      await waitFor(() => {
-        const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
-        expect(options).toEqual([
-          "Administrator",
-          "Member (Standard)",
-          "Viewer (Limited)",
-        ]);
-      });
+      const radios = await screen.findAllByRole("radio");
+      expect(radios).toHaveLength(3);
+      expect(screen.queryByRole("radio", { name: /^Owner/i })).not.toBeInTheDocument();
     });
 
-    it("3. User with user:write and member role sees 2 global roles (Member, Viewer)", async () => {
+    it("3. Server Admin sees Permission Required state", async () => {
       mockGetMe.mockResolvedValue({
         user_id: "u3",
-        roles: ["member"],
-        permissions: ["user:write"],
+        roles: ["server_admin"],
+        global_role: "server_admin",
       });
-      await renderAndOpenModal();
+      renderComponent();
 
-      const select = await screen.findByLabelText(/global access role/i);
-      await waitFor(() => {
-        const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
-        expect(options).toEqual([
-          "Member (Standard)",
-          "Viewer (Limited)",
-        ]);
-      });
+      expect(await screen.findByText("Permission Required")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /new invite/i })).not.toBeInTheDocument();
     });
 
-    it("4. Unauthorized viewer without user:write sees Permission Required state", async () => {
+    it("4. Unauthorized viewer sees Permission Required state", async () => {
       mockGetMe.mockResolvedValue({
         user_id: "u4",
         roles: ["viewer"],
-        permissions: [],
+        global_role: "viewer",
       });
       renderComponent();
 
@@ -156,164 +143,121 @@ describe("InvitationsSection", () => {
     });
   });
 
-  describe("Server access UI", () => {
-    it("5 & 6. Fetches server list from API and displays returned servers in selector", async () => {
+  describe("Multi-server scope and capability toggles", () => {
+    it("5. Displays server list checkboxes and defaults invite role to viewer", async () => {
       await renderAndOpenModal();
 
-      const serverSelect = await screen.findByLabelText(/server access/i);
-      await waitFor(() => {
-        expect(serverSelect).not.toBeDisabled();
-      });
-
-      expect(mockListServers).toHaveBeenCalledTimes(1);
-
-      const options = Array.from(serverSelect.querySelectorAll("option")).map((o) => o.textContent);
-      expect(options).toContain("[ No server access ]");
-      expect(options).toContain("Survival Server (srv-1)");
-      expect(options).toContain("Creative Server (srv-2)");
-    });
-
-    it("7. Selecting a server enables the server-role selector", async () => {
-      await renderAndOpenModal();
-
-      const serverSelect = await screen.findByLabelText(/server access/i);
-      await waitFor(() => {
-        expect(serverSelect).not.toBeDisabled();
-      });
-
-      expect(screen.queryByLabelText(/server role/i)).not.toBeInTheDocument();
-
-      fireEvent.change(serverSelect, { target: { value: "srv-1" } });
-
-      const serverRoleSelect = await screen.findByLabelText(/server role/i);
-      expect(serverRoleSelect).toBeInTheDocument();
-
-      const options = Array.from(serverRoleSelect.querySelectorAll("option")).map((o) => o.textContent);
-      expect(options).toEqual(["Server Viewer", "Developer", "Server Administrator"]);
-    });
-
-    it("8. Selecting server_id and server_role sends exact values in creation payload", async () => {
-      await renderAndOpenModal();
-
-      const serverSelect = await screen.findByLabelText(/server access/i);
-      await waitFor(() => {
-        expect(serverSelect).not.toBeDisabled();
-      });
-
-      fireEvent.change(serverSelect, { target: { value: "srv-1" } });
-
-      const serverRoleSelect = await screen.findByLabelText(/server role/i);
-      fireEvent.change(serverRoleSelect, { target: { value: "dev" } });
+      expect(await screen.findByText("Survival Server")).toBeInTheDocument();
+      expect(screen.getByText("Creative Server")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: /generate invitation/i }));
-
       await waitFor(() => {
         expect(mockCreateInvite).toHaveBeenCalledWith({
           email: undefined,
-          global_role: "member",
-          server_id: "srv-1",
-          server_role: "dev",
+          role: "viewer",
+          all_servers_access: false,
+          server_ids: [],
+          denied_permissions: [],
           expires_in_hours: 48,
         });
       });
     });
 
-    it("9. Creating a global-only invitation defaults global_role to member (never owner) and omits server fields", async () => {
+    it("6. Selecting Server Admin + multi-server checkboxes + capability restriction sends exact payload", async () => {
       await renderAndOpenModal();
 
-      await waitFor(() => {
-        expect(screen.getByLabelText(/server access/i)).not.toBeDisabled();
-      });
+      fireEvent.click(await screen.findByRole("radio", { name: /Server Admin/i }));
+      fireEvent.click(screen.getByLabelText(/Survival Server/i));
+      fireEvent.click(screen.getByLabelText(/Creative Server/i));
+      // Uncheck Power Control capability
+      const powerBox = screen.getByLabelText(/Power Control/i);
+      fireEvent.click(powerBox);
 
       fireEvent.click(screen.getByRole("button", { name: /generate invitation/i }));
-
       await waitFor(() => {
         expect(mockCreateInvite).toHaveBeenCalledWith({
           email: undefined,
-          global_role: "member",
+          role: "server_admin",
+          all_servers_access: false,
+          server_ids: ["srv-1", "srv-2"],
+          denied_permissions: ["power"],
           expires_in_hours: 48,
         });
       });
     });
 
-    it("9b. Resolves server_id UUID to human server name in invitations table", async () => {
+    it("7. Renders multi-server names and capability restriction in invitations table", async () => {
       mockListInvites.mockResolvedValue([
         {
           invite_id: "inv-1",
           token_prefix: "onx_inv1",
           creator_id: "u1",
           email: null,
-          global_role: "member",
+          role: "server_admin",
+          global_role: "server_admin",
           server_id: "srv-1",
-          server_role: "admin",
+          server_ids: ["srv-1", "srv-2"],
+          server_role: "server_admin",
+          all_servers_access: false,
+          denied_permissions: ["power"],
           status: "ACTIVE",
           max_uses: 1,
           use_count: 0,
           expires_at: null,
-          used_at: null,
           created_at: "2026-01-01T00:00:00Z",
         },
       ]);
 
       renderComponent();
-      expect(await screen.findByText("Survival Server (admin)")).toBeInTheDocument();
+      expect(await screen.findByText("Server Admin")).toBeInTheDocument();
+      expect(await screen.findByText("Survival Server")).toBeInTheDocument();
+      expect(await screen.findByText("Creative Server")).toBeInTheDocument();
+      expect(screen.getByText("No power")).toBeInTheDocument();
     });
   });
 
   describe("Authorization & error handling", () => {
-    it("10. HTTP 403 from invitation creation is handled gracefully", async () => {
+    it("8. HTTP 403 from invitation creation is handled gracefully", async () => {
       mockCreateInvite.mockRejectedValueOnce(
-        new Error("403 Forbidden: Cannot create invitation with global_role 'owner'")
+        new Error("403 Forbidden: Cannot create invitation with role 'owner'"),
       );
 
       await renderAndOpenModal();
-
-      await waitFor(() => {
-        expect(screen.getByLabelText(/server access/i)).not.toBeDisabled();
-      });
-
       fireEvent.click(screen.getByRole("button", { name: /generate invitation/i }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent(
-          "403 Forbidden: Cannot create invitation with global_role 'owner'"
+          "403 Forbidden: Cannot create invitation with role 'owner'",
         );
       });
     });
 
-    it("11. /auth/me failure is handled gracefully without crashing", async () => {
+    it("9. /auth/me failure fails closed gracefully without crashing", async () => {
       mockGetMe.mockRejectedValue(new Error("Failed to load user info"));
 
-      await renderAndOpenModal();
+      renderComponent();
 
-      const select = await screen.findByLabelText(/global access role/i);
-      await waitFor(() => {
-        const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
-        expect(options).toEqual([
-          "Member (Standard)",
-          "Viewer (Limited)",
-        ]);
-      });
+      expect(await screen.findByText(/permission required/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /new invite/i })).not.toBeInTheDocument();
     });
 
-    it("12. Server-list failure is handled gracefully without crashing", async () => {
+    it("10. Server-list failure shows recoverable notice and allows global or empty-server invite", async () => {
       mockListServers.mockRejectedValue(new Error("Failed to load servers"));
 
       await renderAndOpenModal();
 
       await waitFor(() => {
-        expect(
-          screen.getByText(/server list temporarily unavailable/i)
-        ).toBeInTheDocument();
+        expect(screen.getByText(/server list temporarily unavailable/i)).toBeInTheDocument();
       });
 
-      // Can still submit global-only invitation
       fireEvent.click(screen.getByRole("button", { name: /generate invitation/i }));
-
       await waitFor(() => {
         expect(mockCreateInvite).toHaveBeenCalledWith({
           email: undefined,
-          global_role: "member",
+          role: "viewer",
+          all_servers_access: false,
+          server_ids: [],
+          denied_permissions: [],
           expires_in_hours: 48,
         });
       });
@@ -354,7 +298,7 @@ describe("InvitationsSection", () => {
     it("guards against Escape and disables Cancel/Generate buttons while pending", async () => {
       let resolveMutation!: (val: unknown) => void;
       mockCreateInvite.mockImplementation(
-        () => new Promise((resolve) => { resolveMutation = resolve; })
+        () => new Promise((resolve) => { resolveMutation = resolve; }),
       );
 
       await renderAndOpenModal();
@@ -375,6 +319,38 @@ describe("InvitationsSection", () => {
       await waitFor(() => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       });
+    });
+
+    it("pins header and footer outside scrollable body and displays truthful read-only descriptions for Viewer", async () => {
+      await renderAndOpenModal();
+      const dialog = screen.getByRole("dialog");
+      const header = screen.getByTestId("modal-header");
+      const body = screen.getByTestId("modal-body");
+      const footer = screen.getByTestId("modal-footer");
+
+      expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "flex-col", "overflow-hidden");
+      expect(header).toContainElement(screen.getByRole("heading", { name: "Generate Invitation" }));
+      expect(body).toHaveClass("overflow-y-auto", "flex-1", "min-h-0");
+      expect(footer).toContainElement(screen.getByRole("button", { name: "Cancel" }));
+      expect(footer).toContainElement(screen.getByRole("button", { name: "Generate Invitation" }));
+      expect(body).not.toContainElement(screen.getByRole("button", { name: "Generate Invitation" }));
+
+      // Viewer is selected by default: no mutating copy should appear
+      expect(
+        screen.getByText("Read live and historical console output (commands disabled)"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("View server logs and crash reports (read-only)"),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/send server commands/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/edit, upload files/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Install, upload, toggle, and remove/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Configure server tunnels/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Manage Git branches/i)).not.toBeInTheDocument();
+
+      // Responsive grids and capped server access checklist
+      const radiogroup = screen.getByRole("radiogroup", { name: "Account Role" });
+      expect(radiogroup).toHaveClass("grid-cols-1", "sm:grid-cols-2");
     });
   });
 });

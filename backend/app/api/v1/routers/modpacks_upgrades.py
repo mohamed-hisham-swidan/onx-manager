@@ -1,4 +1,4 @@
-"""FastAPI routers for P5.5 Modpacks, 1-Click Safe Upgrades, Settings & Host LEC."""
+"""FastAPI routers for Modpacks, 1-Click Safe Upgrades, Server Settings, and Loader Cache."""
 
 from __future__ import annotations
 
@@ -20,7 +20,11 @@ from typing import Annotated, Any, Literal, cast
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy import select
 
-from app.api.deps import get_event_bus, require_permission, require_server_permission
+from app.api.deps import (
+    get_event_bus,
+    require_admin_or_owner,
+    require_server_permission,
+)
 from app.api.v1.routers.versioning import get_branch_runtime_service
 from app.api.v1.schemas.modpacks_upgrades import (
     ApplyUpgradeRequest,
@@ -296,12 +300,12 @@ async def build_p55_live_refresh_service(
     def _reset_main_ref_sync(sid: str, target_sha: str) -> None:
         from app.modules.versioning.infrastructure.git_runner import GitRunner
 
-        repo_dir = layout.repo_git_dir(sid)
-        if repo_dir.exists():
-            GitRunner().run(
-                ["--git-dir", str(repo_dir), "update-ref", "refs/heads/main", target_sha],
-                cwd=repo_dir.parent,
-            )
+        repo_base = layout.repo_dir(sid)
+        repo_git = repo_base / "repo.git"
+        config_path = repo_base / "gitconfig"
+        if repo_git.exists():
+            runner = GitRunner(repo_path=repo_git, config_path=config_path)
+            runner.run("update-ref", "refs/heads/main", target_sha)
 
     return LiveRefreshService(
         layout,
@@ -518,20 +522,6 @@ def build_p55_upgrade_health_gate(
         if rc != 0:
             return []
         return out.splitlines()
-
-    async def _tcp_probe() -> bool:
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", game_port),
-                timeout=2.0,
-            )
-            _ = reader
-            writer.close()
-            with contextlib.suppress(Exception):
-                await writer.wait_closed()
-            return True
-        except Exception:
-            return False
 
     class _LazyServerPropertiesRconClient:
         def __init__(self) -> None:
@@ -876,7 +866,7 @@ def _commit_advanced_modpack_install(
 @lec_router.get("/entries", response_model=list[LecEntryResponse])
 async def list_lec_entries(
     lec_store: Annotated[LecStore, Depends(get_lec_store)],
-    _current_user: Annotated[dict, Depends(require_permission("settings:read"))],
+    _current_user: Annotated[dict, Depends(require_admin_or_owner("settings:read"))],
 ) -> list[LecEntryResponse]:
     async with database.session_factory() as session:
         result = await session.execute(
@@ -937,7 +927,7 @@ async def prewarm_lec_entry(
     response: Response,
     event_bus: Annotated[EventBus, Depends(get_event_bus)],
     lec_builder: Annotated[LecBuilder, Depends(get_lec_builder)],
-    current_user: Annotated[dict, Depends(require_permission("settings:write"))],
+    current_user: Annotated[dict, Depends(require_admin_or_owner("settings:write"))],
 ) -> LecPrewarmResponse:
     _require_posix("LEC pre-warm is only supported on POSIX hosts in this release")
     lec_key = body.lec_key
@@ -1036,7 +1026,7 @@ async def prewarm_lec_entry(
 @lec_router.post("/gc", response_model=LecGcResponse)
 async def gc_lec_cache(
     lec_store: Annotated[LecStore, Depends(get_lec_store)],
-    _current_user: Annotated[dict, Depends(require_permission("settings:write"))],
+    _current_user: Annotated[dict, Depends(require_admin_or_owner("settings:write"))],
     body: LecGcRequest | None = None,
 ) -> LecGcResponse:
     req = body or LecGcRequest()

@@ -7,7 +7,7 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (53 revisions, head `b1e2100000033`, floor `b1e2100000033`) |
+| Migrations | Alembic (53 revisions, head `b1e2100000034`, floor `b1e2100000034`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
@@ -467,7 +467,7 @@ alembic upgrade head
 | `b1e2100000030` | `server_github_connections` and `github_webhook_deliveries` tables |
 | `b1e2100000031` | `server_upgrades`, `loader_env_cache_entries`, `panel_integration_secrets`, and P5.5 upgrade/LEC columns |
 | `b1e2100000032` | Two-tier backups: `backup_jobs.tier` column and `ix_backup_jobs_server_tier` index |
-| `b1e2100000033` | Make `users.email` nullable for username-only & `local` zero-login authentication (**head**) |
+| `b1e2100000034` | Make `users.email` nullable for username-only & `local` zero-login authentication (**head**) |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.

@@ -82,8 +82,8 @@ Put Nginx, Caddy, or a Cloudflare Tunnel in front of port `8000` for HTTPS in pr
 | `ONX_STATIC_DIR` | *(auto-detects `frontend/dist`)* | Built SPA path for single-process serving (`off` disables static serving) |
 | `ONX_DATABASE_URL` | `sqlite+aiosqlite:///data/onx.db` (`/app/data/onx.db` in Docker) | SQLite or PostgreSQL (`postgresql+asyncpg://...`) URL |
 | `ONX_JWT_PRIVATE_KEY` / `ONX_JWT_PRIVATE_KEY_PATH` | *(auto-generated `0600`)* | RSA private key for JWT signing; auto-created on first boot if omitted |
-| `ONX_BACKUP_ENCRYPTION_KEY_PATH` | `config/backup_encryption_key.bin` *(auto-generated `0600`)* | 32-byte AES key for Tier-2 backup encryption |
-| `ONX_MASTER_KEK` / `ONX_MASTER_KEK_FILE` | *(auto-generated `0600` at `config/master_kek.key` on POSIX)* | 256-bit Master KEK for Class-C state snapshots and secret vault |
+| `ONX_BACKUP_ENCRYPTION_KEY_PATH` | `config/backup_encryption_key.bin` *(auto-generated `0600`)* | 32-byte AES key for Encrypted backup encryption |
+| `ONX_MASTER_KEK` / `ONX_MASTER_KEK_FILE` | *(auto-generated `0600` at `config/master_kek.key` on POSIX)* | 256-bit Master KEK for live-state state snapshots and secret vault |
 | `ONX_HOST_DATA_DIR` / `ONX_HOST_STATE_HOST_DIR` | *(unset)* | Absolute host paths required for DooD sibling container volume mounts |
 | `ONX_CURSEFORGE_API_KEY` | *(unset)* | Optional CurseForge API key (can also be set in Settings UI) |
 | `ONX_HOST_RAM_RESERVE_MB` / `ONX_HOST_CPU_RESERVE` | *(profile-derived)* | Override OS RAM reserve (MB) and CPU core reserve (`local` defaults to at least `4096 MB` / `25%` RAM; `vps` to `1024 MB` / `15%` RAM) |
@@ -135,7 +135,7 @@ curl -X POST http://localhost:8000/api/v1/setup/bootstrap \
 
 ## Database Migrations & Compatibility Floor
 
-**ONX Manager 0.1.0 requires Alembic revision `b1e2100000033`** (enforced fail-closed at startup via `app.core.persistence.db_revision`).
+**ONX Manager 0.1.0 requires Alembic revision `b1e2100000034`** (enforced fail-closed at startup via `app.core.persistence.db_revision`).
 
 - Docker entrypoint and `./install.sh` run `alembic upgrade head` automatically.
 - For manual upgrades:
