@@ -1,0 +1,93 @@
+name: macos-once
+
+# Manual-only one-shot macOS smoke test workflow.
+# Triggered exclusively via workflow_dispatch to avoid consuming macOS runner
+# minutes on regular pushes, pull requests, or schedules.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mac_bundle:
+        description: "Build unsigned macOS Electron directory bundle (no Apple cert required)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-smoke:
+    name: macOS Smoke Test
+    runs-on: macos-latest
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Print macOS environment and syntax-check install.sh
+        run: |
+          uname -a
+          sw_vers
+          bash -n install.sh
+
+      - name: Create backend virtualenv and install dependencies
+        working-directory: backend
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements-dev.txt
+          .venv/bin/pip install -e .
+
+      - name: Run targeted non-Docker backend smoke tests
+        working-directory: backend
+        run: |
+          .venv/bin/python -m pytest -v --tb=short -m "not docker" \
+            tests/core \
+            tests/auth/test_rbac_v2_matrix.py \
+            tests/api/test_red_team_remediations.py
+
+      - name: Verify route contract and DB revision
+        run: |
+          backend/.venv/bin/python scripts/check-route-contract
+          backend/.venv/bin/python scripts/check-db-revision
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+
+      - name: Run desktop tests
+        working-directory: desktop
+        run: |
+          npm ci
+          npm test
+
+      - name: Build unsigned macOS Electron directory bundle
+        if: ${{ inputs.build_mac_bundle == true }}
+        working-directory: desktop
+        run: |
+          npx electron-builder --mac --dir --config.mac.identity=null
