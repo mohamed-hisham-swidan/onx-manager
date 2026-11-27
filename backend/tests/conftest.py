@@ -1,4 +1,3 @@
-import asyncio
 import os
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
@@ -154,9 +153,7 @@ def _sandbox_servers_data_dir(tmp_path: os.PathLike) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_live_settings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[None]:
+def _isolate_live_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isolate settings_store to a per-test temporary YAML so tests never mutate host config."""
     from app.core import settings_store
 
@@ -168,11 +165,13 @@ def _isolate_live_settings(
     monkeypatch.setattr(settings_store, "_live", None)
 
 
-@pytest.fixture
-def event_loop() -> asyncio.AbstractEventLoop:
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+@pytest_asyncio.fixture(autouse=True)
+async def _close_http_client_autouse() -> AsyncGenerator[None, None]:
+    """Ensure the shared aiohttp ClientSession is closed after every test."""
+    from app.core.http_client import close_http_client
+
+    yield
+    await close_http_client()
 
 
 @pytest_asyncio.fixture

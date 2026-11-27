@@ -319,14 +319,21 @@ async def test_refresh_rollback_from_completed_and_confirm(client: AsyncClient, 
     with zipfile.ZipFile(root / "server.jar", "w") as zf:
         zf.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: Boot\n\n")
         zf.writestr("Boot.class", _boot_class)
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        free_port = sock.getsockname()[1]
+
     (root / "server.properties").write_text(
-        "motd=Hello\nserver-port=29965\nlevel-name=world\ngamemode=survival\n",
+        f"motd=Hello\nserver-port={free_port}\nlevel-name=world\ngamemode=survival\n",
         encoding="utf-8",
     )
     # ensure docker provider
     async with database.session_factory() as session:
         srv = await session.get(ServerModel, SERVER_ID)
         srv.provider = "docker"
+        srv.port = free_port
         await session.commit()
     from app.modules.versioning.application.lockfile_service import LockfileService
 
