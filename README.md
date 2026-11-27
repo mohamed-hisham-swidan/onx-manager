@@ -11,15 +11,11 @@ Run servers in Docker containers, stream live console & metrics, manage Plugins 
 <p align="center">
   <!-- Swap to dynamic badge once a GitHub Release is published:
        https://img.shields.io/github/v/release/mohamed-hisham-swidan/onx-manager?include_prereleases&style=flat&color=0ea5e9 -->
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Release-v0.1.0-0ea5e9?style=flat" alt="Release v0.1.0" /></a>
+  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/releases"><img src="https://img.shields.io/badge/Release-v0.1.0-0ea5e9?style=flat" alt="Release v0.1.0" /></a>
   <a href="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml"><img src="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml/badge.svg" alt="Linux CI" /></a>
   <a href="#3-docker-compose-containerized-panel--dood"><img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker Ready" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/mohamed-hisham-swidan/onx-manager?style=flat&color=22c55e" alt="License" /></a>
-  <!-- TODO(DISCORD): Replace YOUR_INVITE_CODE and uncomment once the Discord server is live
-  <a href="https://discord.gg/YOUR_INVITE_CODE">
-    <img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord Community" />
-  </a>
-  -->
+  <a href="https://discord.gg/8AfQMv4CH"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord Community" /></a>
 </p>
 
 </div>
@@ -75,6 +71,8 @@ cd onx-manager
 **Windows (PowerShell — Local Desktop Mode):**
 
 ```powershell
+git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
+cd onx-manager
 Set-ExecutionPolicy -Scope Process Bypass
 .\install.ps1
 ```
@@ -93,7 +91,7 @@ onx update    # Pull updates and re-run migrations
 
 ---
 
-### 2. Desktop App (`desktop/` — Linux & Windows)
+### 2. Desktop App (`desktop/` — Linux, macOS & Windows)
 
 A lightweight Electron shell with system tray controls and zero duplicated UI code. By default it supervises your local backend; press `Ctrl+Shift+K` (or use the tray menu) to switch to any remote VPS panel URL.
 
@@ -230,7 +228,13 @@ Full documentation index: [docs/README.md](docs/README.md)
 - [Getting Started](docs/getting-started.md) · [Deployment Guide](docs/DEPLOYMENT.md) · [Development Guide](docs/DEVELOPMENT.md)
 - [Desktop Wrapper](desktop/README.md) · [API Reference](docs/API.md) · [Testing Guide](docs/testing.md)
 - [Architecture](docs/architecture/ARCHITECTURE.md) · [Database](docs/architecture/DATABASE.md) · [Security](docs/architecture/SECURITY.md)
-- [Contributing](CONTRIBUTING.md) · [Security Policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security Policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+
+## Community & Support
+
+- **Discord:** Join the [ONX Manager Discord](https://discord.gg/8AfQMv4CH) for help, feedback, and release updates.
+- **Issues & Feature Requests:** Open an issue on [GitHub Issues](https://github.com/mohamed-hisham-swidan/onx-manager/issues).
+- **Contributing:** See [CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
