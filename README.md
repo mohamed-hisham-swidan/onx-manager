@@ -8,12 +8,19 @@
 
 Run servers in Docker containers, stream live console & metrics, manage Plugins and Mods natively from Modrinth, isolate config changes in Git branches, and run 1-click safe upgrades with automatic rollback — as a **VPS web panel**, **native host install**, or **Desktop app**.
 
-[![Version](https://img.shields.io/badge/Release-v0.1.0-0ea5e9?style=flat-square)](CHANGELOG.md)
-[![Python](https://img.shields.io/badge/Python-3.12-3776ab?style=flat-square&logo=python&logoColor=white)](#requirements)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white)](#tech-stack)
-[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#tech-stack)
-[![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#tech-stack)
-[![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](LICENSE)
+<p align="center">
+  <!-- Swap to dynamic badge once a GitHub Release is published:
+       https://img.shields.io/github/v/release/mohamed-hisham-swidan/onx-manager?include_prereleases&style=flat&color=0ea5e9 -->
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Release-v0.1.0-0ea5e9?style=flat" alt="Release v0.1.0" /></a>
+  <a href="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml"><img src="https://github.com/mohamed-hisham-swidan/onx-manager/actions/workflows/ci-linux.yml/badge.svg" alt="Linux CI" /></a>
+  <a href="#3-docker-compose-containerized-panel--dood"><img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker Ready" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/mohamed-hisham-swidan/onx-manager?style=flat&color=22c55e" alt="License" /></a>
+  <!-- TODO(DISCORD): Replace YOUR_INVITE_CODE and uncomment once the Discord server is live
+  <a href="https://discord.gg/YOUR_INVITE_CODE">
+    <img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord Community" />
+  </a>
+  -->
+</p>
 
 </div>
 
